@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>admin - yoink.tools</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    main {
+      justify-content: flex-start;
+      padding-top: 40px;
+    }
+
+    .admin-container {
+      width: 100%;
+      max-width: 900px;
+    }
+
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      max-width: 400px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .login-card h2 {
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+    }
+
+    .login-card p {
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    .login-input {
+      width: 100%;
+      padding: 14px 16px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      margin-bottom: 16px;
+      outline: none;
+    }
+
+    .login-input:focus {
+      border-color: var(--purple-500);
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 14px 24px;
+      font-family: var(--font-heading);
+      font-size: 1rem;
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, var(--purple-500), var(--purple-600));
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .login-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+    }
+
+    .login-error {
+      color: var(--error);
+      font-size: 0.9rem;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .dashboard {
+      display: none;
+    }
+
+    .dashboard.show {
+      display: block;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-family: var(--font-heading);
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--purple-400);
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .stat-card.live .stat-value {
+      color: var(--success);
+    }
+
+    .section-title {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .data-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+    }
+
+    .data-card h3 {
+      font-family: var(--font-heading);
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--purple-400);
+    }
+
+    .data-list {
+      list-style: none;
+    }
+
+    .data-list li {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .data-list li:last-child {
+      border-bottom: none;
+    }
+
+    .data-list .label {
+      color: var(--text-secondary);
+    }
+
+    .data-list .value {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .refresh-btn {
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      margin-bottom: 24px;
+    }
+
+    .refresh-btn:hover {
+      border-color: var(--purple-500);
+    }
+
+    .logout-btn {
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--error);
+      background: transparent;
+      border: 1px solid var(--error);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      margin-left: 12px;
+    }
+
+    .last-updated {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-center">
+      <a href="/" class="logo-link">
+        <span class="logo-text">yoink</span>
+        <span class="logo-tld">.tools</span>
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-header">
+      <h1>admin</h1>
+      <p>analytics dashboard</p>
+    </div>
+
+    <div class="admin-container">
+      <div class="login-card" id="loginCard">
+        <h2>🔒 admin access</h2>
+        <p>enter password to view analytics</p>
+        <input type="password" class="login-input" id="passwordInput" placeholder="password" autocomplete="off">
+        <button class="login-btn" id="loginBtn">login</button>
+        <div class="login-error" id="loginError">invalid password</div>
+      </div>
+
+      <div class="dashboard" id="dashboard">
+        <button class="refresh-btn" id="refreshBtn">↻ refresh data</button>
+        <button class="logout-btn" id="logoutBtn">logout</button>
+
+        <div class="stats-grid">
+          <div class="stat-card live">
+            <div class="stat-value" id="currentUsers">0</div>
+            <div class="stat-label">online now</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="peakUsers">0</div>
+            <div class="stat-label">peak (24h)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="todayUsers">0</div>
+            <div class="stat-label">users today</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="totalDownloads">0</div>
+            <div class="stat-label">total downloads</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="totalConverts">0</div>
+            <div class="stat-label">total converts</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="totalCompresses">0</div>
+            <div class="stat-label">total compresses</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="queueLength">0</div>
+            <div class="stat-label">jobs in queue</div>
+          </div>
+        </div>
+
+        <div class="data-grid">
+          <div class="data-card">
+            <h3>📁 favorite formats</h3>
+            <ul class="data-list" id="formatsList"></ul>
+          </div>
+          <div class="data-card">
+            <h3>🌐 top sites</h3>
+            <ul class="data-list" id="sitesList"></ul>
+          </div>
+          <div class="data-card">
+            <h3>🗺️ countries</h3>
+            <ul class="data-list" id="countriesList"></ul>
+          </div>
+          <div class="data-card">
+            <h3>📊 daily users (last 7 days)</h3>
+            <ul class="data-list" id="dailyUsersList"></ul>
+          </div>
+        </div>
+
+        <div class="last-updated" id="lastUpdated"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/shared.js"></script>
+  <script>
+    const loginCard = document.getElementById('loginCard');
+    const dashboard = document.getElementById('dashboard');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginError = document.getElementById('loginError');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
+    function setCookie(name, value, days) {
+      const expires = new Date(Date.now() + days * 864e5).toUTCString();
+      document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Strict`;
+    }
+
+    function deleteCookie(name) {
+      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+    }
+
+    let adminToken = getCookie('yoink_admin_token');
+
+    async function login() {
+      const password = passwordInput.value;
+      if (!password) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+
+        const data = await res.json();
+        
+        if (data.success && data.token) {
+          adminToken = data.token;
+          setCookie('yoink_admin_token', adminToken, 7);
+          showDashboard();
+          loadAnalytics();
+        } else {
+          loginError.style.display = 'block';
+          passwordInput.value = '';
+        }
+      } catch (err) {
+        loginError.textContent = 'connection error';
+        loginError.style.display = 'block';
+      }
+    }
+
+    function logout() {
+      adminToken = null;
+      deleteCookie('yoink_admin_token');
+      showLogin();
+    }
+
+    function showLogin() {
+      loginCard.style.display = 'block';
+      dashboard.classList.remove('show');
+      loginError.style.display = 'none';
+      passwordInput.value = '';
+    }
+
+    function showDashboard() {
+      loginCard.style.display = 'none';
+      dashboard.classList.add('show');
+    }
+
+    async function loadAnalytics() {
+      if (!adminToken) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/analytics`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.status === 401) {
+          logout();
+          return;
+        }
+
+        const data = await res.json();
+        renderAnalytics(data);
+      } catch (err) {
+        console.error('Failed to load analytics:', err);
+      }
+    }
+
+    function renderAnalytics(data) {
+      document.getElementById('currentUsers').textContent = data.currentUsers || 0;
+      document.getElementById('peakUsers').textContent = data.peakUsers?.count || 0;
+      document.getElementById('totalDownloads').textContent = formatNumber(data.totalDownloads || 0);
+      document.getElementById('totalConverts').textContent = formatNumber(data.totalConverts || 0);
+      document.getElementById('totalCompresses').textContent = formatNumber(data.totalCompresses || 0);
+      document.getElementById('queueLength').textContent = data.queueLength || 0;
+
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('todayUsers').textContent = data.dailyUsers?.[today] || 0;
+
+      renderList('formatsList', data.formats || {});
+      renderList('sitesList', data.sites || {});
+      renderList('countriesList', data.countries || {});
+      renderDailyUsers(data.dailyUsers || {});
+
+      if (data.lastUpdated) {
+        document.getElementById('lastUpdated').textContent = 
+          `last updated: ${new Date(data.lastUpdated).toLocaleString()}`;
+      }
+    }
+
+    function formatNumber(n) {
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+      return n.toString();
+    }
+
+    function renderList(id, obj) {
+      const list = document.getElementById(id);
+      const sorted = Object.entries(obj)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      if (sorted.length === 0) {
+        list.innerHTML = '<li><span class="label">no data yet</span></li>';
+        return;
+      }
+
+      list.innerHTML = sorted.map(([key, value]) => `
+        <li>
+          <span class="label">${key}</span>
+          <span class="value">${formatNumber(value)}</span>
+        </li>
+      `).join('');
+    }
+
+    function renderDailyUsers(obj) {
+      const list = document.getElementById('dailyUsersList');
+      const dates = Object.keys(obj).sort().reverse().slice(0, 7);
+
+      if (dates.length === 0) {
+        list.innerHTML = '<li><span class="label">no data yet</span></li>';
+        return;
+      }
+
+      list.innerHTML = dates.map(date => `
+        <li>
+          <span class="label">${date}</span>
+          <span class="value">${obj[date]}</span>
+        </li>
+      `).join('');
+    }
+
+    loginBtn.addEventListener('click', login);
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') login();
+    });
+    refreshBtn.addEventListener('click', loadAnalytics);
+    logoutBtn.addEventListener('click', logout);
+
+    if (adminToken) {
+      showDashboard();
+      loadAnalytics();
+    }
+  </script>
+</body>
+</html>

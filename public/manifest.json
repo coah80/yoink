@@ -1,0 +1,51 @@
+{
+  "name": "yoink.tools",
+  "short_name": "yoink",
+  "description": "Download videos and audio from YouTube and other sites",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#8b5cf6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "url": "url",
+      "text": "text",
+      "title": "title"
+    }
+  },
+  "categories": ["utilities", "entertainment"],
+  "shortcuts": [
+    {
+      "name": "Download Video",
+      "url": "/",
+      "description": "Download a video"
+    },
+    {
+      "name": "Convert",
+      "url": "/convert.html",
+      "description": "Convert media files"
+    },
+    {
+      "name": "Compress",
+      "url": "/compress.html",
+      "description": "Compress videos"
+    }
+  ]
+}

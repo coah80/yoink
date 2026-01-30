@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>compress - yoink.tools</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    main {
+      justify-content: flex-start;
+      padding-top: 40px;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-heading);
+      font-weight: 800;
+      font-size: 2.5rem;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    .compress-container {
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    h1 {
+      font-family: var(--font-heading);
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1rem;
+      margin-bottom: 32px;
+      text-align: center;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px 24px;
+      text-align: center;
+      transition: all 0.2s ease-out;
+      cursor: pointer;
+      background: var(--surface);
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--purple-500);
+      background: var(--purple-900);
+    }
+
+    .drop-zone-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 16px;
+      color: var(--text-muted);
+    }
+
+    .drop-zone.dragover .drop-zone-icon {
+      color: var(--purple-400);
+    }
+
+    .drop-zone-text {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .drop-zone-hint {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .drop-zone input {
+      display: none;
+    }
+
+    .file-info {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+
+    .file-info.show {
+      display: block;
+    }
+
+    .file-info-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .file-info-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--purple-900);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--purple-400);
+    }
+
+    .file-info-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .file-info-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-info-name {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-info-size {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .file-info-remove {
+      padding: 8px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease-out;
+    }
+
+    .file-info-remove:hover {
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .file-info-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .size-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+    }
+
+    .size-label {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .size-description {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .size-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    .size-option {
+      padding: 16px 8px;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      text-align: center;
+    }
+
+    .size-option:hover {
+      border-color: var(--purple-500);
+    }
+
+    .size-option.active {
+      border-color: var(--purple-500);
+      background: var(--purple-900);
+    }
+
+    .size-option-value {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .size-option-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .size-option.active .size-option-label {
+      color: var(--purple-400);
+    }
+
+    .custom-size-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .custom-size-input {
+      flex: 1;
+      padding: 12px 16px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s ease-out;
+    }
+
+    .custom-size-input:focus {
+      border-color: var(--purple-500);
+    }
+
+    .custom-size-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .custom-size-input::-webkit-inner-spin-button,
+    .custom-size-input::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    .custom-size-suffix {
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .estimate {
+      background: var(--surface-elevated);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    .estimate-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .estimate-value {
+      font-weight: 600;
+      color: var(--purple-400);
+    }
+
+    .estimate-warning {
+      color: var(--error);
+    }
+
+    .quality-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+
+    .quality-modal-overlay.show {
+      display: flex;
+    }
+
+    .quality-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+      animation: modalIn 0.2s ease-out;
+    }
+
+    @keyframes modalIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .quality-modal-title {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--warning);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .quality-modal-title svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .quality-gauge {
+      position: relative;
+      width: 180px;
+      height: 100px;
+      margin: 24px auto;
+    }
+
+    .quality-gauge-bg {
+      position: absolute;
+      width: 180px;
+      height: 90px;
+      border-radius: 90px 90px 0 0;
+      background: conic-gradient(
+        from 180deg at 50% 100%,
+        var(--error) 0deg,
+        var(--warning) 60deg,
+        var(--success) 120deg,
+        var(--success) 180deg
+      );
+      overflow: hidden;
+    }
+
+    .quality-gauge-mask {
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 130px;
+      height: 65px;
+      background: var(--surface);
+      border-radius: 65px 65px 0 0;
+    }
+
+    .quality-gauge-needle {
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      width: 4px;
+      height: 70px;
+      background: white;
+      border-radius: 2px;
+      transform-origin: bottom center;
+      transform: translateX(-50%) rotate(-90deg);
+      transition: transform 0.5s ease-out;
+      box-shadow: 0 0 10px rgba(255,255,255,0.5);
+    }
+
+    .quality-gauge-center {
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(255,255,255,0.3);
+    }
+
+    .quality-gauge-value {
+      position: absolute;
+      bottom: -40px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .quality-gauge-unit {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-left: 4px;
+    }
+
+    .quality-modal-message {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-top: 48px;
+      margin-bottom: 24px;
+    }
+
+    .quality-modal-message strong {
+      color: var(--text);
+    }
+
+    .quality-modal-buttons {
+      display: flex;
+      gap: 12px;
+    }
+
+    .quality-modal-btn {
+      flex: 1;
+      padding: 14px 20px;
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .quality-modal-btn.cancel {
+      background: var(--surface-elevated);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .quality-modal-btn.cancel:hover {
+      background: var(--border);
+    }
+
+    .quality-modal-btn.proceed {
+      background: linear-gradient(135deg, var(--purple-500), var(--purple-600));
+      color: white;
+    }
+
+    .quality-modal-btn.proceed:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+    }
+
+    .compress-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 18px 32px;
+      font-family: var(--font-body);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: white;
+      background: linear-gradient(135deg, var(--purple-500), var(--purple-600));
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s ease-out;
+    }
+
+    .compress-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+    }
+
+    .compress-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .compress-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .progress-container {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+    }
+
+    .progress-container.show {
+      display: block;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .progress-status {
+      font-weight: 500;
+    }
+
+    .progress-percent {
+      font-family: var(--font-heading);
+      font-weight: 700;
+      color: var(--purple-400);
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: var(--surface-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--purple-500), var(--purple-400));
+      border-radius: 4px;
+      transition: width 0.3s ease-out;
+      width: 0%;
+    }
+
+    .progress-details {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .result-container {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--success);
+      border-radius: var(--radius-md);
+      padding: 20px;
+    }
+
+    .result-container.show {
+      display: block;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .result-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(52, 211, 153, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--success);
+    }
+
+    .result-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .result-title {
+      font-weight: 600;
+    }
+
+    .result-stats {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
+
+    .result-stat {
+      text-align: center;
+    }
+
+    .result-stat-value {
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .result-stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .result-stat-value.success {
+      color: var(--success);
+    }
+
+    .result-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .result-btn {
+      flex: 1;
+      padding: 12px 20px;
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .result-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .result-btn.primary {
+      background: var(--success);
+      border: none;
+      color: black;
+    }
+
+    .result-btn.primary:hover {
+      background: #2cc084;
+    }
+
+    .result-btn.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .result-btn.secondary:hover {
+      background: var(--surface-elevated);
+    }
+
+    footer {
+      padding: 20px 24px;
+      text-align: left;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    footer a {
+      color: var(--purple-400);
+      text-decoration: none;
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      animation: toast-in 0.3s ease-out;
+    }
+
+    .toast.error {
+      border-color: var(--error);
+      color: var(--error);
+    }
+
+    .toast.success {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 600px) {
+      .size-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .page-header h1 {
+        font-size: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-right">
+      <a href="/" class="logo-link">
+        <span class="logo-text">yoink</span>
+        <span class="logo-tld">.tools</span>
+      </a>
+    </div>
+    <nav class="header-right">
+      <a href="/" class="nav-link">Download</a>
+      <a href="/convert.html" class="nav-link">Convert</a>
+      <a href="/compress.html" class="nav-link active">Compress</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="page-header">
+      <h1>compress</h1>
+      <p>shrink videos for discord, email, or anywhere!</p>
+    </div>
+
+    <div class="compress-container">
+      <div class="drop-zone" id="dropZone">
+        <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <div class="drop-zone-text">drop a video here or click to browse</div>
+        <div class="drop-zone-hint">supports mp4, webm, mov, mkv, avi (max 15GB)</div>
+        <input type="file" id="fileInput" accept="video/*">
+      </div>
+
+      <div class="file-info" id="fileInfo">
+        <div class="file-info-header">
+          <div class="file-info-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+              <line x1="7" y1="2" x2="7" y2="22"></line>
+              <line x1="17" y1="2" x2="17" y2="22"></line>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+            </svg>
+          </div>
+          <div class="file-info-details">
+            <div class="file-info-name" id="fileName">video.mp4</div>
+            <div class="file-info-size" id="fileSize">12.5 MB</div>
+          </div>
+          <button class="file-info-remove" id="removeFile">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="file-info-meta" id="fileMeta">
+          <span id="fileDuration">Duration: --</span>
+          <span id="fileResolution">Resolution: --</span>
+        </div>
+      </div>
+
+      <div class="size-section">
+        <div class="size-label">target size</div>
+        <div class="size-description">choose a size limit or enter a custom size</div>
+        <div class="size-grid" id="sizeGrid">
+          <div class="size-option" data-size="8" data-actual="7.5">
+            <div class="size-option-value">8</div>
+            <div class="size-option-label">MB free</div>
+          </div>
+          <div class="size-option" data-size="10" data-actual="9.5">
+            <div class="size-option-value">10</div>
+            <div class="size-option-label">MB</div>
+          </div>
+          <div class="size-option active" data-size="50" data-actual="47">
+            <div class="size-option-value">50</div>
+            <div class="size-option-label">MB basic</div>
+          </div>
+          <div class="size-option" data-size="100" data-actual="95">
+            <div class="size-option-value">100</div>
+            <div class="size-option-label">MB</div>
+          </div>
+          <div class="size-option" data-size="500" data-actual="475">
+            <div class="size-option-value">500</div>
+            <div class="size-option-label">MB nitro</div>
+          </div>
+        </div>
+        
+        <div class="custom-size-row">
+          <input type="number" class="custom-size-input" id="customSizeInput" placeholder="custom" min="1" max="4096" />
+          <span class="custom-size-suffix">MB</span>
+        </div>
+
+        <div class="estimate" id="estimate">
+          <span class="estimate-label">estimated quality</span>
+          <span class="estimate-value" id="estimateValue">select a file to see estimate</span>
+        </div>
+      </div>
+
+      <button class="compress-btn" id="compressBtn" disabled>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 14 10 14 10 20"></polyline>
+          <polyline points="20 10 14 10 14 4"></polyline>
+          <line x1="14" y1="10" x2="21" y2="3"></line>
+          <line x1="3" y1="21" x2="10" y2="14"></line>
+        </svg>
+        compress video
+      </button>
+
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-header">
+          <span class="progress-status" id="progressStatus">Compressing...</span>
+          <span class="progress-percent" id="progressPercent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-details" id="progressDetails">Analyzing video...</div>
+      </div>
+
+      <div class="result-container" id="resultContainer">
+        <div class="result-header">
+          <div class="result-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <div class="result-title">compression complete!</div>
+        </div>
+        <div class="result-stats">
+          <div class="result-stat">
+            <div class="result-stat-value" id="resultOriginal">--</div>
+            <div class="result-stat-label">original</div>
+          </div>
+          <div class="result-stat">
+            <div class="result-stat-value">→</div>
+            <div class="result-stat-label"></div>
+          </div>
+          <div class="result-stat">
+            <div class="result-stat-value success" id="resultCompressed">--</div>
+            <div class="result-stat-label">compressed</div>
+          </div>
+          <div class="result-stat">
+            <div class="result-stat-value success" id="resultSaved">--</div>
+            <div class="result-stat-label">saved</div>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button class="result-btn secondary" id="compressAnother">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            compress another
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="quality-modal-overlay" id="qualityModal">
+    <div class="quality-modal">
+      <div class="quality-modal-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        Quality Warning
+      </div>
+      <div class="quality-gauge">
+        <div class="quality-gauge-bg"></div>
+        <div class="quality-gauge-mask"></div>
+        <div class="quality-gauge-needle" id="gaugeNeedle"></div>
+        <div class="quality-gauge-center"></div>
+        <div class="quality-gauge-value">
+          <span id="gaugeValue">0</span>
+          <span class="quality-gauge-unit">Kbps</span>
+        </div>
+      </div>
+      <div class="quality-modal-message">
+        Your video is <strong id="modalDuration">over 5 minutes</strong> long. At this size, the estimated bitrate is very low and the output <strong>may look blocky or blurry</strong>.
+        <br><br>
+        For better results, try a <strong>shorter clip</strong> or a <strong>larger target size</strong>.
+      </div>
+      <div class="quality-modal-buttons">
+        <button class="quality-modal-btn cancel" id="modalCancel">Cancel</button>
+        <button class="quality-modal-btn proceed" id="modalProceed">Compress Anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/shared.js"></script>
+  <script>
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const fileDuration = document.getElementById('fileDuration');
+    const fileResolution = document.getElementById('fileResolution');
+    const removeFileBtn = document.getElementById('removeFile');
+    const sizeGrid = document.getElementById('sizeGrid');
+    const estimate = document.getElementById('estimate');
+    const estimateValue = document.getElementById('estimateValue');
+    const compressBtn = document.getElementById('compressBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressStatus = document.getElementById('progressStatus');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressFill = document.getElementById('progressFill');
+    const progressDetails = document.getElementById('progressDetails');
+    const resultContainer = document.getElementById('resultContainer');
+    const resultOriginal = document.getElementById('resultOriginal');
+    const resultCompressed = document.getElementById('resultCompressed');
+    const resultSaved = document.getElementById('resultSaved');
+    const compressAnother = document.getElementById('compressAnother');
+    const toastContainer = document.getElementById('toastContainer');
+    const qualityModal = document.getElementById('qualityModal');
+    const gaugeNeedle = document.getElementById('gaugeNeedle');
+    const gaugeValue = document.getElementById('gaugeValue');
+    const modalDuration = document.getElementById('modalDuration');
+    const modalCancel = document.getElementById('modalCancel');
+    const modalProceed = document.getElementById('modalProceed');
+    const customSizeInput = document.getElementById('customSizeInput');
+
+    let selectedFile = null;
+    let selectedSize = 50;
+    let actualSize = 47;
+    let videoDuration = 0;
+    let isCustomSize = false;
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function getVideoMetadata(file) {
+      return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          URL.revokeObjectURL(video.src);
+          resolve({
+            duration: video.duration,
+            width: video.videoWidth,
+            height: video.videoHeight
+          });
+        };
+        video.onerror = () => {
+          resolve({ duration: 0, width: 0, height: 0 });
+        };
+        video.src = URL.createObjectURL(file);
+      });
+    }
+
+    function updateEstimate() {
+      if (!selectedFile || !videoDuration) {
+        estimateValue.textContent = 'select a file to see estimate';
+        estimateValue.classList.remove('estimate-warning');
+        return;
+      }
+
+      const fileSizeMB = selectedFile.size / (1024 * 1024);
+      
+      if (fileSizeMB <= actualSize) {
+        estimateValue.textContent = `already under ${selectedSize}MB!`;
+        estimateValue.classList.remove('estimate-warning');
+        return;
+      }
+
+      const targetBytes = actualSize * 1024 * 1024;
+      const audioBitrate = 128 * 1024;
+      const availableForVideo = targetBytes - (audioBitrate / 8 * videoDuration);
+      const videoBitrate = (availableForVideo * 8) / videoDuration;
+      const videoBitrateKbps = Math.floor(videoBitrate / 1024);
+
+      let quality = '';
+      if (videoBitrateKbps < 500) {
+        quality = 'very low quality (may be blocky)';
+        estimateValue.classList.add('estimate-warning');
+      } else if (videoBitrateKbps < 1000) {
+        quality = 'low quality';
+        estimateValue.classList.remove('estimate-warning');
+      } else if (videoBitrateKbps < 2500) {
+        quality = 'medium quality';
+        estimateValue.classList.remove('estimate-warning');
+      } else if (videoBitrateKbps < 5000) {
+        quality = 'good quality';
+        estimateValue.classList.remove('estimate-warning');
+      } else {
+        quality = 'excellent quality';
+        estimateValue.classList.remove('estimate-warning');
+      }
+
+      estimateValue.textContent = `~${videoBitrateKbps} kbps video - ${quality}`;
+    }
+
+    async function handleFile(file) {
+      if (!file.type.startsWith('video/')) {
+        showToast('Please select a video file', 'error');
+        return;
+      }
+
+      const maxSize = 15 * 1024 * 1024 * 1024;
+      if (file.size > maxSize) {
+        showToast('File too large. Maximum size is 15GB.', 'error');
+        return;
+      }
+
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+
+      const meta = await getVideoMetadata(file);
+      videoDuration = meta.duration;
+
+      if (meta.duration) {
+        const mins = Math.floor(meta.duration / 60);
+        const secs = Math.floor(meta.duration % 60);
+        fileDuration.textContent = `Duration: ${mins}:${secs.toString().padStart(2, '0')}`;
+      } else {
+        fileDuration.textContent = 'Duration: unknown';
+      }
+
+      if (meta.width && meta.height) {
+        fileResolution.textContent = `Resolution: ${meta.width}×${meta.height}`;
+      } else {
+        fileResolution.textContent = 'Resolution: unknown';
+      }
+
+      dropZone.style.display = 'none';
+      fileInfo.classList.add('show');
+      compressBtn.disabled = false;
+      updateEstimate();
+    }
+
+    function clearFile() {
+      selectedFile = null;
+      videoDuration = 0;
+      fileInput.value = '';
+      dropZone.style.display = 'block';
+      fileInfo.classList.remove('show');
+      compressBtn.disabled = true;
+      progressContainer.classList.remove('show');
+      resultContainer.classList.remove('show');
+      updateEstimate();
+    }
+
+    function getEstimatedBitrate() {
+      if (!selectedFile || !videoDuration) return 0;
+      const targetBytes = actualSize * 1024 * 1024;
+      const audioBitrate = 128 * 1024;
+      const availableForVideo = targetBytes - (audioBitrate / 8 * videoDuration);
+      return Math.floor((availableForVideo * 8) / videoDuration / 1024);
+    }
+
+    function showQualityWarning() {
+      const bitrate = getEstimatedBitrate();
+      const mins = Math.floor(videoDuration / 60);
+      const secs = Math.floor(videoDuration % 60);
+
+      gaugeValue.textContent = bitrate;
+      modalDuration.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+      const maxBitrate = 2000;
+      const normalizedBitrate = Math.min(bitrate, maxBitrate);
+      const angle = -90 + (normalizedBitrate / maxBitrate) * 180;
+      gaugeNeedle.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+
+      qualityModal.classList.add('show');
+    }
+
+    function hideQualityWarning() {
+      qualityModal.classList.remove('show');
+    }
+
+    function checkQualityAndCompress() {
+      if (!selectedFile) return;
+
+      const fileSizeMB = selectedFile.size / (1024 * 1024);
+      if (fileSizeMB <= actualSize) {
+        showToast(`File is already under ${selectedSize}MB!`, 'success');
+        return;
+      }
+
+      const bitrate = getEstimatedBitrate();
+      if (bitrate < 500) {
+        showQualityWarning();
+      } else {
+        compress();
+      }
+    }
+
+    async function compress() {
+      if (!selectedFile) return;
+
+      hideQualityWarning();
+
+      const fileSizeMB = selectedFile.size / (1024 * 1024);
+      if (fileSizeMB <= actualSize) {
+        showToast(`File is already under ${selectedSize}MB!`, 'success');
+        return;
+      }
+
+      compressBtn.disabled = true;
+      progressContainer.classList.add('show');
+      resultContainer.classList.remove('show');
+      progressFill.style.width = '0%';
+      progressPercent.textContent = '0%';
+      progressStatus.textContent = 'Uploading...';
+      progressDetails.textContent = 'Sending file to server...';
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('targetSize', actualSize.toString());
+      formData.append('duration', videoDuration.toString());
+
+      try {
+        const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        formData.append('progressId', progressId);
+
+        const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data.stage === 'compressing') {
+              progressStatus.textContent = 'Compressing...';
+              if (data.progress !== undefined) {
+                progressFill.style.width = `${data.progress}%`;
+                progressPercent.textContent = `${Math.round(data.progress)}%`;
+              }
+              if (data.message) {
+                progressDetails.textContent = data.message;
+              }
+            } else if (data.stage === 'complete') {
+              eventSource.close();
+            } else if (data.stage === 'error') {
+              eventSource.close();
+              showToast(data.message || 'Compression failed', 'error');
+              compressBtn.disabled = false;
+              progressContainer.classList.remove('show');
+            }
+          } catch (e) {
+            console.error('SSE parse error:', e);
+          }
+        };
+
+        const response = await fetch(`${API_BASE}/api/compress`, {
+          method: 'POST',
+          body: formData
+        });
+
+        eventSource.close();
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Compression failed');
+        }
+
+        const blob = await response.blob();
+        const compressedSize = blob.size;
+
+        progressContainer.classList.remove('show');
+        resultContainer.classList.add('show');
+
+        const originalMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
+        const compressedMB = (compressedSize / (1024 * 1024)).toFixed(1);
+        const savedPercent = Math.round((1 - compressedSize / selectedFile.size) * 100);
+
+        resultOriginal.textContent = `${originalMB} MB`;
+        resultCompressed.textContent = `${compressedMB} MB`;
+        resultSaved.textContent = `${savedPercent}%`;
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ext = selectedFile.name.split('.').pop();
+        a.download = selectedFile.name.replace(`.${ext}`, `_compressed.mp4`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Compression complete!', 'success');
+
+      } catch (err) {
+        showToast(err.message || 'Compression failed', 'error');
+        progressContainer.classList.remove('show');
+      } finally {
+        compressBtn.disabled = false;
+      }
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) {
+        handleFile(fileInput.files[0]);
+      }
+    });
+
+    removeFileBtn.addEventListener('click', clearFile);
+
+    sizeGrid.addEventListener('click', (e) => {
+      const option = e.target.closest('.size-option');
+      if (!option) return;
+
+      sizeGrid.querySelectorAll('.size-option').forEach(o => o.classList.remove('active'));
+      option.classList.add('active');
+      selectedSize = parseInt(option.dataset.size);
+      actualSize = parseFloat(option.dataset.actual);
+      isCustomSize = false;
+      customSizeInput.value = '';
+      updateEstimate();
+    });
+
+    customSizeInput.addEventListener('input', () => {
+      const value = parseInt(customSizeInput.value);
+      if (value && value > 0) {
+        sizeGrid.querySelectorAll('.size-option').forEach(o => o.classList.remove('active'));
+        selectedSize = value;
+        actualSize = value * 0.95;
+        isCustomSize = true;
+        updateEstimate();
+      }
+    });
+
+    customSizeInput.addEventListener('blur', () => {
+      const value = parseInt(customSizeInput.value);
+      if (!value || value <= 0) {
+        if (isCustomSize) {
+          const defaultOption = sizeGrid.querySelector('.size-option[data-size="50"]');
+          if (defaultOption) {
+            defaultOption.classList.add('active');
+            selectedSize = 50;
+            actualSize = 47;
+            isCustomSize = false;
+            updateEstimate();
+          }
+        }
+      }
+    });
+
+    compressBtn.addEventListener('click', checkQualityAndCompress);
+    compressAnother.addEventListener('click', clearFile);
+    modalCancel.addEventListener('click', hideQualityWarning);
+    modalProceed.addEventListener('click', compress);
+    qualityModal.addEventListener('click', (e) => {
+      if (e.target === qualityModal) hideQualityWarning();
+    });
+  </script>
+</body>
+</html>

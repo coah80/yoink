@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yoink.tools</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('url') || params.get('text') || '';
+    
+    const urlMatch = sharedUrl.match(/https?:\/\/[^\s]+/);
+    const extractedUrl = urlMatch ? urlMatch[0] : sharedUrl;
+    
+    if (extractedUrl) {
+      sessionStorage.setItem('yoink_shared_url', extractedUrl);
+    }
+    
+    window.location.replace('/?shared=1');
+  </script>
+</head>
+<body>
+  <p>Redirecting...</p>
+</body>
+</html>

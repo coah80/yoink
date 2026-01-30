@@ -1,0 +1,2175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yoink.tools</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="yoink">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&family=Pacifico&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface-elevated: #1a1a24;
+      --border: #2a2a3a;
+      --border-active: #8b5cf6;
+      
+      --purple-50: #f5f3ff;
+      --purple-100: #ede9fe;
+      --purple-300: #c4b5fd;
+      --purple-400: #a78bfa;
+      --purple-500: #8b5cf6;
+      --purple-600: #7c3aed;
+      --purple-900: #1e1b4b;
+      
+      --text: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #52525b;
+      
+      --success: #4ade80;
+      --error: #f87171;
+      --warning: #fbbf24;
+      
+      --font-heading: 'Montserrat', sans-serif;
+      --font-body: 'Poppins', sans-serif;
+      
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-body);
+      font-weight: 400;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 20px 24px;
+      position: relative;
+      z-index: 100;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 10px;
+    }
+
+    .queue-menu {
+      position: relative;
+    }
+
+    .queue-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 10px 16px;
+      border-radius: var(--radius-full);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .queue-toggle:hover {
+      color: var(--text);
+      border-color: var(--purple-500);
+    }
+
+    .queue-toggle svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .queue-badge {
+      background: var(--purple-500);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .queue-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      width: 320px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 8px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      display: none;
+      z-index: 100;
+    }
+
+    .queue-dropdown.show {
+      display: block;
+      animation: dropdown-in 0.15s ease-out;
+    }
+
+    @keyframes dropdown-in {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .queue-dropdown-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+
+    .queue-dropdown-title {
+      font-family: var(--font-heading);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .queue-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .queue-start-all {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: var(--purple-900);
+      border: 1px solid var(--purple-500);
+      border-radius: var(--radius-sm);
+      color: var(--purple-400);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .queue-start-all:hover {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .queue-start-all svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .queue-clear {
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease-out;
+    }
+
+    .queue-clear:hover {
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .queue-empty-msg {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .queue-empty {
+      text-align: center;
+      padding: 24px 16px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .queue-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 10px 16px;
+      border-radius: var(--radius-full);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      transition: all 0.15s ease-out;
+    }
+
+    .nav-link:hover {
+      color: var(--text);
+      border-color: var(--purple-500);
+    }
+
+    .nav-link svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      margin-top: -60px;
+    }
+
+    .branding {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    h1 {
+      font-family: var(--font-heading);
+      font-weight: 800;
+      font-size: 3.5rem;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .brand-tld {
+      color: var(--purple-400);
+    }
+
+    .splash {
+      font-size: 1rem;
+      color: var(--purple-400);
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .splash.fancy {
+      font-family: 'Pacifico', cursive;
+      font-size: 1.1rem;
+    }
+
+    .splash.clickable {
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 3px;
+    }
+
+    .splash.clickable:hover {
+      color: var(--purple-300);
+    }
+
+    .splash.rainbow {
+      background: linear-gradient(90deg, #f87171, #fbbf24, #4ade80, #38bdf8, #a78bfa, #f472b6);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: rainbow-shift 3s linear infinite;
+    }
+
+    @keyframes rainbow-shift {
+      0% { background-position: 0% center; }
+      100% { background-position: 200% center; }
+    }
+
+    .splash.shake {
+      animation: shake 0.5s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+
+    .input-container {
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .url-input-wrapper {
+      display: flex;
+      align-items: center;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 4px;
+      transition: border-color 0.15s ease-out;
+    }
+
+    .url-input-wrapper:focus-within {
+      border-color: var(--purple-500);
+    }
+
+    .url-input-wrapper svg {
+      width: 20px;
+      height: 20px;
+      margin-left: 16px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .url-input {
+      flex: 1;
+      padding: 14px 16px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      font-weight: 400;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+    }
+
+    .url-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .paste-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      font-family: var(--font-body);
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .paste-btn:hover {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .paste-btn:active {
+      transform: scale(0.95);
+    }
+
+    .paste-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .format-section {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .segmented-control {
+      display: flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      padding: 4px;
+    }
+
+    .segment {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .segment:hover:not(.active) {
+      color: var(--text);
+    }
+
+    .segment.active {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .segment svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .yoink-btn-wrapper {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .yoink-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 16px 40px;
+      font-family: var(--font-heading);
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: var(--purple-500);
+      color: white;
+      border: none;
+      border-radius: var(--radius-full) 0 0 var(--radius-full);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .yoink-btn:hover:not(:disabled) {
+      background: var(--purple-400);
+    }
+
+    .yoink-btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .yoink-btn:disabled {
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      cursor: not-allowed;
+    }
+
+    .yoink-btn.loading {
+      pointer-events: none;
+    }
+
+    .yoink-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .yoink-dropdown-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 14px;
+      background: var(--purple-600);
+      color: white;
+      border: none;
+      border-left: 1px solid var(--purple-400);
+      border-radius: 0 var(--radius-full) var(--radius-full) 0;
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .yoink-dropdown-toggle:hover {
+      background: var(--purple-500);
+    }
+
+    .yoink-dropdown-toggle svg {
+      width: 16px;
+      height: 16px;
+      transition: transform 0.15s ease-out;
+    }
+
+    .yoink-btn-wrapper.open .yoink-dropdown-toggle svg {
+      transform: rotate(180deg);
+    }
+
+    .yoink-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 6px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      display: none;
+      z-index: 100;
+    }
+
+    .yoink-btn-wrapper.open .yoink-dropdown {
+      display: block;
+      animation: dropdown-in 0.15s ease-out;
+    }
+
+    .yoink-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 16px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      text-align: left;
+    }
+
+    .yoink-dropdown-item:hover {
+      background: var(--purple-900);
+      color: var(--purple-300);
+    }
+
+    .yoink-dropdown-item svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-secondary);
+    }
+
+    .yoink-dropdown-item:hover svg {
+      color: var(--purple-400);
+    }
+
+    .status {
+      margin-top: 24px;
+      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      font-size: 0.9rem;
+      font-weight: 500;
+      display: none;
+      max-width: 600px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .status.loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: var(--purple-900);
+      color: var(--purple-300);
+      border: 1px solid var(--purple-500);
+    }
+
+    .status.error {
+      display: block;
+      background: rgba(248, 113, 113, 0.1);
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+
+    .status.success {
+      display: block;
+      background: rgba(74, 222, 128, 0.1);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--purple-300);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .queue-item {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+    }
+
+    .queue-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .queue-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .queue-item-icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--purple-900);
+      border-radius: var(--radius-sm);
+      color: var(--purple-400);
+      flex-shrink: 0;
+    }
+
+    .queue-item-icon svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .queue-item-icon.spinning svg {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .queue-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .queue-item-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .queue-item-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .queue-item-status.active {
+      color: var(--purple-400);
+    }
+
+    .queue-item-status.success {
+      color: var(--success);
+    }
+
+    .queue-item-status.error {
+      color: var(--error);
+    }
+
+    .queue-item-progress {
+      width: 100%;
+      height: 4px;
+      background: var(--surface);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .queue-item-progress-fill {
+      height: 100%;
+      background: var(--purple-500);
+      border-radius: 2px;
+      transition: width 0.3s ease-out;
+    }
+
+    .queue-item-remove {
+      padding: 6px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease-out;
+      flex-shrink: 0;
+    }
+
+    .queue-item-remove:hover {
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .queue-item-retry {
+      padding: 6px;
+      background: transparent;
+      border: none;
+      color: var(--purple-400);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease-out;
+      flex-shrink: 0;
+    }
+
+    .queue-item-retry:hover {
+      color: var(--purple-300);
+      background: var(--purple-900);
+    }
+
+    .queue-item-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .queue-item-format {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 6px;
+      background: var(--purple-900);
+      color: var(--purple-400);
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      text-transform: uppercase;
+    }
+
+    footer {
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+
+    .footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .footer-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    footer a {
+      color: var(--purple-400);
+      text-decoration: none;
+      transition: color 0.15s ease-out;
+    }
+
+    footer a:hover {
+      color: var(--purple-300);
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+      animation: toast-in 0.3s ease-out;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .toast.success {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .toast.error {
+      border-color: var(--error);
+      color: var(--error);
+    }
+
+    @keyframes toast-in {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease-out;
+    }
+
+    .modal-overlay.show {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      transform: scale(0.95);
+      transition: transform 0.2s ease-out;
+    }
+
+    .modal-overlay.show .modal {
+      transform: scale(1);
+    }
+
+    .modal-title {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .modal-subtitle {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 20px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .modal-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 20px;
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-elevated);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .modal-btn:hover {
+      border-color: var(--purple-500);
+      background: var(--purple-900);
+    }
+
+    .modal-btn.primary {
+      background: var(--purple-500);
+      border-color: var(--purple-500);
+      color: white;
+    }
+
+    .modal-btn.primary:hover {
+      background: var(--purple-600);
+      border-color: var(--purple-600);
+    }
+
+    .modal-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .modal-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+
+    .modal-toggle input {
+      display: none;
+    }
+
+    .modal-toggle-switch {
+      width: 40px;
+      height: 22px;
+      background: var(--border);
+      border-radius: 11px;
+      position: relative;
+      transition: background 0.2s ease-out;
+      flex-shrink: 0;
+    }
+
+    .modal-toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.2s ease-out;
+    }
+
+    .modal-toggle input:checked + .modal-toggle-switch {
+      background: var(--purple-500);
+    }
+
+    .modal-toggle input:checked + .modal-toggle-switch::after {
+      transform: translateX(18px);
+    }
+
+    .modal-toggle-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .modal-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .modal-hint a {
+      color: var(--purple-400);
+      text-decoration: none;
+    }
+
+    .modal-hint a:hover {
+      text-decoration: underline;
+    }
+
+    .batch-modal {
+      max-width: 500px;
+    }
+
+    .batch-textarea {
+      width: 100%;
+      height: 180px;
+      padding: 16px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s ease-out;
+      margin-bottom: 12px;
+    }
+
+    .batch-textarea:focus {
+      border-color: var(--purple-500);
+    }
+
+    .batch-textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .batch-count {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .batch-count span {
+      font-weight: 700;
+      color: var(--purple-400);
+    }
+
+    @media (max-width: 600px) {
+      header {
+        flex-direction: column;
+        padding: 12px 16px;
+        gap: 12px;
+      }
+
+      .header-left {
+        justify-content: center;
+      }
+
+      .header-right {
+        width: 100%;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .nav-links {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .nav-link {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+      }
+
+      .nav-link span {
+        display: none;
+      }
+
+      .queue-menu {
+        position: static;
+      }
+
+      .queue-dropdown {
+        position: fixed;
+        top: auto;
+        left: 16px;
+        right: 16px;
+        width: auto;
+        max-width: none;
+        transform: none;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+      }
+
+      .segment {
+        padding: 8px 14px;
+        font-size: 0.85rem;
+      }
+
+      .segment span {
+        display: none;
+      }
+
+      .yoink-btn {
+        padding: 14px 28px;
+        font-size: 1rem;
+      }
+
+      .yoink-dropdown-toggle {
+        padding: 14px 12px;
+      }
+
+      .queue-item-header {
+        flex-wrap: nowrap;
+      }
+
+      .queue-item-title {
+        font-size: 0.8rem;
+      }
+
+      .yoink-dropdown {
+        min-width: 160px;
+      }
+
+      .format-section {
+        margin-bottom: 16px;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .header-right {
+        flex-wrap: wrap;
+      }
+
+      .nav-link {
+        flex: 1 1 auto;
+        justify-content: center;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+
+      .yoink-btn {
+        padding: 12px 20px;
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-center">
+      <a href="/" class="logo-link">
+        <span class="logo-text">yoink</span>
+        <span class="logo-tld">.tools</span>
+      </a>
+    </div>
+    <div class="header-right">
+      <div class="queue-menu" id="queueMenu">
+        <button class="queue-toggle" id="queueToggle">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+          queue
+          <span class="queue-badge" id="queueBadge" style="display: none;">0</span>
+        </button>
+        <div class="queue-dropdown" id="queueDropdown">
+          <div class="queue-dropdown-header">
+            <span class="queue-dropdown-title">Downloads</span>
+            <div class="queue-header-actions">
+              <button class="queue-start-all" id="queueStartAll" title="Start all queued">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </button>
+              <button class="queue-clear" id="queueClear">clear all</button>
+            </div>
+          </div>
+          <div class="queue-list" id="queueList">
+            <div class="queue-empty-msg">no downloads yet</div>
+          </div>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a href="/" class="nav-link active">Download</a>
+        <a href="/convert.html" class="nav-link">Convert</a>
+        <a href="/compress.html" class="nav-link">Compress</a>
+        <a href="/settings.html" class="nav-link">Settings</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="branding">
+      <h1>yoink<span class="brand-tld">.tools</span></h1>
+      <p class="splash" id="splash"></p>
+    </div>
+
+    <div class="input-container">
+      <div class="url-input-wrapper">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+        </svg>
+        <input 
+          type="text" 
+          class="url-input" 
+          id="url" 
+          placeholder="paste the link here..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="paste-btn" id="pasteBtn" type="button" title="Paste from clipboard">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="format-section">
+        <div class="segmented-control" id="formatControl">
+          <button class="segment active" data-format="auto">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span>auto</span>
+          </button>
+          <button class="segment" data-format="video">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+              <line x1="7" y1="2" x2="7" y2="22"></line>
+              <line x1="17" y1="2" x2="17" y2="22"></line>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+              <line x1="2" y1="7" x2="7" y2="7"></line>
+              <line x1="2" y1="17" x2="7" y2="17"></line>
+              <line x1="17" y1="17" x2="22" y2="17"></line>
+              <line x1="17" y1="7" x2="22" y2="7"></line>
+            </svg>
+            <span>video</span>
+          </button>
+          <button class="segment" data-format="audio">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18V5l12-2v13"></path>
+              <circle cx="6" cy="18" r="3"></circle>
+              <circle cx="18" cy="16" r="3"></circle>
+            </svg>
+            <span>audio</span>
+          </button>
+        </div>
+
+        <div class="yoink-btn-wrapper" id="yoinkWrapper">
+          <button class="yoink-btn" id="yoinkBtn" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            yoink
+          </button>
+          <button class="yoink-dropdown-toggle" id="yoinkDropdownToggle" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          <div class="yoink-dropdown" id="yoinkDropdown">
+            <button class="yoink-dropdown-item" id="addToQueueBtn" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              add to queue
+            </button>
+            <button class="yoink-dropdown-item" id="batchAddBtn" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+              </svg>
+              batch add URLs
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-left">
+      <div>this is a <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> wrapper</div>
+      <div>inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt</a>, love u wukko</div>
+      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a href="/privacy.html">privacy policy</a></div>
+    </div>
+    <div class="footer-right">
+      <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>
+      <span>·</span>
+      <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a>
+      <span>·</span>
+      <a href="/privacy.html">privacy</a>
+    </div>
+  </footer>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <div class="modal-overlay" id="playlistModal">
+    <div class="modal">
+      <div class="modal-title">playlist detected!</div>
+      <div class="modal-subtitle">do you want to download just this video, or the whole playlist?</div>
+      <div class="modal-buttons">
+        <button class="modal-btn" id="modalVideoBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          video
+        </button>
+        <button class="modal-btn primary" id="modalPlaylistBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+          playlist
+        </button>
+      </div>
+      <label class="modal-toggle" id="rememberToggle">
+        <input type="checkbox" id="rememberChoice">
+        <span class="modal-toggle-switch"></span>
+        <span class="modal-toggle-label">remember this choice</span>
+      </label>
+      <div class="modal-hint">this can be changed in <a href="settings.html">settings</a>!</div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="batchModal">
+    <div class="modal batch-modal">
+      <div class="modal-title">batch add URLs</div>
+      <div class="modal-subtitle">paste multiple URLs, one per line</div>
+      <textarea class="batch-textarea" id="batchTextarea" placeholder="https://youtube.com/watch?v=...
+https://youtube.com/watch?v=...
+https://youtube.com/watch?v=..."></textarea>
+      <div class="batch-count">
+        <span id="batchCount">0</span> URLs detected
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn" id="batchCancelBtn">cancel</button>
+        <button class="modal-btn primary" id="batchConfirmBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          add to queue
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.hostname === 'localhost' 
+      ? 'http://localhost:3001'
+      : 'https://yoink.coah80.com';
+
+    const splashTexts = [
+      { text: "yoink it, go on..." },
+      { text: "not cobalt" },
+      { text: "im bored" },
+      { text: "have you yoinked it today?" },
+      { text: "download helium browser", link: "https://helium.computer/", classes: ["clickable"] },
+      { text: "dont like it? use cliply (dont)" },
+      { text: "the biggest yt-dlp wrapper of them all" },
+      { text: "awesome name, right?" },
+      { text: "get yoinked!" },
+      { text: "funny message here" },
+      { text: "SHOUTOUT TO COAH" },
+      { text: "new feature: yoink!" },
+      { text: "new feature: ai download" },
+      { text: "welcome to yoink.tools" },
+      { text: "feelin' yoinky?" },
+      { text: "im parched" },
+      { text: "stay hydrated!" },
+      { text: "computers are cool" },
+      { text: "missing assignments?" },
+      { text: "procrastinate with yoink" },
+      { text: "newgrounds.com", link: "https://newgrounds.com", classes: ["clickable"] },
+      { text: "bring back flash!" },
+      { text: "FUCK ICE" },
+      { text: "post this one to twitter" },
+      { text: "google i need yoinks! NOW!!!!!" },
+      { text: "im feeling fancy today...", classes: ["fancy"] },
+      { text: "powered by yt-dlp" },
+      { text: "hello world!" },
+    ];
+
+    let currentFormat = 'auto';
+    let queue = [];
+    let settings = loadSettings();
+
+    const urlInput = document.getElementById('url');
+    const pasteBtn = document.getElementById('pasteBtn');
+    const formatControl = document.getElementById('formatControl');
+    const yoinkBtn = document.getElementById('yoinkBtn');
+    const statusDiv = document.getElementById('status');
+    const splashEl = document.getElementById('splash');
+    const queueToggle = document.getElementById('queueToggle');
+    const queueDropdown = document.getElementById('queueDropdown');
+    const queueBadge = document.getElementById('queueBadge');
+    const queueList = document.getElementById('queueList');
+    const queueClear = document.getElementById('queueClear');
+    const queueStartAll = document.getElementById('queueStartAll');
+    const toastContainer = document.getElementById('toastContainer');
+    const yoinkWrapper = document.getElementById('yoinkWrapper');
+    const yoinkDropdownToggle = document.getElementById('yoinkDropdownToggle');
+    const yoinkDropdown = document.getElementById('yoinkDropdown');
+    const addToQueueBtn = document.getElementById('addToQueueBtn');
+    const batchAddBtn = document.getElementById('batchAddBtn');
+    const batchModal = document.getElementById('batchModal');
+    const batchTextarea = document.getElementById('batchTextarea');
+    const batchCount = document.getElementById('batchCount');
+    const batchCancelBtn = document.getElementById('batchCancelBtn');
+    const batchConfirmBtn = document.getElementById('batchConfirmBtn');
+
+    function init() {
+      const splash = splashTexts[Math.floor(Math.random() * splashTexts.length)];
+      splashEl.textContent = splash.text;
+      splashEl.className = 'splash';
+      
+      if (splash.classes) {
+        splash.classes.forEach(cls => splashEl.classList.add(cls));
+      }
+      
+      if (splash.link) {
+        splashEl.style.cursor = 'pointer';
+        splashEl.onclick = () => window.open(splash.link, '_blank');
+      } else {
+        splashEl.style.cursor = 'default';
+        splashEl.onclick = null;
+      }
+
+      const savedQueue = localStorage.getItem('yoink_queue');
+      if (savedQueue) {
+        queue = JSON.parse(savedQueue);
+      }
+      renderQueue();
+
+      queueToggle.addEventListener('click', toggleQueueDropdown);
+      queueClear.addEventListener('click', clearQueue);
+      queueStartAll.addEventListener('click', startAllQueued);
+      
+      yoinkDropdownToggle.addEventListener('click', toggleYoinkDropdown);
+      addToQueueBtn.addEventListener('click', handleAddToQueue);
+      batchAddBtn.addEventListener('click', showBatchModal);
+      
+      batchTextarea.addEventListener('input', updateBatchCount);
+      batchCancelBtn.addEventListener('click', hideBatchModal);
+      batchConfirmBtn.addEventListener('click', handleBatchAdd);
+      batchModal.addEventListener('click', (e) => {
+        if (e.target === batchModal) hideBatchModal();
+      });
+      
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.yoink-btn-wrapper')) {
+          yoinkWrapper.classList.remove('open');
+        }
+      });
+      
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(err => {
+          console.log('SW registration failed:', err);
+        });
+      }
+      
+      const sharedUrl = sessionStorage.getItem('yoink_shared_url');
+      if (sharedUrl) {
+        sessionStorage.removeItem('yoink_shared_url');
+        urlInput.value = sharedUrl;
+        urlInput.focus();
+        showToast('URL shared! Click yoink to download', 'info');
+      }
+    }
+
+    const playlistModal = document.getElementById('playlistModal');
+    const modalVideoBtn = document.getElementById('modalVideoBtn');
+    const modalPlaylistBtn = document.getElementById('modalPlaylistBtn');
+    const rememberChoice = document.getElementById('rememberChoice');
+
+    let pendingPlaylistUrl = null;
+    let pendingPlaylistResolve = null;
+
+    function loadSettings() {
+      const saved = localStorage.getItem('yoink_settings');
+      return saved ? JSON.parse(saved) : {
+        quality: '1080p',
+        codec: 'h264',
+        container: 'mp4',
+        audioFormat: 'mp3',
+        audioBitrate: '320',
+        filenameStyle: 'basic',
+        playlistPreference: null
+      };
+    }
+
+    function saveSettings() {
+      localStorage.setItem('yoink_settings', JSON.stringify(settings));
+    }
+
+    function hasPlaylistParam(url) {
+      try {
+        const urlObj = new URL(url);
+        return urlObj.searchParams.has('list');
+      } catch {
+        return false;
+      }
+    }
+
+    function showPlaylistModal() {
+      return new Promise((resolve) => {
+        pendingPlaylistResolve = resolve;
+        rememberChoice.checked = false;
+        playlistModal.classList.add('show');
+      });
+    }
+
+    function hidePlaylistModal() {
+      playlistModal.classList.remove('show');
+      pendingPlaylistResolve = null;
+    }
+
+    modalVideoBtn.addEventListener('click', () => {
+      if (rememberChoice.checked) {
+        settings.playlistPreference = 'video';
+        saveSettings();
+      }
+      if (pendingPlaylistResolve) {
+        pendingPlaylistResolve('video');
+      }
+      hidePlaylistModal();
+    });
+
+    modalPlaylistBtn.addEventListener('click', () => {
+      if (rememberChoice.checked) {
+        settings.playlistPreference = 'playlist';
+        saveSettings();
+      }
+      if (pendingPlaylistResolve) {
+        pendingPlaylistResolve('playlist');
+      }
+      hidePlaylistModal();
+    });
+
+    playlistModal.addEventListener('click', (e) => {
+      if (e.target === playlistModal) {
+        if (pendingPlaylistResolve) {
+          pendingPlaylistResolve(null);
+        }
+        hidePlaylistModal();
+      }
+    });
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function setStatus(type, message) {
+      statusDiv.className = `status ${type}`;
+      if (type === 'loading') {
+        statusDiv.innerHTML = `<div class="spinner"></div>${message}`;
+      } else {
+        statusDiv.textContent = message;
+      }
+    }
+
+    function clearStatus() {
+      statusDiv.className = 'status';
+      statusDiv.innerHTML = '';
+    }
+
+    async function handlePaste() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          urlInput.value = text.trim();
+          urlInput.focus();
+        }
+      } catch (err) {
+        showToast('Could not read clipboard', 'error');
+      }
+    }
+
+    function handleFormatChange(e) {
+      const segment = e.target.closest('.segment');
+      if (!segment) return;
+
+      formatControl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
+      segment.classList.add('active');
+      currentFormat = segment.dataset.format;
+    }
+
+    function addToQueue(item) {
+      queue.push(item);
+      saveQueue();
+      renderQueue();
+    }
+
+    async function removeFromQueue(id) {
+      const item = queue.find(q => q.id === id);
+      if (item) {
+        const isActive = ['starting', 'downloading', 'processing', 'remuxing', 'zipping', 'playlist-info'].includes(item.stage);
+        if (isActive) {
+          try {
+            await fetch(`${API_BASE}/api/cancel/${id}`, { method: 'POST' });
+            console.log(`Cancelled download: ${id}`);
+          } catch (e) {
+            console.error('Failed to cancel download:', e);
+          }
+        }
+      }
+      
+      queue = queue.filter(item => item.id !== id);
+      saveQueue();
+      renderQueue();
+    }
+
+    function saveQueue() {
+      localStorage.setItem('yoink_queue', JSON.stringify(queue));
+    }
+
+    function renderQueue() {
+      if (queue.length === 0) {
+        queueBadge.style.display = 'none';
+        queueList.innerHTML = '<div class="queue-empty">No downloads in queue</div>';
+        queueClear.style.display = 'none';
+      } else {
+        queueBadge.style.display = 'flex';
+        queueBadge.textContent = queue.length;
+        queueClear.style.display = 'block';
+
+        queueList.innerHTML = queue.map(item => {
+          const isActive = ['downloading', 'processing', 'remuxing', 'sending', 'zipping', 'playlist-info'].some(s => item.stage === s);
+          const isComplete = item.stage === 'complete';
+          const isError = item.stage === 'error';
+          const statusClass = isActive ? 'active' : (isComplete ? 'success' : (isError ? 'error' : ''));
+          const showProgress = isActive && item.progress !== undefined;
+          
+          let statusText = item.status || 'Waiting...';
+          if (item.isPlaylist && item.currentVideo && item.videoCount) {
+            statusText = `${item.currentVideo}/${item.videoCount} - ${item.currentVideoTitle || item.status}`;
+          }
+          
+          const formatBadge = item.isPlaylist && item.formatDisplay 
+            ? `<span class="queue-item-format">${item.formatDisplay}</span>` 
+            : '';
+          
+          return `
+            <div class="queue-item" data-id="${item.id}">
+              <div class="queue-item-header">
+                <div class="queue-item-icon ${isActive ? 'spinning' : ''}">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    ${isComplete ? 
+                      '<polyline points="20 6 9 17 4 12"></polyline>' :
+                      isError ?
+                      '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' :
+                      item.isPlaylist ?
+                      '<line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>' :
+                      item.format === 'audio' ? 
+                      '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>' :
+                      isActive ?
+                      '<path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path d="M9 12l2 2 4-4"></path>' :
+                      '<polygon points="5 3 19 12 5 21 5 3"></polygon>'
+                    }
+                  </svg>
+                </div>
+                <div class="queue-item-info">
+                  <div class="queue-item-title">${escapeHtml(item.title)}${formatBadge}</div>
+                  <div class="queue-item-status ${statusClass}">${escapeHtml(statusText)}</div>
+                </div>
+                <div class="queue-item-actions">
+                  ${isError && item.url ? `
+                    <button class="queue-item-retry" onclick="event.stopPropagation(); retryDownload('${item.id}')" title="Retry">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="1 4 1 10 7 10"></polyline>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                      </svg>
+                    </button>
+                  ` : ''}
+                  ${item.stage === 'queued' ? `
+                    <button class="queue-item-retry" onclick="event.stopPropagation(); startQueuedItem('${item.id}')" title="Start now">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                      </svg>
+                    </button>
+                  ` : ''}
+                  <button class="queue-item-remove" onclick="event.stopPropagation(); removeFromQueue('${item.id}')" title="Remove">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              ${showProgress ? `
+                <div class="queue-item-progress">
+                  <div class="queue-item-progress-fill" style="width: ${item.progress || 0}%"></div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function toggleQueueDropdown() {
+      queueDropdown.classList.toggle('show');
+    }
+
+    function clearQueue() {
+      queue = [];
+      saveQueue();
+      renderQueue();
+      showToast('Queue cleared', 'info');
+    }
+
+    function toggleYoinkDropdown(e) {
+      e.stopPropagation();
+      yoinkWrapper.classList.toggle('open');
+    }
+
+    async function handleAddToQueue() {
+      yoinkWrapper.classList.remove('open');
+      const url = urlInput.value.trim();
+      if (!url) {
+        showToast('Please enter a URL', 'error');
+        return;
+      }
+      try {
+        new URL(url);
+      } catch {
+        showToast('Please enter a valid URL', 'error');
+        return;
+      }
+      await addUrlToQueue(url);
+      urlInput.value = '';
+    }
+
+    async function addUrlToQueue(url, startImmediately = false) {
+      const format = currentFormat === 'auto' ? 'video' : currentFormat;
+      const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      
+      let downloadPlaylist = false;
+      if (hasPlaylistParam(url)) {
+        if (settings.playlistPreference === 'video') {
+          downloadPlaylist = false;
+        } else if (settings.playlistPreference === 'playlist') {
+          downloadPlaylist = true;
+        } else {
+          const choice = await showPlaylistModal();
+          if (choice === null) return null;
+          downloadPlaylist = choice === 'playlist';
+        }
+      }
+
+      let title = 'Loading...';
+      try {
+        const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
+        if (metaRes.ok) {
+          const metadata = await metaRes.json();
+          title = metadata.title || 'Unknown';
+        }
+      } catch (e) {
+        title = url.substring(0, 50);
+      }
+
+      const queueItem = {
+        id: progressId,
+        title,
+        url,
+        format,
+        stage: startImmediately ? 'starting' : 'queued',
+        status: startImmediately ? 'Initializing...' : 'In queue',
+        progress: 0,
+        isPlaylist: downloadPlaylist,
+        formatDisplay: format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`
+      };
+      
+      addToQueue(queueItem);
+      
+      if (startImmediately) {
+        startDownload(queueItem);
+      }
+      
+      return queueItem;
+    }
+
+    function showBatchModal() {
+      yoinkWrapper.classList.remove('open');
+      batchTextarea.value = '';
+      batchCount.textContent = '0';
+      batchModal.classList.add('show');
+      batchTextarea.focus();
+    }
+
+    function hideBatchModal() {
+      batchModal.classList.remove('show');
+    }
+
+    function updateBatchCount() {
+      const urls = batchTextarea.value.split('\n').filter(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        try {
+          new URL(trimmed);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      batchCount.textContent = urls.length;
+    }
+
+    async function handleBatchAdd() {
+      const urls = batchTextarea.value.split('\n').filter(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        try {
+          new URL(trimmed);
+          return true;
+        } catch {
+          return false;
+        }
+      }).map(line => line.trim());
+
+      if (urls.length === 0) {
+        showToast('No valid URLs found', 'error');
+        return;
+      }
+
+      hideBatchModal();
+      showToast(`Adding ${urls.length} URLs to queue...`, 'info');
+      
+      for (const url of urls) {
+        await addUrlToQueue(url, false);
+      }
+      
+      showToast(`${urls.length} items added to queue`, 'success');
+      queueDropdown.classList.add('show');
+    }
+
+    async function startAllQueued() {
+      const queuedItems = queue.filter(item => item.stage === 'queued');
+      if (queuedItems.length === 0) {
+        showToast('No queued items to start', 'info');
+        return;
+      }
+      
+      showToast(`Starting ${queuedItems.length} downloads...`, 'info');
+      
+      for (const item of queuedItems) {
+        await startQueuedItem(item.id);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    async function startQueuedItem(id) {
+      const item = queue.find(q => q.id === id);
+      if (!item || item.stage !== 'queued') return;
+      
+      item.stage = 'starting';
+      item.status = 'Initializing...';
+      renderQueue();
+      
+      await startDownload(item);
+    }
+
+    async function retryDownload(id) {
+      const item = queue.find(q => q.id === id);
+      if (!item || !item.url) return;
+      
+      const newId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      item.id = newId;
+      item.stage = 'starting';
+      item.status = 'Retrying...';
+      item.progress = 0;
+      renderQueue();
+      
+      await startDownload(item);
+    }
+
+    async function startDownload(item) {
+      const eventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const queueItem = queue.find(q => q.id === item.id);
+          if (queueItem) {
+            queueItem.stage = data.stage;
+            queueItem.status = data.message;
+            if (data.progress !== undefined) queueItem.progress = data.progress;
+            if (data.totalVideos !== undefined) queueItem.videoCount = data.totalVideos;
+            if (data.currentVideo !== undefined) queueItem.currentVideo = data.currentVideo;
+            if (data.currentVideoTitle !== undefined) queueItem.currentVideoTitle = data.currentVideoTitle;
+            if (data.format !== undefined) queueItem.formatDisplay = data.format;
+            renderQueue();
+
+            if (data.stage === 'complete') {
+              showToast(queueItem.isPlaylist ? 'Playlist download complete!' : 'Download complete!', 'success');
+              eventSource.close();
+              setTimeout(() => removeFromQueue(item.id), 5000);
+            } else if (data.stage === 'error') {
+              showToast(data.message, 'error');
+              eventSource.close();
+            } else if (data.stage === 'cancelled') {
+              eventSource.close();
+            }
+          }
+        } catch (e) {
+          console.error('SSE parse error:', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+      };
+
+      const params = new URLSearchParams({
+        url: item.url,
+        format: item.format,
+        filename: item.title,
+        quality: settings.quality,
+        container: settings.container,
+        audioFormat: settings.audioFormat,
+        audioBitrate: settings.audioBitrate,
+        progressId: item.id
+      });
+
+      const endpoint = item.isPlaylist ? '/api/download-playlist' : '/api/download';
+      const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
+      
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = downloadUrl;
+      document.body.appendChild(iframe);
+      
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 60000);
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.queue-menu')) {
+        queueDropdown.classList.remove('show');
+      }
+    });
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function handleYoink() {
+      const url = urlInput.value.trim();
+
+      if (!url) {
+        showToast('Please enter a URL', 'error');
+        return;
+      }
+
+      try {
+        new URL(url);
+      } catch {
+        showToast('Please enter a valid URL', 'error');
+        return;
+      }
+
+      let downloadPlaylist = false;
+      if (hasPlaylistParam(url)) {
+        if (settings.playlistPreference === 'video') {
+          downloadPlaylist = false;
+        } else if (settings.playlistPreference === 'playlist') {
+          downloadPlaylist = true;
+        } else {
+          const choice = await showPlaylistModal();
+          if (choice === null) {
+            return;
+          }
+          downloadPlaylist = choice === 'playlist';
+        }
+      }
+
+      const format = currentFormat === 'auto' ? 'video' : currentFormat;
+      yoinkBtn.disabled = true;
+      yoinkBtn.classList.add('loading');
+
+      const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
+      try {
+        setStatus('loading', 'Fetching video info...');
+
+        const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
+
+        if (!metaRes.ok) {
+          const err = await metaRes.json();
+          throw new Error(err.error || 'Failed to fetch metadata');
+        }
+
+        const metadata = await metaRes.json();
+        const title = metadata.title;
+        const isPlaylist = metadata.isPlaylist && downloadPlaylist;
+        const videoCount = metadata.videoCount || 0;
+
+        const queueItem = {
+          id: progressId,
+          title: isPlaylist ? `📁 ${title}` : title,
+          url,
+          format,
+          stage: 'starting',
+          status: 'Initializing...',
+          progress: 0,
+          isPlaylist,
+          videoCount,
+          currentVideo: 0,
+          currentVideoTitle: '',
+          formatDisplay: format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`
+        };
+        addToQueue(queueItem);
+        
+        queueDropdown.classList.add('show');
+
+        const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const item = queue.find(q => q.id === progressId);
+            if (item) {
+              item.stage = data.stage;
+              item.status = data.message;
+              if (data.progress !== undefined) {
+                item.progress = data.progress;
+              }
+              if (data.totalVideos !== undefined) {
+                item.videoCount = data.totalVideos;
+              }
+              if (data.currentVideo !== undefined) {
+                item.currentVideo = data.currentVideo;
+              }
+              if (data.currentVideoTitle !== undefined) {
+                item.currentVideoTitle = data.currentVideoTitle;
+              }
+              if (data.videoProgress !== undefined) {
+                item.videoProgress = data.videoProgress;
+              }
+              if (data.downloadedCount !== undefined) {
+                item.downloadedCount = data.downloadedCount;
+              }
+              if (data.format !== undefined) {
+                item.formatDisplay = data.format;
+              }
+              renderQueue();
+
+              if (data.stage === 'complete') {
+                const completeMsg = item.isPlaylist 
+                  ? `Downloaded ${data.downloadedCount || item.videoCount} videos!` 
+                  : `Downloaded: ${title}`;
+                setStatus('success', completeMsg);
+                showToast(item.isPlaylist ? 'Playlist download complete!' : 'Download complete!', 'success');
+                eventSource.close();
+                
+                setTimeout(() => {
+                  removeFromQueue(progressId);
+                }, 5000);
+              } else if (data.stage === 'error') {
+                setStatus('error', data.message);
+                showToast(data.message, 'error');
+                eventSource.close();
+              } else if (data.stage === 'cancelled') {
+                clearStatus();
+                eventSource.close();
+              } else {
+                setStatus('loading', data.message);
+              }
+            }
+          } catch (e) {
+            console.error('SSE parse error:', e);
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource.close();
+        };
+
+        const params = new URLSearchParams({
+          url,
+          format,
+          filename: title,
+          quality: settings.quality,
+          container: settings.container,
+          audioFormat: settings.audioFormat,
+          audioBitrate: settings.audioBitrate,
+          progressId
+        });
+
+        const endpoint = isPlaylist ? '/api/download-playlist' : '/api/download';
+        const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
+        
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = downloadUrl;
+        document.body.appendChild(iframe);
+        
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 60000);
+
+        urlInput.value = '';
+        clearStatus();
+
+      } catch (err) {
+        setStatus('error', err.message || 'Download failed');
+        showToast(err.message || 'Download failed', 'error');
+      } finally {
+        yoinkBtn.disabled = false;
+        yoinkBtn.classList.remove('loading');
+      }
+    }
+
+    pasteBtn.addEventListener('click', handlePaste);
+    formatControl.addEventListener('click', handleFormatChange);
+    yoinkBtn.addEventListener('click', handleYoink);
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleYoink();
+    });
+
+    urlInput.addEventListener('focus', () => {
+      clearStatus();
+    });
+
+    init();
+  </script>
+  <script src="/shared.js"></script>
+</body>
+</html>

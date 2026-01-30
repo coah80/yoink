@@ -1,0 +1,23 @@
+node_modules/
+.DS_Store
+*.log
+downloads/
+
+# Admin config (create your own)
+api/admin-config.js
+api/analytics.json
+
+# OS files
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+*.bak

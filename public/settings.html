@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>settings - yoink.tools</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    main {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      justify-content: flex-start;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-heading);
+      font-weight: 800;
+      font-size: 2.5rem;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    .settings-nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .settings-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .settings-nav-item:hover {
+      color: var(--text);
+      border-color: var(--purple-400);
+    }
+
+    .settings-nav-item.active {
+      background: var(--purple-500);
+      border-color: var(--purple-500);
+      color: white;
+    }
+
+    .settings-nav-item svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .settings-section {
+      display: none;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .settings-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-title {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title svg {
+      width: 24px;
+      height: 24px;
+      color: var(--purple-400);
+    }
+
+    .settings-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .setting-label {
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .setting-description {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+
+    .segmented-control {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-md);
+      padding: 4px;
+    }
+
+    .segment {
+      flex: 1;
+      min-width: fit-content;
+      padding: 10px 14px;
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      text-align: center;
+    }
+
+    .segment:hover:not(.active) {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    .segment.active {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .toggle-info {
+      flex: 1;
+    }
+
+    .toggle {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 0.2s ease-out;
+      flex-shrink: 0;
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      transition: all 0.2s ease-out;
+    }
+
+    .toggle.active {
+      background: var(--purple-500);
+      border-color: var(--purple-500);
+    }
+
+    .toggle.active::after {
+      left: 27px;
+      background: white;
+    }
+
+    .filename-preview {
+      margin-top: 12px;
+      padding: 12px 16px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .filename-preview-icon {
+      color: var(--purple-400);
+    }
+
+    .filename-preview-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .filename-preview code {
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      color: var(--text);
+    }
+
+    .quality-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+      gap: 4px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-md);
+      padding: 4px;
+    }
+
+    .quality-option {
+      padding: 12px 8px;
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      text-align: center;
+    }
+
+    .quality-option:hover:not(.active) {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    .quality-option.active {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 24px 0;
+    }
+
+    .reset-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 20px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+      border: 1px solid var(--error);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .reset-btn:hover {
+      background: rgba(248, 113, 113, 0.2);
+    }
+
+    .reset-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    footer {
+      padding: 40px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    footer a {
+      color: var(--purple-400);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: var(--purple-300);
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+      animation: toast-in 0.3s ease-out;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .toast.success {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 500px) {
+      .settings-nav {
+        gap: 6px;
+      }
+
+      .settings-nav-item {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+      }
+
+      .settings-nav-item span {
+        display: none;
+      }
+
+      .quality-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-right">
+      <a href="/" class="logo-link">
+        <span class="logo-text">yoink</span>
+        <span class="logo-tld">.tools</span>
+      </a>
+    </div>
+    <nav class="header-right">
+      <a href="/" class="nav-link">Download</a>
+      <a href="/convert.html" class="nav-link">Convert</a>
+      <a href="/compress.html" class="nav-link">Compress</a>
+      <a href="/settings.html" class="nav-link active">Settings</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="page-header">
+      <h1>settings</h1>
+      <p>customize your download experience</p>
+    </div>
+
+    <nav class="settings-nav">
+      <button class="settings-nav-item active" data-section="video">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+          <line x1="7" y1="2" x2="7" y2="22"></line>
+          <line x1="17" y1="2" x2="17" y2="22"></line>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+        </svg>
+        <span>video</span>
+      </button>
+      <button class="settings-nav-item" data-section="audio">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"></path>
+          <circle cx="6" cy="18" r="3"></circle>
+          <circle cx="18" cy="16" r="3"></circle>
+        </svg>
+        <span>audio</span>
+      </button>
+      <button class="settings-nav-item" data-section="downloads">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>downloads</span>
+      </button>
+      <button class="settings-nav-item" data-section="advanced">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>advanced</span>
+      </button>
+      <button class="settings-nav-item" data-section="privacy">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span>privacy</span>
+      </button>
+    </nav>
+
+    <section class="settings-section active" id="section-video">
+      <h2 class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+          <line x1="7" y1="2" x2="7" y2="22"></line>
+          <line x1="17" y1="2" x2="17" y2="22"></line>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+        </svg>
+        video
+      </h2>
+
+      <div class="settings-card">
+        <div class="setting-label">video quality</div>
+        <div class="quality-grid" id="qualityControl">
+          <button class="quality-option" data-value="best">8k+</button>
+          <button class="quality-option" data-value="4k">4k</button>
+          <button class="quality-option" data-value="1440p">1440p</button>
+          <button class="quality-option active" data-value="1080p">1080p</button>
+          <button class="quality-option" data-value="720p">720p</button>
+          <button class="quality-option" data-value="480p">480p</button>
+          <button class="quality-option" data-value="360p">360p</button>
+        </div>
+        <p class="setting-description">if preferred quality isn't available, the next best option will be used. 1080p is recommended for most uses.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">preferred codec</div>
+        <div class="segmented-control" id="codecControl">
+          <button class="segment active" data-value="h264">h264 + aac</button>
+          <button class="segment" data-value="av1">av1 + opus</button>
+          <button class="segment" data-value="vp9">vp9 + opus</button>
+        </div>
+        <p class="setting-description">h264: best compatibility, max 1080p. av1: best quality & efficiency, supports 8k & HDR. vp9: same quality as av1 but ~2x larger file size.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">file container</div>
+        <div class="segmented-control" id="containerControl">
+          <button class="segment active" data-value="mp4">mp4</button>
+          <button class="segment" data-value="webm">webm</button>
+          <button class="segment" data-value="mkv">mkv</button>
+        </div>
+        <p class="setting-description">mp4 has the best compatibility. webm is great for web. mkv supports more features but has limited playback support.</p>
+      </div>
+    </section>
+
+    <section class="settings-section" id="section-audio">
+      <h2 class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"></path>
+          <circle cx="6" cy="18" r="3"></circle>
+          <circle cx="18" cy="16" r="3"></circle>
+        </svg>
+        audio
+      </h2>
+
+      <div class="settings-card">
+        <div class="setting-label">audio format</div>
+        <div class="segmented-control" id="audioFormatControl">
+          <button class="segment active" data-value="mp3">mp3</button>
+          <button class="segment" data-value="m4a">m4a</button>
+          <button class="segment" data-value="opus">opus</button>
+          <button class="segment" data-value="flac">flac</button>
+          <button class="segment" data-value="wav">wav</button>
+        </div>
+        <p class="setting-description">mp3: universal compatibility. m4a: better quality at same size. opus: best compression. flac/wav: lossless quality.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">audio bitrate</div>
+        <div class="segmented-control" id="audioBitrateControl">
+          <button class="segment active" data-value="320">320 kbps</button>
+          <button class="segment" data-value="256">256 kbps</button>
+          <button class="segment" data-value="192">192 kbps</button>
+          <button class="segment" data-value="128">128 kbps</button>
+        </div>
+        <p class="setting-description">higher bitrate = better quality but larger file size. 320kbps is CD-quality for most people.</p>
+      </div>
+    </section>
+
+    <section class="settings-section" id="section-downloads">
+      <h2 class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        downloads
+      </h2>
+
+      <div class="settings-card">
+        <div class="setting-label">filename style</div>
+        <div class="segmented-control" id="filenameControl">
+          <button class="segment" data-value="classic">classic</button>
+          <button class="segment active" data-value="basic">basic</button>
+          <button class="segment" data-value="pretty">pretty</button>
+          <button class="segment" data-value="nerdy">nerdy</button>
+        </div>
+        <div class="filename-preview" id="filenamePreview">
+          <span class="filename-preview-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+          </span>
+          <code id="filenameExample">Video Title.mp4</code>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="setting-label">include subtitles</div>
+            <p class="setting-description">download and embed available subtitles in the video file.</p>
+          </div>
+          <button class="toggle" id="subtitlesToggle"></button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">playlist behavior</div>
+        <div class="segmented-control" id="playlistControl">
+          <button class="segment active" data-value="ask">ask me</button>
+          <button class="segment" data-value="video">just video</button>
+          <button class="segment" data-value="playlist">full playlist</button>
+        </div>
+        <p class="setting-description">when a link contains a playlist, should we download just the video or the entire playlist? "ask me" will show a popup each time.</p>
+      </div>
+    </section>
+
+    <section class="settings-section" id="section-advanced">
+      <h2 class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        advanced
+      </h2>
+
+      <div class="settings-card">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="setting-label">allow h265 codec</div>
+            <p class="setting-description">enables downloading h265/HEVC videos for platforms like TikTok. higher quality but may have compatibility issues with some players.</p>
+          </div>
+          <button class="toggle" id="h265Toggle"></button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="setting-label">embed metadata</div>
+            <p class="setting-description">include title, artist, and other metadata in downloaded files.</p>
+          </div>
+          <button class="toggle active" id="metadataToggle"></button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <button class="reset-btn" id="resetBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        reset all settings
+      </button>
+    </section>
+
+    <section class="settings-section" id="section-privacy">
+      <h2 class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        privacy
+      </h2>
+
+      <div class="settings-card">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="setting-label">allow anonymous analytics</div>
+            <p class="setting-description">help improve yoink by sharing anonymous usage stats like download format preferences. no personal data or URLs are collected.</p>
+          </div>
+          <button class="toggle active" id="analyticsToggle"></button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">what we collect</div>
+        <p class="setting-description" style="margin-top: 8px;">
+          when enabled, we collect: which file formats are popular, how many downloads happen daily, and general country data (from IP, not stored). we do <strong>not</strong> collect: URLs you download, video titles, your IP address, or any identifying information.
+        </p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">why?</div>
+        <p class="setting-description" style="margin-top: 8px;">
+          honestly, just for fun! it's cool to see how people use the tool. if you'd rather not participate, flip the toggle above - no hard feelings. 💜
+        </p>
+        <p class="setting-description" style="margin-top: 12px;">
+          <a href="/privacy.html" style="color: var(--purple-400);">read the full privacy policy →</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="/">yoink.tools</a> - powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> · <a href="/privacy.html">privacy</a>
+  </footer>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const defaultSettings = {
+      quality: '1080p',
+      codec: 'h264',
+      container: 'mp4',
+      audioFormat: 'mp3',
+      audioBitrate: '320',
+      filenameStyle: 'basic',
+      subtitles: false,
+      h265: false,
+      metadata: true,
+      playlistPreference: null,
+      analytics: true
+    };
+
+    const filenameExamples = {
+      classic: 'Video Title (1080p).mp4',
+      basic: 'Video Title.mp4',
+      pretty: 'Video Title - Author (1080p, h264).mp4',
+      nerdy: 'Video_Title_1080p_h264_aac.mp4'
+    };
+
+    let settings = { ...defaultSettings };
+    const savedSettings = localStorage.getItem('yoink_settings');
+    if (savedSettings) {
+      settings = { ...defaultSettings, ...JSON.parse(savedSettings) };
+    }
+
+    const toastContainer = document.getElementById('toastContainer');
+
+    function initUI() {
+      setActiveOption('qualityControl', settings.quality);
+      setActiveOption('codecControl', settings.codec);
+      setActiveOption('containerControl', settings.container);
+      setActiveOption('audioFormatControl', settings.audioFormat);
+      setActiveOption('audioBitrateControl', settings.audioBitrate);
+      setActiveOption('filenameControl', settings.filenameStyle);
+      updateFilenamePreview();
+      const playlistValue = settings.playlistPreference === null ? 'ask' : settings.playlistPreference;
+      setActiveOption('playlistControl', playlistValue);
+      if (settings.subtitles) document.getElementById('subtitlesToggle').classList.add('active');
+      if (settings.h265) document.getElementById('h265Toggle').classList.add('active');
+      if (settings.metadata) document.getElementById('metadataToggle').classList.add('active');
+      if (settings.analytics) document.getElementById('analyticsToggle').classList.add('active');
+      else document.getElementById('analyticsToggle').classList.remove('active');
+    }
+
+    function setActiveOption(controlId, value) {
+      const control = document.getElementById(controlId);
+      if (!control) return;
+      control.querySelectorAll('button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === value);
+      });
+    }
+
+    function updateFilenamePreview() {
+      const ext = settings.container || 'mp4';
+      const examples = {
+        classic: `Video Title (${settings.quality}).${ext}`,
+        basic: `Video Title.${ext}`,
+        pretty: `Video Title - Author (${settings.quality}, ${settings.codec}).${ext}`,
+        nerdy: `Video_Title_${settings.quality}_${settings.codec}_aac.${ext}`
+      };
+      document.getElementById('filenameExample').textContent = examples[settings.filenameStyle] || examples.basic;
+    }
+
+    function saveSettings() {
+      localStorage.setItem('yoink_settings', JSON.stringify(settings));
+    }
+
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'toast success';
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 2000);
+    }
+
+    document.querySelectorAll('.settings-nav-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+        document.getElementById(`section-${btn.dataset.section}`).classList.add('active');
+      });
+    });
+
+    document.getElementById('qualityControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#qualityControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.quality = btn.dataset.value;
+      saveSettings();
+      updateFilenamePreview();
+    });
+
+    document.getElementById('codecControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#codecControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.codec = btn.dataset.value;
+      saveSettings();
+      updateFilenamePreview();
+    });
+
+    document.getElementById('containerControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#containerControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.container = btn.dataset.value;
+      saveSettings();
+      updateFilenamePreview();
+    });
+
+    document.getElementById('audioFormatControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#audioFormatControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.audioFormat = btn.dataset.value;
+      saveSettings();
+    });
+
+    document.getElementById('audioBitrateControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#audioBitrateControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.audioBitrate = btn.dataset.value;
+      saveSettings();
+    });
+
+    document.getElementById('filenameControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#filenameControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.filenameStyle = btn.dataset.value;
+      saveSettings();
+      updateFilenamePreview();
+    });
+
+    document.getElementById('playlistControl').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#playlistControl button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.playlistPreference = btn.dataset.value === 'ask' ? null : btn.dataset.value;
+      saveSettings();
+    });
+
+    document.getElementById('subtitlesToggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      settings.subtitles = this.classList.contains('active');
+      saveSettings();
+    });
+
+    document.getElementById('h265Toggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      settings.h265 = this.classList.contains('active');
+      saveSettings();
+    });
+
+    document.getElementById('metadataToggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      settings.metadata = this.classList.contains('active');
+      saveSettings();
+    });
+
+    document.getElementById('analyticsToggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      settings.analytics = this.classList.contains('active');
+      saveSettings();
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (confirm('Reset all settings to defaults?')) {
+        settings = { ...defaultSettings };
+        saveSettings();
+        initUI();
+        showToast('Settings reset!');
+      }
+    });
+
+    initUI();
+  </script>
+  <script src="/shared.js"></script>
+</body>
+</html>

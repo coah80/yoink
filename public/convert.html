@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>convert - yoink.tools</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    main {
+      justify-content: flex-start;
+      padding-top: 40px;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-heading);
+      font-weight: 800;
+      font-size: 2.5rem;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    .converter {
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease-out;
+      background: var(--surface);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--purple-500);
+      background: var(--purple-900);
+    }
+
+    .drop-zone-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 16px;
+      color: var(--purple-400);
+    }
+
+    .drop-zone-text {
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .drop-zone-hint {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .drop-zone input {
+      display: none;
+    }
+
+    .file-info {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-top: 20px;
+    }
+
+    .file-info.visible {
+      display: block;
+    }
+
+    .file-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .file-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--purple-900);
+      border-radius: var(--radius-md);
+      color: var(--purple-400);
+    }
+
+    .file-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .file-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-name {
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-size {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .file-remove {
+      padding: 8px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease-out;
+    }
+
+    .file-remove:hover {
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .convert-options {
+      margin-top: 20px;
+    }
+
+    .option-label {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    .segmented-control {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-md);
+      padding: 4px;
+    }
+
+    .segment {
+      flex: 1;
+      min-width: fit-content;
+      padding: 10px 14px;
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+      text-align: center;
+    }
+
+    .segment:hover:not(.active) {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    .segment.active {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .convert-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 16px 24px;
+      margin-top: 24px;
+      font-family: var(--font-heading);
+      font-size: 1rem;
+      font-weight: 700;
+      background: var(--purple-500);
+      color: white;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease-out;
+    }
+
+    .convert-btn:hover:not(:disabled) {
+      background: var(--purple-400);
+      transform: translateY(-1px);
+    }
+
+    .convert-btn:disabled {
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      cursor: not-allowed;
+    }
+
+    .convert-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .progress-container {
+      display: none;
+      margin-top: 20px;
+    }
+
+    .progress-container.visible {
+      display: block;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--purple-500);
+      border-radius: var(--radius-full);
+      width: 0%;
+      transition: width 0.3s ease-out;
+    }
+
+    .progress-text {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      text-align: center;
+      margin-top: 10px;
+    }
+
+    .status {
+      margin-top: 20px;
+      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      font-size: 0.9rem;
+      font-weight: 500;
+      text-align: center;
+      display: none;
+    }
+
+    .status.error {
+      display: block;
+      background: rgba(248, 113, 113, 0.1);
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+
+    .status.success {
+      display: block;
+      background: rgba(74, 222, 128, 0.1);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    @media (max-width: 500px) {
+      .drop-zone {
+        padding: 32px 16px;
+      }
+      
+      .page-header h1 {
+        font-size: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-center">
+      <a href="/" class="logo-link">
+        <span class="logo-text">yoink</span>
+        <span class="logo-tld">.tools</span>
+      </a>
+    </div>
+    <nav class="header-right">
+      <a href="/" class="nav-link">Download</a>
+      <a href="/convert.html" class="nav-link active">Convert</a>
+      <a href="/compress.html" class="nav-link">Compress</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="page-header">
+      <h1>convert</h1>
+      <p>change video and audio file formats</p>
+    </div>
+
+    <div class="converter">
+      <div class="drop-zone" id="dropZone">
+        <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <p class="drop-zone-text">drop a file here or click to browse</p>
+        <p class="drop-zone-hint">supports video and audio files (max 15GB)</p>
+        <input type="file" id="fileInput" accept="video/*,audio/*">
+      </div>
+
+      <div class="file-info" id="fileInfo">
+        <div class="file-header">
+          <div class="file-icon" id="fileIcon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </div>
+          <div class="file-details">
+            <div class="file-name" id="fileName">file.mp4</div>
+            <div class="file-size" id="fileSize">0 MB</div>
+          </div>
+          <button class="file-remove" id="fileRemove">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="convert-options">
+          <div class="option-label">convert to</div>
+          <div class="segmented-control" id="formatControl">
+            <button class="segment active" data-value="mp4">mp4</button>
+            <button class="segment" data-value="webm">webm</button>
+            <button class="segment" data-value="mp3">mp3</button>
+            <button class="segment" data-value="m4a">m4a</button>
+            <button class="segment" data-value="wav">wav</button>
+          </div>
+        </div>
+
+        <button class="convert-btn" id="convertBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <line x1="4" y1="20" x2="21" y2="3"></line>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <line x1="15" y1="15" x2="21" y2="21"></line>
+            <line x1="4" y1="4" x2="9" y2="9"></line>
+          </svg>
+          convert
+        </button>
+      </div>
+
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p class="progress-text" id="progressText">Converting...</p>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+  </main>
+
+  <script src="/shared.js"></script>
+  <script>
+    let selectedFile = null;
+    let targetFormat = 'mp4';
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const fileIcon = document.getElementById('fileIcon');
+    const fileRemove = document.getElementById('fileRemove');
+    const formatControl = document.getElementById('formatControl');
+    const convertBtn = document.getElementById('convertBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const status = document.getElementById('status');
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function isAudioFile(file) {
+      return file.type.startsWith('audio/') || 
+             ['mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus'].some(ext => 
+               file.name.toLowerCase().endsWith('.' + ext)
+             );
+    }
+
+    function handleFile(file) {
+      if (!file) return;
+
+      const maxSize = 15 * 1024 * 1024 * 1024;
+      if (file.size > maxSize) {
+        status.textContent = 'File too large. Maximum size is 15GB.';
+        status.className = 'status error';
+        return;
+      }
+
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatSize(file.size);
+      
+      const isAudio = isAudioFile(file);
+      fileIcon.innerHTML = isAudio 
+        ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+
+      fileInfo.classList.add('visible');
+      status.className = 'status';
+    }
+
+    function removeFile() {
+      selectedFile = null;
+      fileInput.value = '';
+      fileInfo.classList.remove('visible');
+      progressContainer.classList.remove('visible');
+      status.className = 'status';
+    }
+
+    async function convertFile() {
+      if (!selectedFile) return;
+
+      convertBtn.disabled = true;
+      progressContainer.classList.add('visible');
+      progressFill.style.width = '0%';
+      progressText.textContent = 'Uploading...';
+      status.className = 'status';
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('format', targetFormat);
+
+      try {
+        let progress = 0;
+        const uploadInterval = setInterval(() => {
+          progress += Math.random() * 15;
+          if (progress > 90) progress = 90;
+          progressFill.style.width = progress + '%';
+        }, 200);
+
+        const response = await fetch(`${API_BASE}/api/convert`, {
+          method: 'POST',
+          body: formData
+        });
+
+        clearInterval(uploadInterval);
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Conversion failed');
+        }
+
+        progressFill.style.width = '100%';
+        progressText.textContent = 'Complete!';
+
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let downloadName = selectedFile.name.replace(/\.[^.]+$/, '') + '.' + targetFormat;
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (match) downloadName = match[1];
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        status.className = 'status success';
+        status.textContent = 'Conversion complete! Download started.';
+
+      } catch (err) {
+        status.className = 'status error';
+        status.textContent = err.message || 'Conversion failed';
+        progressContainer.classList.remove('visible');
+      } finally {
+        convertBtn.disabled = false;
+      }
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      handleFile(file);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      handleFile(e.target.files[0]);
+    });
+
+    fileRemove.addEventListener('click', removeFile);
+
+    formatControl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.segment');
+      if (!btn) return;
+      formatControl.querySelectorAll('.segment').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      targetFormat = btn.dataset.value;
+    });
+
+    convertBtn.addEventListener('click', convertFile);
+  </script>
+</body>
+</html>
