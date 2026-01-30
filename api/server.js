@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, spawnSync } = require('child_process');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
@@ -295,6 +295,70 @@ const SAFETY_LIMITS = {
 };
 
 const rateLimitStore = new Map();
+
+function validateVideoFile(filePath) {
+  try {
+    const result = spawnSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v',
+      '-show_entries', 'stream=codec_type',
+      '-of', 'csv=p=0',
+      filePath
+    ], { encoding: 'utf8', timeout: 10000 });
+    if (result.status !== 0 || result.error) return false;
+    return (result.stdout || '').trim().includes('video');
+  } catch {
+    return false;
+  }
+}
+
+function validateTimeParam(value) {
+  if (!value) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const num = parseFloat(str);
+    return isFinite(num) && num >= 0 ? str : null;
+  }
+  
+  const hhmmss = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(str);
+  if (hhmmss) {
+    const h = hhmmss[1] ? parseInt(hhmmss[1], 10) : 0;
+    const m = parseInt(hhmmss[2], 10);
+    const s = parseFloat(hhmmss[3]);
+    if (m < 60 && s < 60 && isFinite(h) && isFinite(m) && isFinite(s)) {
+      return str;
+    }
+  }
+  return null;
+}
+
+const ALLOWED_MODES = ['size', 'quality'];
+const ALLOWED_QUALITIES = ['high', 'medium', 'low'];
+const ALLOWED_CODECS = ['h264', 'vp9'];
+const ALLOWED_DENOISE = ['auto', 'none', 'light', 'heavy'];
+
+function detectContentTune(probeResult) {
+  if (probeResult.fps && probeResult.fps < 15) return 'stillimage';
+  return 'film';
+}
+
+function isLikelyNoisy(height, actualBitrateMbps) {
+  const expectedBitrate = {
+    360: 1, 480: 1.5, 720: 3, 1080: 6, 1440: 12, 2160: 25
+  };
+  const heights = Object.keys(expectedBitrate).map(Number);
+  const closest = heights.reduce((a, b) => Math.abs(b - height) < Math.abs(a - height) ? b : a);
+  return actualBitrateMbps > expectedBitrate[closest] * 2;
+}
+
+function formatETA(seconds) {
+  if (!seconds || seconds < 0) return null;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
 
 const activeJobsByType = {
   download: 0,
@@ -1655,7 +1719,15 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const { format = 'mp4', clientId } = req.body;
+  const { 
+    format = 'mp4', 
+    clientId,
+    quality = 'medium',
+    reencode = 'auto',
+    startTime,
+    endTime,
+    audioBitrate = '192'
+  } = req.body;
 
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
@@ -1682,13 +1754,43 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
   console.log(`[${convertId}] Converting ${req.file.originalname} to ${format}`);
 
   try {
-    const ffmpegArgs = ['-y', '-i', inputPath];
+    const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
+    
+    const validStartTime = validateTimeParam(startTime);
+    const validEndTime = validateTimeParam(endTime);
+    
+    if (startTime && validStartTime === null) {
+      fs.unlink(inputPath, () => {});
+      activeJobsByType.convert--;
+      unlinkJobFromClient(convertId);
+      return res.status(400).json({ error: 'Invalid startTime format. Use seconds or HH:MM:SS' });
+    }
+    if (endTime && validEndTime === null) {
+      fs.unlink(inputPath, () => {});
+      activeJobsByType.convert--;
+      unlinkJobFromClient(convertId);
+      return res.status(400).json({ error: 'Invalid endTime format. Use seconds or HH:MM:SS' });
+    }
+    
+    const ffmpegArgs = ['-y'];
+    
+    if (validStartTime) {
+      ffmpegArgs.push('-ss', validStartTime);
+    }
+    
+    if (validEndTime) {
+      ffmpegArgs.push('-to', validEndTime);
+    }
+    
+    ffmpegArgs.push('-i', inputPath);
 
-    if (['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format)) {
+    ffmpegArgs.push('-threads', '0');
+
+    if (isAudioFormat) {
       if (format === 'mp3') {
-        ffmpegArgs.push('-codec:a', 'libmp3lame', '-b:a', '320k');
+        ffmpegArgs.push('-codec:a', 'libmp3lame', '-b:a', `${audioBitrate}k`);
       } else if (format === 'm4a') {
-        ffmpegArgs.push('-codec:a', 'aac', '-b:a', '256k');
+        ffmpegArgs.push('-codec:a', 'aac', '-b:a', `${audioBitrate}k`);
       } else if (format === 'opus') {
         ffmpegArgs.push('-codec:a', 'libopus', '-b:a', '128k');
       } else if (format === 'wav') {
@@ -1698,7 +1800,43 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
       }
       ffmpegArgs.push('-vn');
     } else {
-      ffmpegArgs.push('-codec', 'copy');
+      const codecCompatibility = {
+        'mp4': ['h264', 'avc', 'hevc', 'h265'],
+        'webm': ['vp8', 'vp9', 'av1'],
+        'mkv': ['*'],
+        'mov': ['h264', 'hevc', 'prores']
+      };
+      
+      const probeCodec = await new Promise((resolve) => {
+        const ffprobe = spawn('ffprobe', [
+          '-v', 'error', '-select_streams', 'v:0',
+          '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', inputPath
+        ]);
+        let out = '';
+        ffprobe.stdout.on('data', (d) => { out += d.toString(); });
+        ffprobe.on('close', () => resolve(out.trim().toLowerCase()));
+        ffprobe.on('error', () => resolve('unknown'));
+      });
+      
+      const compat = codecCompatibility[format] || [];
+      const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
+      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
+      
+      if (needsReencode) {
+        const crfValues = { high: 18, medium: 23, low: 28 };
+        const crf = crfValues[quality] || 23;
+        console.log(`[${convertId}] Re-encoding video (${probeCodec} → h264, CRF ${crf})`);
+        ffmpegArgs.push(
+          '-c:v', 'libx264',
+          '-preset', 'medium',
+          '-crf', String(crf),
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac', '-b:a', '128k'
+        );
+      } else {
+        ffmpegArgs.push('-codec', 'copy');
+      }
+      
       if (format === 'mp4' || format === 'mov') {
         ffmpegArgs.push('-movflags', '+faststart');
       }
@@ -1729,7 +1867,6 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
     const stat = fs.statSync(outputPath);
     const originalName = path.parse(req.file.originalname).name;
     const outputFilename = `${sanitizeFilename(originalName)}.${format}`;
-    const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
     const mimeType = isAudioFormat 
       ? (AUDIO_MIMES[format] || 'audio/mpeg')
       : (CONTAINER_MIMES[format] || 'video/mp4');
@@ -1780,7 +1917,34 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const { targetSize = '50', duration = '0', progressId, clientId } = req.body;
+  const { 
+    targetSize = '50', 
+    duration = '0', 
+    progressId, 
+    clientId,
+    mode = 'size',
+    quality = 'medium',
+    codec = 'h264',
+    denoise = 'auto'
+  } = req.body;
+  
+  if (!ALLOWED_MODES.includes(mode)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Invalid mode. Allowed: ${ALLOWED_MODES.join(', ')}` });
+  }
+  if (!ALLOWED_QUALITIES.includes(quality)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
+  }
+  if (!ALLOWED_CODECS.includes(codec)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Invalid codec. Allowed: ${ALLOWED_CODECS.join(', ')}` });
+  }
+  if (!ALLOWED_DENOISE.includes(denoise)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
+  }
+  
   const targetMB = parseFloat(targetSize);
   const videoDuration = parseFloat(duration);
 
@@ -1803,7 +1967,8 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
   
   const compressId = progressId || uuidv4();
   const inputPath = req.file.path;
-  const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.mp4`);
+  const outputExt = codec === 'vp9' ? 'webm' : 'mp4';
+  const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.${outputExt}`);
   const passLogFile = path.join(TEMP_DIR, `${compressId}-pass`);
 
   if (clientId) {
@@ -1821,12 +1986,16 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
 
   try {
     sendProgress(compressId, 'compressing', 'Analyzing video...', 0);
+
+    if (!validateVideoFile(inputPath)) {
+      throw new Error('File does not contain valid video');
+    }
     
     const probeResult = await new Promise((resolve, reject) => {
       const ffprobe = spawn('ffprobe', [
         '-v', 'error',
         '-select_streams', 'v:0',
-        '-show_entries', 'stream=width,height,bit_rate,codec_name:format=duration,bit_rate',
+        '-show_entries', 'stream=width,height,bit_rate,codec_name,r_frame_rate:format=duration,bit_rate',
         '-of', 'json',
         inputPath
       ]);
@@ -1840,38 +2009,57 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
           const parsed = JSON.parse(output);
           const stream = parsed.streams?.[0] || {};
           const format = parsed.format || {};
+          let fps = 30;
+          if (stream.r_frame_rate) {
+            const parts = stream.r_frame_rate.split('/');
+            const num = Number(parts[0]);
+            const den = Number(parts[1]);
+            if (isFinite(num) && isFinite(den) && den !== 0) {
+              const calculated = num / den;
+              fps = isFinite(calculated) && calculated > 0 ? calculated : 30;
+            }
+          }
           resolve({
             duration: parseFloat(format.duration) || 60,
             width: parseInt(stream.width) || 1920,
             height: parseInt(stream.height) || 1080,
             videoBitrate: parseInt(stream.bit_rate) || parseInt(format.bit_rate) || 0,
-            codec: stream.codec_name || 'unknown'
+            codec: stream.codec_name || 'unknown',
+            fps
           });
         } catch (e) {
-          resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown' });
+          resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown', fps: 30 });
         }
       });
-      ffprobe.on('error', () => resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown' }));
+      ffprobe.on('error', () => resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown', fps: 30 }));
     });
 
     let actualDuration = videoDuration > 0 ? videoDuration : probeResult.duration;
     const sourceWidth = probeResult.width;
     const sourceHeight = probeResult.height;
-    const sourceVideoBitrate = probeResult.videoBitrate;
+    const sourceFileSizeMB = fs.statSync(inputPath).size / (1024 * 1024);
+    const actualBitrateMbps = (sourceFileSizeMB * 8) / actualDuration;
 
     const targetBytes = targetMB * 1024 * 1024;
     const containerOverhead = 0.95;
     const effectiveBytes = targetBytes * containerOverhead;
     
-    const audioBitrateK = 96;
+    const audioBitrateK = codec === 'vp9' ? 96 : 96;
     const audioBytes = (audioBitrateK * 1000 / 8) * actualDuration;
     
     const videoBytes = effectiveBytes - audioBytes;
     const videoBitrate = Math.floor((videoBytes * 8) / actualDuration);
     const videoBitrateK = Math.floor(videoBitrate / 1000);
 
-    const sourceFileSizeMB = fs.statSync(inputPath).size / (1024 * 1024);
-    if (sourceFileSizeMB <= targetMB) {
+    const tuneOption = detectContentTune(probeResult);
+    const shouldDenoise = denoise === 'heavy' || denoise === 'light' || 
+      (denoise === 'auto' && isLikelyNoisy(sourceHeight, actualBitrateMbps));
+    
+    if (shouldDenoise) {
+      console.log(`[${compressId}] Applying denoise (${denoise === 'auto' ? 'auto-detected noisy source' : denoise})`);
+    }
+
+    if (sourceFileSizeMB <= targetMB && mode === 'size') {
       console.log(`[${compressId}] Source already under target size, copying directly`);
       sendProgress(compressId, 'compressing', 'File already small enough, optimizing...', 50);
       
@@ -1887,151 +2075,295 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
         ffmpeg.on('error', reject);
       });
     } else {
-      let targetWidth, scaleFilter;
+      let targetWidth;
       
-      if (videoBitrateK < 500) {
-        targetWidth = 640;
-        console.log(`[${compressId}] Very low bitrate (${videoBitrateK}k), scaling to 360p`);
-      } else if (videoBitrateK < 1500) {
-        targetWidth = 854;
-        console.log(`[${compressId}] Low bitrate (${videoBitrateK}k), scaling to 480p`);
-      } else if (videoBitrateK < 3000) {
-        targetWidth = 1280;
-        console.log(`[${compressId}] Moderate bitrate (${videoBitrateK}k), scaling to 720p`);
+      if (mode === 'size') {
+        if (videoBitrateK < 500) {
+          targetWidth = 640;
+          console.log(`[${compressId}] Very low bitrate (${videoBitrateK}k), scaling to 360p`);
+        } else if (videoBitrateK < 1500) {
+          targetWidth = 854;
+          console.log(`[${compressId}] Low bitrate (${videoBitrateK}k), scaling to 480p`);
+        } else if (videoBitrateK < 3000) {
+          targetWidth = 1280;
+          console.log(`[${compressId}] Moderate bitrate (${videoBitrateK}k), scaling to 720p`);
+        } else {
+          targetWidth = Math.min(1920, sourceWidth);
+          console.log(`[${compressId}] Good bitrate (${videoBitrateK}k), using ${targetWidth >= 1920 ? '1080p' : 'source resolution'}`);
+        }
       } else {
-        targetWidth = Math.min(1920, sourceWidth);
-        console.log(`[${compressId}] Good bitrate (${videoBitrateK}k), using ${targetWidth >= 1920 ? '1080p' : 'source resolution'}`);
+        targetWidth = sourceWidth;
       }
 
-      if (targetWidth >= sourceWidth) {
-        scaleFilter = null;
-        console.log(`[${compressId}] Source (${sourceWidth}x${sourceHeight}) already at or below target, no scaling`);
-      } else {
-        scaleFilter = `scale=${targetWidth}:-2:flags=lanczos`;
-        console.log(`[${compressId}] Scaling from ${sourceWidth}x${sourceHeight} to ${targetWidth}p with lanczos`);
+      const videoFilters = [];
+      
+      if (shouldDenoise) {
+        const denoiseStrength = denoise === 'heavy' ? 'hqdn3d=6:4:9:6' : 'hqdn3d=4:3:6:4.5';
+        videoFilters.push(denoiseStrength);
       }
+      
+      if (targetWidth < sourceWidth) {
+        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
+        console.log(`[${compressId}] Scaling from ${sourceWidth}x${sourceHeight} to ${targetWidth}p with lanczos`);
+      } else {
+        console.log(`[${compressId}] Source (${sourceWidth}x${sourceHeight}) already at or below target, no scaling`);
+      }
+      
+      const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
 
       const maxrateK = Math.floor(videoBitrateK * 1.5);
       const bufsizeK = Math.floor(videoBitrateK * 2);
 
-      console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio`);
+      console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio, Codec: ${codec}, Mode: ${mode}`);
 
-      sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video...`, 5);
-
-      const pass1Args = [
-        '-y',
-        '-i', inputPath,
-      ];
-      
-      if (scaleFilter) {
-        pass1Args.push('-vf', scaleFilter);
-      }
-      
-      pass1Args.push(
-        '-c:v', 'libx264',
-        '-preset', 'slow',
-        '-b:v', `${videoBitrateK}k`,
-        '-maxrate', `${maxrateK}k`,
-        '-bufsize', `${bufsizeK}k`,
-        '-pix_fmt', 'yuv420p',
-        '-profile:v', 'high',
-        '-level:v', '4.2',
-        '-pass', '1',
-        '-passlogfile', passLogFile,
-        '-an',
-        '-f', 'null',
-        process.platform === 'win32' ? 'NUL' : '/dev/null'
-      );
-
-      await new Promise((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', pass1Args);
-        processInfo.process = ffmpeg;
+      if (mode === 'quality') {
+        const crfValues = { high: 20, medium: 24, low: 28 };
+        const crf = crfValues[quality] || 24;
         
-        let lastProgress = 0;
-        ffmpeg.stderr.on('data', (data) => {
-          const msg = data.toString();
-          const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1]);
-            const mins = parseInt(timeMatch[2]);
-            const secs = parseInt(timeMatch[3]);
-            const currentTime = hours * 3600 + mins * 60 + secs;
-            const progress = Math.min(45, (currentTime / actualDuration) * 45);
-            if (progress > lastProgress + 2) {
-              lastProgress = progress;
-              sendProgress(compressId, 'compressing', `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`, progress);
-            }
-          }
-        });
+        sendProgress(compressId, 'compressing', 'Encoding video...', 5);
 
-        ffmpeg.on('close', (code) => {
-          if (processInfo.cancelled) reject(new Error('Cancelled'));
-          else if (code === 0) resolve();
-          else reject(new Error(`Pass 1 failed with code ${code}`));
-        });
-
-        ffmpeg.on('error', reject);
-      });
-
-      if (processInfo.cancelled) throw new Error('Cancelled');
-
-      sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video...`, 50);
-
-      const pass2Args = [
-        '-y',
-        '-i', inputPath,
-      ];
-      
-      if (scaleFilter) {
-        pass2Args.push('-vf', scaleFilter);
-      }
-      
-      pass2Args.push(
-        '-c:v', 'libx264',
-        '-preset', 'slow',
-        '-b:v', `${videoBitrateK}k`,
-        '-maxrate', `${maxrateK}k`,
-        '-bufsize', `${bufsizeK}k`,
-        '-pix_fmt', 'yuv420p',
-        '-profile:v', 'high',
-        '-level:v', '4.2',
-        '-pass', '2',
-        '-passlogfile', passLogFile,
-        '-c:a', 'aac',
-        '-b:a', `${audioBitrateK}k`,
-        '-movflags', '+faststart',
-        outputPath
-      );
-
-      await new Promise((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', pass2Args);
-        processInfo.process = ffmpeg;
+        const ffmpegArgs = [
+          '-y', '-i', inputPath,
+          '-threads', '0',
+        ];
         
-        let lastProgress = 50;
-        ffmpeg.stderr.on('data', (data) => {
-          const msg = data.toString();
-          const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1]);
-            const mins = parseInt(timeMatch[2]);
-            const secs = parseInt(timeMatch[3]);
-            const currentTime = hours * 3600 + mins * 60 + secs;
-            const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
-            if (progress > lastProgress + 2) {
-              lastProgress = progress;
-              sendProgress(compressId, 'compressing', `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`, progress);
+        if (vfArg) ffmpegArgs.push('-vf', vfArg);
+        
+        if (codec === 'vp9') {
+          ffmpegArgs.push(
+            '-c:v', 'libvpx-vp9',
+            '-crf', String(crf),
+            '-b:v', '0',
+            '-pix_fmt', 'yuv420p',
+            '-row-mt', '1',
+            '-c:a', 'libopus', '-b:a', `${audioBitrateK}k`
+          );
+        } else {
+          ffmpegArgs.push(
+            '-c:v', 'libx264',
+            '-preset', 'slow',
+            '-tune', tuneOption,
+            '-crf', String(crf),
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'high',
+            '-level:v', '4.2',
+            '-c:a', 'aac', '-b:a', `${audioBitrateK}k`,
+            '-movflags', '+faststart'
+          );
+        }
+        
+        ffmpegArgs.push(outputPath);
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+          processInfo.process = ffmpeg;
+          
+          let lastProgress = 0;
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const progress = Math.min(95, (currentTime / actualDuration) * 95);
+              
+              const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+              const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+              const eta = speed ? formatETA((actualDuration - currentTime) / speed) : null;
+              
+              if (progress > lastProgress + 2) {
+                lastProgress = progress;
+                const statusMsg = eta ? `Encoding... ${Math.round(progress)}% (ETA: ${eta})` : `Encoding... ${Math.round(progress)}%`;
+                sendProgress(compressId, 'compressing', statusMsg, progress);
+              }
             }
-          }
-        });
+          });
 
-        ffmpeg.on('close', (code) => {
-          if (processInfo.cancelled) reject(new Error('Cancelled'));
-          else if (code === 0) resolve();
-          else reject(new Error(`Pass 2 failed with code ${code}`));
-        });
+          ffmpeg.on('close', (code) => {
+            if (processInfo.cancelled) reject(new Error('Cancelled'));
+            else if (code === 0) resolve();
+            else reject(new Error(`Encoding failed with code ${code}`));
+          });
 
-        ffmpeg.on('error', reject);
-      });
+          ffmpeg.on('error', reject);
+        });
+      } else {
+        if (codec === 'vp9') {
+          sendProgress(compressId, 'compressing', 'Encoding VP9 (this takes a while)...', 5);
+
+          const ffmpegArgs = [
+            '-y', '-i', inputPath,
+            '-threads', '0',
+          ];
+          
+          if (vfArg) ffmpegArgs.push('-vf', vfArg);
+          
+          ffmpegArgs.push(
+            '-c:v', 'libvpx-vp9',
+            '-b:v', `${videoBitrateK}k`,
+            '-crf', '30',
+            '-pix_fmt', 'yuv420p',
+            '-row-mt', '1',
+            '-c:a', 'libopus', '-b:a', `${audioBitrateK}k`,
+            outputPath
+          );
+
+          await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+            processInfo.process = ffmpeg;
+            
+            let lastProgress = 0;
+            ffmpeg.stderr.on('data', (data) => {
+              const msg = data.toString();
+              const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+              if (timeMatch) {
+                const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+                const progress = Math.min(95, (currentTime / actualDuration) * 95);
+                
+                const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+                const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+                const eta = speed ? formatETA((actualDuration - currentTime) / speed) : null;
+                
+                if (progress > lastProgress + 2) {
+                  lastProgress = progress;
+                  const statusMsg = eta ? `Encoding VP9... ${Math.round(progress)}% (ETA: ${eta})` : `Encoding VP9... ${Math.round(progress)}%`;
+                  sendProgress(compressId, 'compressing', statusMsg, progress);
+                }
+              }
+            });
+
+            ffmpeg.on('close', (code) => {
+              if (processInfo.cancelled) reject(new Error('Cancelled'));
+              else if (code === 0) resolve();
+              else reject(new Error(`VP9 encoding failed with code ${code}`));
+            });
+
+            ffmpeg.on('error', reject);
+          });
+        } else {
+          sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video...`, 5);
+
+          const pass1Args = [
+            '-y',
+            '-i', inputPath,
+            '-threads', '0',
+          ];
+          
+          if (vfArg) pass1Args.push('-vf', vfArg);
+          
+          pass1Args.push(
+            '-c:v', 'libx264',
+            '-preset', 'slow',
+            '-tune', tuneOption,
+            '-b:v', `${videoBitrateK}k`,
+            '-maxrate', `${maxrateK}k`,
+            '-bufsize', `${bufsizeK}k`,
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'high',
+            '-level:v', '4.2',
+            '-pass', '1',
+            '-passlogfile', passLogFile,
+            '-an',
+            '-f', 'null',
+            process.platform === 'win32' ? 'NUL' : '/dev/null'
+          );
+
+          await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', pass1Args);
+            processInfo.process = ffmpeg;
+            
+            let lastProgress = 0;
+            ffmpeg.stderr.on('data', (data) => {
+              const msg = data.toString();
+              const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+              if (timeMatch) {
+                const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+                const progress = Math.min(45, (currentTime / actualDuration) * 45);
+                
+                const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+                const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+                const eta = speed ? formatETA((actualDuration - currentTime) / speed) : null;
+                
+                if (progress > lastProgress + 2) {
+                  lastProgress = progress;
+                  const statusMsg = eta ? `Pass 1/2 - ${Math.round(progress / 45 * 100)}% (ETA: ${eta})` : `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`;
+                  sendProgress(compressId, 'compressing', statusMsg, progress);
+                }
+              }
+            });
+
+            ffmpeg.on('close', (code) => {
+              if (processInfo.cancelled) reject(new Error('Cancelled'));
+              else if (code === 0) resolve();
+              else reject(new Error(`Pass 1 failed with code ${code}`));
+            });
+
+            ffmpeg.on('error', reject);
+          });
+
+          if (processInfo.cancelled) throw new Error('Cancelled');
+
+          sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video...`, 50);
+
+          const pass2Args = [
+            '-y',
+            '-i', inputPath,
+            '-threads', '0',
+          ];
+          
+          if (vfArg) pass2Args.push('-vf', vfArg);
+          
+          pass2Args.push(
+            '-c:v', 'libx264',
+            '-preset', 'slow',
+            '-tune', tuneOption,
+            '-b:v', `${videoBitrateK}k`,
+            '-maxrate', `${maxrateK}k`,
+            '-bufsize', `${bufsizeK}k`,
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'high',
+            '-level:v', '4.2',
+            '-pass', '2',
+            '-passlogfile', passLogFile,
+            '-c:a', 'aac',
+            '-b:a', `${audioBitrateK}k`,
+            '-movflags', '+faststart',
+            outputPath
+          );
+
+          await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', pass2Args);
+            processInfo.process = ffmpeg;
+            
+            let lastProgress = 50;
+            ffmpeg.stderr.on('data', (data) => {
+              const msg = data.toString();
+              const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+              if (timeMatch) {
+                const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+                const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
+                
+                const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+                const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+                const eta = speed ? formatETA((actualDuration - currentTime) / speed) : null;
+                
+                if (progress > lastProgress + 2) {
+                  lastProgress = progress;
+                  const statusMsg = eta ? `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}% (ETA: ${eta})` : `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`;
+                  sendProgress(compressId, 'compressing', statusMsg, progress);
+                }
+              }
+            });
+
+            ffmpeg.on('close', (code) => {
+              if (processInfo.cancelled) reject(new Error('Cancelled'));
+              else if (code === 0) resolve();
+              else reject(new Error(`Pass 2 failed with code ${code}`));
+            });
+
+            ffmpeg.on('error', reject);
+          });
+        }
+      }
     }
 
     try { fs.unlinkSync(inputPath); } catch {}
@@ -2042,11 +2374,12 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
 
     const stat = fs.statSync(outputPath);
     const originalName = path.parse(req.file.originalname).name;
-    const outputFilename = `${sanitizeFilename(originalName)}_compressed.mp4`;
+    const outputFilename = `${sanitizeFilename(originalName)}_compressed.${outputExt}`;
+    const mimeType = codec === 'vp9' ? 'video/webm' : 'video/mp4';
 
     console.log(`[${compressId}] Compression complete: ${(stat.size / 1024 / 1024).toFixed(2)}MB (target: ${targetMB}MB)`);
 
-    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"; filename*=UTF-8''${encodeURIComponent(outputFilename)}`);
 
