@@ -853,6 +853,11 @@
       color: var(--error);
     }
 
+    .toast.warning {
+      border-color: #f59e0b;
+      color: #f59e0b;
+    }
+
     @keyframes toast-in {
       from {
         opacity: 0;
@@ -1658,7 +1663,7 @@ https://youtube.com/watch?v=..."></textarea>
       }
     });
 
-    function showToast(message, type = 'info') {
+    function showToast(message, type = 'info', duration = 3000) {
       const toast = document.createElement('div');
       toast.className = `toast ${type}`;
       toast.textContent = message;
@@ -1668,7 +1673,7 @@ https://youtube.com/watch?v=..."></textarea>
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(20px)';
         setTimeout(() => toast.remove(), 300);
-      }, 3000);
+      }, duration);
     }
 
     function setStatus(type, message) {
@@ -1877,6 +1882,9 @@ https://youtube.com/watch?v=..."></textarea>
         if (metaRes.ok) {
           const metadata = await metaRes.json();
           title = metadata.title || 'Unknown';
+          if (metadata.botDetected) {
+            showToast('YouTube bot detected, switching to intervaled requests (this may be slower)', 'warning', 5000);
+          }
         }
       } catch (e) {
         title = url.substring(0, 50);
@@ -2127,6 +2135,10 @@ https://youtube.com/watch?v=..."></textarea>
         const title = metadata.title;
         const isPlaylist = metadata.isPlaylist && downloadPlaylist;
         const videoCount = metadata.videoCount || 0;
+
+        if (metadata.botDetected) {
+          showToast('YouTube bot detected, switching to intervaled requests (this may be slower)', 'warning', 5000);
+        }
 
         const queueItem = {
           id: progressId,

@@ -11,6 +11,30 @@ const archiver = require('archiver');
 const crypto = require('crypto');
 const geoip = require('geoip-lite');
 
+const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
+const BOT_DETECTION_ERRORS = [
+  'Sign in to confirm you\'re not a bot',
+  'confirm your age',
+  'Sign in to confirm your age',
+  'This video is unavailable',
+  'Private video'
+];
+
+function hasCookiesFile() {
+  return fs.existsSync(COOKIES_FILE);
+}
+
+function needsCookiesRetry(errorOutput) {
+  return BOT_DETECTION_ERRORS.some(err => errorOutput.includes(err));
+}
+
+function getCookiesArgs() {
+  if (hasCookiesFile()) {
+    return ['--cookies', COOKIES_FILE];
+  }
+  return [];
+}
+
 let adminConfig = { ADMIN_PASSWORD: null, ADMIN_TOKEN_SECRET: 'default-secret' };
 try {
   adminConfig = require('./admin-config.js');
@@ -605,6 +629,12 @@ function checkDependencies() {
     console.error('✗ ffmpeg not found. Please install: brew install ffmpeg');
     process.exit(1);
   }
+
+  if (hasCookiesFile()) {
+    console.log('✓ cookies.txt found - YouTube authentication enabled');
+  } else {
+    console.log('⚠ cookies.txt not found - YouTube may block some requests');
+  }
 }
 
 checkDependencies();
@@ -699,78 +729,98 @@ app.get('/api/metadata', (req, res) => {
     return res.status(400).json({ error: urlCheck.error });
   }
 
-  const ytdlpArgs = [];
-  
-  if (!downloadPlaylist) {
-    ytdlpArgs.push('--no-playlist');
-    ytdlpArgs.push(
-      '--print', '%(title)s',
-      '--print', '%(ext)s',
-      '--print', '%(id)s',
-      '--print', '%(uploader)s',
-      '--print', '%(duration)s',
-      '--print', '%(thumbnail)s',
-      url
-    );
-  } else {
-    ytdlpArgs.push(
-      '--yes-playlist',
-      '--flat-playlist',
-      '--print', '%(playlist_title)s',
-      '--print', '%(playlist_count)s',
-      '--print', '%(title)s',
-      url
-    );
+  function runMetadataFetch(useCookies = false) {
+    const ytdlpArgs = [];
+    
+    if (useCookies) {
+      ytdlpArgs.push(...getCookiesArgs());
+    }
+    
+    if (!downloadPlaylist) {
+      ytdlpArgs.push('--no-playlist');
+      ytdlpArgs.push(
+        '--print', '%(title)s',
+        '--print', '%(ext)s',
+        '--print', '%(id)s',
+        '--print', '%(uploader)s',
+        '--print', '%(duration)s',
+        '--print', '%(thumbnail)s',
+        url
+      );
+    } else {
+      ytdlpArgs.push(
+        '--yes-playlist',
+        '--flat-playlist',
+        '--print', '%(playlist_title)s',
+        '--print', '%(playlist_count)s',
+        '--print', '%(title)s',
+        url
+      );
+    }
+
+    const ytdlp = spawn('yt-dlp', ytdlpArgs);
+
+    let output = '';
+    let errorOutput = '';
+
+    ytdlp.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    ytdlp.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+
+    ytdlp.on('close', (code) => {
+      if (code !== 0) {
+        console.error('yt-dlp metadata error:', errorOutput);
+        
+        if (!useCookies && needsCookiesRetry(errorOutput)) {
+          console.log('[Cookies] Bot detection triggered, retrying with cookies...');
+          if (hasCookiesFile()) {
+            return runMetadataFetch(true);
+          } else {
+            console.error('[Cookies] Hey, I can\'t find cookies.txt! YouTube is blocking requests.');
+            return res.status(500).json({ error: 'YouTube requires authentication. Please add cookies.txt to the server.' });
+          }
+        }
+        
+        return res.status(500).json({ error: 'Failed to fetch metadata', details: errorOutput });
+      }
+
+      const lines = output.trim().split('\n');
+      
+      if (downloadPlaylist) {
+        const playlistTitle = lines[0] || 'Playlist';
+        const videoCount = parseInt(lines[1]) || lines.length - 2;
+        const videoTitles = lines.slice(2).filter(t => t.trim());
+        
+        res.json({ 
+          title: playlistTitle, 
+          isPlaylist: true,
+          videoCount: videoCount || videoTitles.length,
+          videoTitles: videoTitles.slice(0, 50),
+          botDetected: useCookies
+        });
+      } else {
+        const title = lines[0] || 'download';
+        const ext = lines[1] || 'mp4';
+        const id = lines[2] || '';
+        const uploader = lines[3] || '';
+        const duration = lines[4] || '';
+        const thumbnail = lines[5] || '';
+
+        res.json({ title, ext, id, uploader, duration, thumbnail, isPlaylist: false, botDetected: useCookies });
+      }
+    });
+
+    ytdlp.on('error', (err) => {
+      console.error('Failed to spawn yt-dlp:', err);
+      res.status(500).json({ error: 'yt-dlp not found. Please install yt-dlp.' });
+    });
   }
 
-  const ytdlp = spawn('yt-dlp', ytdlpArgs);
-
-  let output = '';
-  let errorOutput = '';
-
-  ytdlp.stdout.on('data', (data) => {
-    output += data.toString();
-  });
-
-  ytdlp.stderr.on('data', (data) => {
-    errorOutput += data.toString();
-  });
-
-  ytdlp.on('close', (code) => {
-    if (code !== 0) {
-      console.error('yt-dlp metadata error:', errorOutput);
-      return res.status(500).json({ error: 'Failed to fetch metadata', details: errorOutput });
-    }
-
-    const lines = output.trim().split('\n');
-    
-    if (downloadPlaylist) {
-      const playlistTitle = lines[0] || 'Playlist';
-      const videoCount = parseInt(lines[1]) || lines.length - 2;
-      const videoTitles = lines.slice(2).filter(t => t.trim());
-      
-      res.json({ 
-        title: playlistTitle, 
-        isPlaylist: true,
-        videoCount: videoCount || videoTitles.length,
-        videoTitles: videoTitles.slice(0, 50)
-      });
-    } else {
-      const title = lines[0] || 'download';
-      const ext = lines[1] || 'mp4';
-      const id = lines[2] || '';
-      const uploader = lines[3] || '';
-      const duration = lines[4] || '';
-      const thumbnail = lines[5] || '';
-
-      res.json({ title, ext, id, uploader, duration, thumbnail, isPlaylist: false });
-    }
-  });
-
-  ytdlp.on('error', (err) => {
-    console.error('Failed to spawn yt-dlp:', err);
-    res.status(500).json({ error: 'yt-dlp not found. Please install yt-dlp.' });
-  });
+  runMetadataFetch(false);
 });
 
 const activeDownloads = new Map();
@@ -908,6 +958,8 @@ app.get('/api/download', async (req, res) => {
     sendProgress(downloadId, 'downloading', 'Downloading from source...', 0);
     
     const ytdlpArgs = [
+      ...getCookiesArgs(),
+      '-t', 'sleep',
       downloadPlaylist ? '--yes-playlist' : '--no-playlist',
       '--newline',
       '--progress-template', '%(progress._percent_str)s',
@@ -1228,6 +1280,8 @@ app.get('/api/download-playlist', async (req, res) => {
   try {
     const playlistInfo = await new Promise((resolve, reject) => {
       const ytdlp = spawn('yt-dlp', [
+        ...getCookiesArgs(),
+        '-t', 'sleep',
         '--yes-playlist',
         '--flat-playlist',
         '-J',
@@ -1342,6 +1396,8 @@ app.get('/api/download-playlist', async (req, res) => {
 
       try {
         const ytdlpArgs = [
+          ...getCookiesArgs(),
+          '-t', 'sleep',
           '--no-playlist',
           '--newline',
           '--progress-template', '%(progress._percent_str)s',
