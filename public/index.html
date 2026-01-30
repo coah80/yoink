@@ -1882,8 +1882,8 @@ https://youtube.com/watch?v=..."></textarea>
         if (metaRes.ok) {
           const metadata = await metaRes.json();
           title = metadata.title || 'Unknown';
-          if (metadata.botDetected) {
-            showToast('YouTube bot detected, switching to intervaled requests (this may be slower)', 'warning', 5000);
+          if (metadata.usingCookies) {
+            showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
           }
         }
       } catch (e) {
@@ -2136,8 +2136,8 @@ https://youtube.com/watch?v=..."></textarea>
         const isPlaylist = metadata.isPlaylist && downloadPlaylist;
         const videoCount = metadata.videoCount || 0;
 
-        if (metadata.botDetected) {
-          showToast('YouTube bot detected, switching to intervaled requests (this may be slower)', 'warning', 5000);
+        if (metadata.usingCookies) {
+          showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
         }
 
         const queueItem = {
