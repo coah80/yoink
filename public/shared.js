@@ -131,7 +131,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   initSession();
-  setupNavigation();
   
   const currentPath = window.location.pathname.replace(/^\//, '').replace(/\.html$/, '') || 'index';
   document.querySelectorAll('.nav-link').forEach(link => {

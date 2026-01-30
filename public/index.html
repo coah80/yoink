@@ -1416,6 +1416,22 @@ https://youtube.com/watch?v=..."></textarea>
     let queue = [];
     let settings = loadSettings();
 
+    function normalizeUrl(url) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'youtu.be') {
+          const videoId = parsed.pathname.slice(1);
+          return `https://www.youtube.com/watch?v=${videoId}`;
+        }
+        if (parsed.hostname.includes('youtube.com') && parsed.searchParams.get('v')) {
+          return `https://www.youtube.com/watch?v=${parsed.searchParams.get('v')}`;
+        }
+        return url;
+      } catch (e) {
+        return url;
+      }
+    }
+
     const urlInput = document.getElementById('url');
     const pasteBtn = document.getElementById('pasteBtn');
     const formatControl = document.getElementById('formatControl');
@@ -1459,7 +1475,14 @@ https://youtube.com/watch?v=..."></textarea>
 
       const savedQueue = localStorage.getItem('yoink_queue');
       if (savedQueue) {
-        queue = JSON.parse(savedQueue);
+        try {
+          const parsed = JSON.parse(savedQueue);
+          queue = parsed.filter(item => item.stage === 'queued' || item.stage === 'complete' || item.stage === 'error');
+          queue = queue.filter(item => item.stage !== 'complete' && item.stage !== 'error');
+        } catch (e) {
+          queue = [];
+        }
+        saveQueue();
       }
       renderQueue();
 
@@ -1626,6 +1649,7 @@ https://youtube.com/watch?v=..."></textarea>
     }
 
     function addToQueue(item) {
+      if (queue.some(q => q.id === item.id)) return;
       queue.push(item);
       saveQueue();
       renderQueue();
@@ -1771,7 +1795,8 @@ https://youtube.com/watch?v=..."></textarea>
       urlInput.value = '';
     }
 
-    async function addUrlToQueue(url, startImmediately = false) {
+    async function addUrlToQueue(rawUrl, startImmediately = false) {
+      const url = normalizeUrl(rawUrl);
       const format = currentFormat === 'auto' ? 'video' : currentFormat;
       const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       
@@ -1988,12 +2013,14 @@ https://youtube.com/watch?v=..."></textarea>
     }
 
     async function handleYoink() {
-      const url = urlInput.value.trim();
+      const rawUrl = urlInput.value.trim();
 
-      if (!url) {
+      if (!rawUrl) {
         showToast('Please enter a URL', 'error');
         return;
       }
+
+      const url = normalizeUrl(rawUrl);
 
       try {
         new URL(url);
