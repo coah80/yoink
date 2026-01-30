@@ -488,7 +488,6 @@ function sanitizeFilename(filename) {
     .slice(0, 200);
 }
 
-// Max height for each quality setting
 const QUALITY_HEIGHT = {
   'best': null,  // No limit
   '4k': 2160,
@@ -788,14 +787,10 @@ app.get('/api/download', async (req, res) => {
     if (isAudio) {
       ytdlpArgs.push('-f', 'bestaudio/best');
     } else {
-      // Prefer H.264 video + AAC/M4A audio for QuickTime compatibility
-      // Fall back to any format if H.264 not available
       const maxHeight = QUALITY_HEIGHT[quality];
       if (maxHeight) {
-        // H.264 with height limit, fallback to any codec
         ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
       } else {
-        // Best H.264, fallback to any
         ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
       }
       ytdlpArgs.push('--merge-output-format', container);
@@ -860,12 +855,10 @@ app.get('/api/download', async (req, res) => {
 
     const downloadedPath = path.join(TEMP_DIR, downloadedFile);
     
-    // Check if this is a Twitter/X GIF (short video, no audio, from twitter)
     const isTwitter = url.includes('twitter.com') || url.includes('x.com');
     let isGif = false;
     
     if (isTwitter && !isAudio) {
-      // Use ffprobe to check if it's a GIF-like video (short, no audio)
       try {
         const probeResult = execSync(
           `ffprobe -v quiet -print_format json -show_streams -show_format "${downloadedPath}"`,
@@ -874,14 +867,12 @@ app.get('/api/download', async (req, res) => {
         const probe = JSON.parse(probeResult);
         const hasAudio = probe.streams?.some(s => s.codec_type === 'audio');
         const duration = parseFloat(probe.format?.duration || '999');
-        // Twitter GIFs are typically short (< 60s) and have no audio
         isGif = !hasAudio && duration < 60;
       } catch (e) {
         console.log(`[${downloadId}] Could not probe for GIF detection: ${e.message}`);
       }
     }
     
-    // Update output extension if it's a GIF
     const actualOutputExt = isGif ? 'gif' : outputExt;
     const actualFinalFile = isGif ? path.join(TEMP_DIR, `${downloadId}-final.gif`) : finalFile;
 
@@ -908,9 +899,7 @@ app.get('/api/download', async (req, res) => {
         ffmpegArgs.push('-codec:a', 'copy');
       }
     } else if (isGif) {
-      // Convert to GIF with good quality
-      // Use palettegen for better colors
-      ffmpegArgs.length = 0; // Clear and rebuild for GIF
+      ffmpegArgs.length = 0;
       ffmpegArgs.push(
         '-y',
         '-i', downloadedPath,
@@ -918,7 +907,6 @@ app.get('/api/download', async (req, res) => {
         '-loop', '0'
       );
     } else {
-      // Just copy streams - yt-dlp already downloaded H.264+AAC
       ffmpegArgs.push('-codec', 'copy');
       if (container === 'mp4' || container === 'mov') {
         ffmpegArgs.push('-movflags', '+faststart');
@@ -954,7 +942,6 @@ app.get('/api/download', async (req, res) => {
     const stat = fs.statSync(actualFinalFile);
     const safeFilename = sanitizeFilename(filename || 'download');
     const fullFilename = `${safeFilename}.${actualOutputExt}`;
-    // For Content-Disposition, use ASCII-only filename and UTF-8 encoded version
     const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, '_') + '.' + actualOutputExt;
     const mimeType = isGif 
       ? 'image/gif'
@@ -1224,7 +1211,6 @@ app.get('/api/download-playlist', async (req, res) => {
         if (isAudio) {
           ytdlpArgs.push('-f', 'bestaudio/best');
         } else {
-          // Prefer H.264 video + AAC audio for compatibility
           const maxHeight = QUALITY_HEIGHT[quality];
           if (maxHeight) {
             ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
