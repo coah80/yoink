@@ -1806,6 +1806,15 @@ https://youtube.com/watch?v=..."></textarea>
                       </svg>
                     </button>
                   ` : ''}
+                  ${item.isPlaylist && isActive && item.currentVideo > 0 ? `
+                    <button class="queue-item-retry" onclick="event.stopPropagation(); finishPlaylistEarly('${item.id}')" title="Download now (skip remaining)">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                    </button>
+                  ` : ''}
                   <button class="queue-item-remove" onclick="event.stopPropagation(); removeFromQueue('${item.id}')" title="Remove">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -2003,6 +2012,18 @@ https://youtube.com/watch?v=..."></textarea>
       renderQueue();
       
       await startDownload(item);
+    }
+
+    async function finishPlaylistEarly(id) {
+      try {
+        const response = await fetch(`${API_BASE}/api/finish-early/${id}`, { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+          showToast('Finishing playlist early, packaging downloaded videos...', 'info');
+        }
+      } catch (err) {
+        showToast('Failed to finish early', 'error');
+      }
     }
 
     async function startDownload(item) {

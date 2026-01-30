@@ -868,6 +868,29 @@ app.post('/api/cancel/:id', (req, res) => {
   }
 });
 
+app.post('/api/finish-early/:id', (req, res) => {
+  const { id } = req.params;
+  
+  const processInfo = activeProcesses.get(id);
+  if (processInfo) {
+    console.log(`[${id}] Finishing playlist early...`);
+    processInfo.finishEarly = true;
+    
+    if (processInfo.process) {
+      try {
+        processInfo.process.kill('SIGTERM');
+      } catch (e) {
+        console.error(`[${id}] Error stopping current download:`, e);
+      }
+    }
+    
+    sendProgress(id, 'finishing-early', 'Finishing early, packaging downloaded videos...');
+    res.json({ success: true, message: 'Finishing early' });
+  } else {
+    res.json({ success: false, message: 'Download not found or already completed' });
+  }
+});
+
 function sendProgress(downloadId, stage, message, progress = null, extra = null) {
   const res = activeDownloads.get(downloadId);
   if (res) {
@@ -1351,6 +1374,11 @@ app.get('/api/download-playlist', async (req, res) => {
       }
       if (processInfo.cancelled) {
         throw new Error('Download cancelled');
+      }
+
+      if (processInfo.finishEarly) {
+        console.log(`[${downloadId}] Finishing early after ${downloadedFiles.length} videos`);
+        break;
       }
 
       const entry = playlistInfo.entries[i];
