@@ -1820,139 +1820,219 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
   activeProcesses.set(compressId, processInfo);
 
   try {
-    let actualDuration = videoDuration;
-    if (!actualDuration || actualDuration <= 0) {
-      sendProgress(compressId, 'compressing', 'Analyzing video...', 0);
+    sendProgress(compressId, 'compressing', 'Analyzing video...', 0);
+    
+    const probeResult = await new Promise((resolve, reject) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height,bit_rate,codec_name:format=duration,bit_rate',
+        '-of', 'json',
+        inputPath
+      ]);
       
-      actualDuration = await new Promise((resolve, reject) => {
-        const ffprobe = spawn('ffprobe', [
-          '-v', 'error',
-          '-show_entries', 'format=duration',
-          '-of', 'default=noprint_wrappers=1:nokey=1',
-          inputPath
-        ]);
-        
-        let output = '';
-        ffprobe.stdout.on('data', (data) => { output += data.toString(); });
-        ffprobe.on('close', (code) => {
-          const dur = parseFloat(output.trim());
-          resolve(isNaN(dur) ? 60 : dur);
-        });
-        ffprobe.on('error', () => resolve(60));
+      let output = '';
+      let stderr = '';
+      ffprobe.stdout.on('data', (data) => { output += data.toString(); });
+      ffprobe.stderr.on('data', (data) => { stderr += data.toString(); });
+      ffprobe.on('close', (code) => {
+        try {
+          const parsed = JSON.parse(output);
+          const stream = parsed.streams?.[0] || {};
+          const format = parsed.format || {};
+          resolve({
+            duration: parseFloat(format.duration) || 60,
+            width: parseInt(stream.width) || 1920,
+            height: parseInt(stream.height) || 1080,
+            videoBitrate: parseInt(stream.bit_rate) || parseInt(format.bit_rate) || 0,
+            codec: stream.codec_name || 'unknown'
+          });
+        } catch (e) {
+          resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown' });
+        }
       });
-    }
+      ffprobe.on('error', () => resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown' }));
+    });
+
+    let actualDuration = videoDuration > 0 ? videoDuration : probeResult.duration;
+    const sourceWidth = probeResult.width;
+    const sourceHeight = probeResult.height;
+    const sourceVideoBitrate = probeResult.videoBitrate;
 
     const targetBytes = targetMB * 1024 * 1024;
-    const audioBitrate = 128000;
-    const audioBytes = (audioBitrate / 8) * actualDuration;
-    const videoBytes = targetBytes - audioBytes;
-    const videoBitrate = Math.floor((videoBytes * 8) / actualDuration);
+    const containerOverhead = 0.95;
+    const effectiveBytes = targetBytes * containerOverhead;
     
-    const safetyMargin = 0.92;
-    const adjustedVideoBitrate = Math.floor(videoBitrate * safetyMargin);
-    const finalVideoBitrate = Math.max(100000, adjustedVideoBitrate);
-    const videoBitrateK = Math.floor(finalVideoBitrate / 1000);
-    const maxrateK = Math.floor(videoBitrateK * 1.2);
-    const bufsizeK = Math.floor(videoBitrateK * 2);
+    const audioBitrateK = 96;
+    const audioBytes = (audioBitrateK * 1000 / 8) * actualDuration;
+    
+    const videoBytes = effectiveBytes - audioBytes;
+    const videoBitrate = Math.floor((videoBytes * 8) / actualDuration);
+    const videoBitrateK = Math.floor(videoBitrate / 1000);
 
-    console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Video bitrate: ${videoBitrateK}k (max: ${maxrateK}k), Audio: 128k`);
-
-    sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video...`, 5);
-
-    const pass1Args = [
-      '-y',
-      '-i', inputPath,
-      '-c:v', 'libx264',
-      '-preset', 'medium',
-      '-b:v', `${videoBitrateK}k`,
-      '-maxrate', `${maxrateK}k`,
-      '-bufsize', `${bufsizeK}k`,
-      '-pass', '1',
-      '-passlogfile', passLogFile,
-      '-an',
-      '-f', 'null',
-      process.platform === 'win32' ? 'NUL' : '/dev/null'
-    ];
-
-    await new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', pass1Args);
-      processInfo.process = ffmpeg;
+    const sourceFileSizeMB = fs.statSync(inputPath).size / (1024 * 1024);
+    if (sourceFileSizeMB <= targetMB) {
+      console.log(`[${compressId}] Source already under target size, copying directly`);
+      sendProgress(compressId, 'compressing', 'File already small enough, optimizing...', 50);
       
-      let lastProgress = 0;
-      ffmpeg.stderr.on('data', (data) => {
-        const msg = data.toString();
-        const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1]);
-          const mins = parseInt(timeMatch[2]);
-          const secs = parseInt(timeMatch[3]);
-          const currentTime = hours * 3600 + mins * 60 + secs;
-          const progress = Math.min(45, (currentTime / actualDuration) * 45);
-          if (progress > lastProgress + 2) {
-            lastProgress = progress;
-            sendProgress(compressId, 'compressing', `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`, progress);
-          }
-        }
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', [
+          '-y', '-i', inputPath,
+          '-c:v', 'copy', '-c:a', 'copy',
+          '-movflags', '+faststart',
+          outputPath
+        ]);
+        processInfo.process = ffmpeg;
+        ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Remux failed')));
+        ffmpeg.on('error', reject);
       });
-
-      ffmpeg.on('close', (code) => {
-        if (processInfo.cancelled) reject(new Error('Cancelled'));
-        else if (code === 0) resolve();
-        else reject(new Error(`Pass 1 failed with code ${code}`));
-      });
-
-      ffmpeg.on('error', reject);
-    });
-
-    if (processInfo.cancelled) throw new Error('Cancelled');
-
-    sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video...`, 50);
-
-    const pass2Args = [
-      '-y',
-      '-i', inputPath,
-      '-c:v', 'libx264',
-      '-preset', 'medium',
-      '-b:v', `${videoBitrateK}k`,
-      '-maxrate', `${maxrateK}k`,
-      '-bufsize', `${bufsizeK}k`,
-      '-pass', '2',
-      '-passlogfile', passLogFile,
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-movflags', '+faststart',
-      outputPath
-    ];
-
-    await new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', pass2Args);
-      processInfo.process = ffmpeg;
+    } else {
+      let targetWidth, scaleFilter;
       
-      let lastProgress = 50;
-      ffmpeg.stderr.on('data', (data) => {
-        const msg = data.toString();
-        const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1]);
-          const mins = parseInt(timeMatch[2]);
-          const secs = parseInt(timeMatch[3]);
-          const currentTime = hours * 3600 + mins * 60 + secs;
-          const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
-          if (progress > lastProgress + 2) {
-            lastProgress = progress;
-            sendProgress(compressId, 'compressing', `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`, progress);
+      if (videoBitrateK < 500) {
+        targetWidth = 640;
+        console.log(`[${compressId}] Very low bitrate (${videoBitrateK}k), scaling to 360p`);
+      } else if (videoBitrateK < 1500) {
+        targetWidth = 854;
+        console.log(`[${compressId}] Low bitrate (${videoBitrateK}k), scaling to 480p`);
+      } else if (videoBitrateK < 3000) {
+        targetWidth = 1280;
+        console.log(`[${compressId}] Moderate bitrate (${videoBitrateK}k), scaling to 720p`);
+      } else {
+        targetWidth = Math.min(1920, sourceWidth);
+        console.log(`[${compressId}] Good bitrate (${videoBitrateK}k), using ${targetWidth >= 1920 ? '1080p' : 'source resolution'}`);
+      }
+
+      if (targetWidth >= sourceWidth) {
+        scaleFilter = null;
+        console.log(`[${compressId}] Source (${sourceWidth}x${sourceHeight}) already at or below target, no scaling`);
+      } else {
+        scaleFilter = `scale=${targetWidth}:-2:flags=lanczos`;
+        console.log(`[${compressId}] Scaling from ${sourceWidth}x${sourceHeight} to ${targetWidth}p with lanczos`);
+      }
+
+      const maxrateK = Math.floor(videoBitrateK * 1.5);
+      const bufsizeK = Math.floor(videoBitrateK * 2);
+
+      console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio`);
+
+      sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video...`, 5);
+
+      const pass1Args = [
+        '-y',
+        '-i', inputPath,
+      ];
+      
+      if (scaleFilter) {
+        pass1Args.push('-vf', scaleFilter);
+      }
+      
+      pass1Args.push(
+        '-c:v', 'libx264',
+        '-preset', 'slow',
+        '-b:v', `${videoBitrateK}k`,
+        '-maxrate', `${maxrateK}k`,
+        '-bufsize', `${bufsizeK}k`,
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'high',
+        '-level:v', '4.2',
+        '-pass', '1',
+        '-passlogfile', passLogFile,
+        '-an',
+        '-f', 'null',
+        process.platform === 'win32' ? 'NUL' : '/dev/null'
+      );
+
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', pass1Args);
+        processInfo.process = ffmpeg;
+        
+        let lastProgress = 0;
+        ffmpeg.stderr.on('data', (data) => {
+          const msg = data.toString();
+          const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const mins = parseInt(timeMatch[2]);
+            const secs = parseInt(timeMatch[3]);
+            const currentTime = hours * 3600 + mins * 60 + secs;
+            const progress = Math.min(45, (currentTime / actualDuration) * 45);
+            if (progress > lastProgress + 2) {
+              lastProgress = progress;
+              sendProgress(compressId, 'compressing', `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`, progress);
+            }
           }
-        }
+        });
+
+        ffmpeg.on('close', (code) => {
+          if (processInfo.cancelled) reject(new Error('Cancelled'));
+          else if (code === 0) resolve();
+          else reject(new Error(`Pass 1 failed with code ${code}`));
+        });
+
+        ffmpeg.on('error', reject);
       });
 
-      ffmpeg.on('close', (code) => {
-        if (processInfo.cancelled) reject(new Error('Cancelled'));
-        else if (code === 0) resolve();
-        else reject(new Error(`Pass 2 failed with code ${code}`));
-      });
+      if (processInfo.cancelled) throw new Error('Cancelled');
 
-      ffmpeg.on('error', reject);
-    });
+      sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video...`, 50);
+
+      const pass2Args = [
+        '-y',
+        '-i', inputPath,
+      ];
+      
+      if (scaleFilter) {
+        pass2Args.push('-vf', scaleFilter);
+      }
+      
+      pass2Args.push(
+        '-c:v', 'libx264',
+        '-preset', 'slow',
+        '-b:v', `${videoBitrateK}k`,
+        '-maxrate', `${maxrateK}k`,
+        '-bufsize', `${bufsizeK}k`,
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'high',
+        '-level:v', '4.2',
+        '-pass', '2',
+        '-passlogfile', passLogFile,
+        '-c:a', 'aac',
+        '-b:a', `${audioBitrateK}k`,
+        '-movflags', '+faststart',
+        outputPath
+      );
+
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', pass2Args);
+        processInfo.process = ffmpeg;
+        
+        let lastProgress = 50;
+        ffmpeg.stderr.on('data', (data) => {
+          const msg = data.toString();
+          const timeMatch = msg.match(/time=(\d+):(\d+):(\d+)/);
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const mins = parseInt(timeMatch[2]);
+            const secs = parseInt(timeMatch[3]);
+            const currentTime = hours * 3600 + mins * 60 + secs;
+            const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
+            if (progress > lastProgress + 2) {
+              lastProgress = progress;
+              sendProgress(compressId, 'compressing', `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`, progress);
+            }
+          }
+        });
+
+        ffmpeg.on('close', (code) => {
+          if (processInfo.cancelled) reject(new Error('Cancelled'));
+          else if (code === 0) resolve();
+          else reject(new Error(`Pass 2 failed with code ${code}`));
+        });
+
+        ffmpeg.on('error', reject);
+      });
+    }
 
     try { fs.unlinkSync(inputPath); } catch {}
     try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
