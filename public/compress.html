@@ -1149,6 +1149,64 @@
       }
     }
 
+    const CHUNK_SIZE = 50 * 1024 * 1024;
+
+    async function uploadChunked(file, onProgress) {
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      
+      const initRes = await fetch(`${API_BASE}/api/upload/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          totalChunks
+        })
+      });
+      
+      if (!initRes.ok) {
+        const err = await initRes.json();
+        throw new Error(err.error || 'Failed to initialize upload');
+      }
+      
+      const { uploadId } = await initRes.json();
+      
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        
+        const chunkRes = await fetch(`${API_BASE}/api/upload/chunk/${uploadId}/${i}`, {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!chunkRes.ok) {
+          const err = await chunkRes.json();
+          throw new Error(err.error || `Failed to upload chunk ${i + 1}`);
+        }
+        
+        const progress = ((i + 1) / totalChunks) * 100;
+        onProgress(progress);
+      }
+      
+      const completeRes = await fetch(`${API_BASE}/api/upload/complete/${uploadId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      
+      if (!completeRes.ok) {
+        const err = await completeRes.json();
+        throw new Error(err.error || 'Failed to complete upload');
+      }
+      
+      return await completeRes.json();
+    }
+
     async function compress() {
       if (!selectedFile) return;
 
@@ -1168,15 +1226,10 @@
       progressStatus.textContent = 'Uploading...';
       progressDetails.textContent = 'Sending file to server...';
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('targetSize', actualSize.toString());
-      formData.append('duration', videoDuration.toString());
+      const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      const useChunked = selectedFile.size > 90 * 1024 * 1024;
 
       try {
-        const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-        formData.append('progressId', progressId);
-
         const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
         
         eventSource.onmessage = (event) => {
@@ -1205,10 +1258,51 @@
           }
         };
 
-        const response = await fetch(`${API_BASE}/api/compress`, {
-          method: 'POST',
-          body: formData
-        });
+        let response;
+
+        if (useChunked) {
+          progressStatus.textContent = 'Uploading...';
+          progressDetails.textContent = `Large file detected, uploading in chunks...`;
+          
+          let uploadResult;
+          try {
+            uploadResult = await uploadChunked(selectedFile, (progress) => {
+              progressFill.style.width = `${progress * 0.5}%`;
+              progressPercent.textContent = `${Math.round(progress * 0.5)}%`;
+              progressDetails.textContent = `Uploading... ${Math.round(progress)}%`;
+            });
+          } catch (uploadErr) {
+            eventSource.close();
+            throw uploadErr;
+          }
+          
+          const { filePath, fileName } = uploadResult;
+          progressStatus.textContent = 'Starting compression...';
+          progressDetails.textContent = 'File uploaded, starting compression...';
+          
+          response = await fetch(`${API_BASE}/api/compress-chunked`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filePath,
+              fileName,
+              targetSize: actualSize.toString(),
+              duration: videoDuration.toString(),
+              progressId
+            })
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          formData.append('targetSize', actualSize.toString());
+          formData.append('duration', videoDuration.toString());
+          formData.append('progressId', progressId);
+
+          response = await fetch(`${API_BASE}/api/compress`, {
+            method: 'POST',
+            body: formData
+          });
+        }
 
         eventSource.close();
 

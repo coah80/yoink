@@ -1714,7 +1714,9 @@ const upload = multer({
   limits: { fileSize: FILE_SIZE_LIMIT }
 });
 
-app.post('/api/convert', upload.single('file'), async (req, res) => {
+app.post('/api/convert', upload.single('file'), (req, res) => handleConvert(req, res));
+
+async function handleConvert(req, res) {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
@@ -1910,9 +1912,274 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
       res.status(500).json({ error: err.message || 'Conversion failed' });
     }
   }
+}
+
+const chunkedUploads = new Map();
+const CHUNK_SIZE = 50 * 1024 * 1024;
+const CHUNK_TIMEOUT = 30 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [uploadId, data] of chunkedUploads.entries()) {
+    if (now - data.lastActivity > CHUNK_TIMEOUT) {
+      console.log(`[Chunk] Upload ${uploadId} timed out, cleaning up`);
+      try {
+        const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(`chunk-${uploadId}-`));
+        for (const f of files) {
+          fs.unlinkSync(path.join(TEMP_DIR, f));
+        }
+      } catch {}
+      chunkedUploads.delete(uploadId);
+    }
+  }
+}, 60000);
+
+app.post('/api/upload/init', express.json(), (req, res) => {
+  const { fileName, fileSize, totalChunks } = req.body;
+  
+  if (!fileName || !fileSize || !totalChunks) {
+    return res.status(400).json({ error: 'Missing fileName, fileSize, or totalChunks' });
+  }
+  
+  const numericFileSize = Number(fileSize);
+  if (!Number.isFinite(numericFileSize) || numericFileSize <= 0) {
+    return res.status(400).json({ error: 'fileSize must be a positive number' });
+  }
+  if (numericFileSize > FILE_SIZE_LIMIT) {
+    return res.status(400).json({ error: `File too large. Maximum size is ${FILE_SIZE_LIMIT / (1024 * 1024 * 1024)}GB` });
+  }
+  
+  if (totalChunks > 200) {
+    return res.status(400).json({ error: 'Too many chunks (max 200)' });
+  }
+  
+  const uploadId = uuidv4();
+  chunkedUploads.set(uploadId, {
+    fileName,
+    fileSize: numericFileSize,
+    totalChunks,
+    receivedChunks: new Set(),
+    lastActivity: Date.now()
+  });
+  
+  console.log(`[Chunk] Initialized upload ${uploadId}: ${fileName} (${(fileSize / 1024 / 1024).toFixed(1)}MB, ${totalChunks} chunks)`);
+  res.json({ uploadId });
 });
 
-app.post('/api/compress', upload.single('file'), async (req, res) => {
+app.post('/api/upload/chunk/:uploadId/:chunkIndex', upload.single('chunk'), (req, res) => {
+  const { uploadId, chunkIndex } = req.params;
+  const index = parseInt(chunkIndex, 10);
+  
+  const uploadData = chunkedUploads.get(uploadId);
+  if (!uploadData) {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    return res.status(404).json({ error: 'Upload not found or expired' });
+  }
+  
+  if (!req.file) {
+    return res.status(400).json({ error: 'No chunk data' });
+  }
+  
+  if (index < 0 || index >= uploadData.totalChunks) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: 'Invalid chunk index' });
+  }
+  
+  const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(index).padStart(4, '0')}`);
+  
+  try {
+    fs.renameSync(req.file.path, chunkPath);
+  } catch (err) {
+    console.error(`[Chunk] Failed to save chunk ${index} for upload ${uploadId}:`, err.message);
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(500).json({ error: 'Failed to save chunk. Disk may be full or permissions issue.' });
+  }
+  
+  uploadData.receivedChunks.add(index);
+  uploadData.lastActivity = Date.now();
+  
+  const received = uploadData.receivedChunks.size;
+  const total = uploadData.totalChunks;
+  console.log(`[Chunk] Upload ${uploadId}: chunk ${index + 1}/${total}`);
+  
+  res.json({ 
+    received, 
+    total, 
+    complete: received === total 
+  });
+});
+
+app.post('/api/upload/complete/:uploadId', express.json(), async (req, res) => {
+  const { uploadId } = req.params;
+  
+  const uploadData = chunkedUploads.get(uploadId);
+  if (!uploadData) {
+    return res.status(404).json({ error: 'Upload not found or expired' });
+  }
+  
+  if (uploadData.receivedChunks.size !== uploadData.totalChunks) {
+    return res.status(400).json({ 
+      error: `Missing chunks: received ${uploadData.receivedChunks.size}/${uploadData.totalChunks}` 
+    });
+  }
+  
+  const assembledPath = path.join(TEMP_DIR, `assembled-${uploadId}-${sanitizeFilename(uploadData.fileName)}`);
+  
+  try {
+    const writeStream = fs.createWriteStream(assembledPath);
+    
+    for (let i = 0; i < uploadData.totalChunks; i++) {
+      const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(i).padStart(4, '0')}`);
+      
+      await new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(chunkPath);
+        readStream.on('error', reject);
+        readStream.on('end', () => {
+          fs.unlink(chunkPath, () => {});
+          resolve();
+        });
+        readStream.pipe(writeStream, { end: false });
+      });
+    }
+    
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+      writeStream.end();
+    });
+    
+    chunkedUploads.delete(uploadId);
+    
+    console.log(`[Chunk] Upload ${uploadId} assembled: ${assembledPath}`);
+    res.json({ 
+      success: true, 
+      filePath: assembledPath,
+      fileName: uploadData.fileName
+    });
+    
+  } catch (err) {
+    console.error(`[Chunk] Assembly failed for ${uploadId}:`, err);
+    chunkedUploads.delete(uploadId);
+    res.status(500).json({ error: 'Failed to assemble file' });
+  }
+});
+
+function validateChunkedFilePath(filePath) {
+  if (!filePath) return null;
+  const resolved = path.resolve(filePath);
+  const relative = path.relative(TEMP_DIR, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return resolved;
+}
+
+app.post('/api/compress-chunked', express.json(), async (req, res) => {
+  const { 
+    filePath,
+    fileName,
+    targetSize = '50', 
+    duration = '0', 
+    progressId, 
+    clientId,
+    mode = 'size',
+    quality = 'medium',
+    codec = 'h264',
+    denoise = 'auto'
+  } = req.body;
+  
+  const validPath = validateChunkedFilePath(filePath);
+  if (!validPath) {
+    return res.status(400).json({ error: 'Invalid file path' });
+  }
+  
+  if (!fs.existsSync(validPath)) {
+    return res.status(400).json({ error: 'File not found. Complete chunked upload first.' });
+  }
+  
+  if (!ALLOWED_MODES.includes(mode)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid mode. Allowed: ${ALLOWED_MODES.join(', ')}` });
+  }
+  if (!ALLOWED_QUALITIES.includes(quality)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
+  }
+  if (!ALLOWED_CODECS.includes(codec)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid codec. Allowed: ${ALLOWED_CODECS.join(', ')}` });
+  }
+  if (!ALLOWED_DENOISE.includes(denoise)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
+  }
+  
+  req.file = { path: validPath, originalname: fileName || 'video.mp4' };
+  req.body.targetSize = targetSize;
+  req.body.duration = duration;
+  req.body.progressId = progressId;
+  req.body.clientId = clientId;
+  req.body.mode = mode;
+  req.body.quality = quality;
+  req.body.codec = codec;
+  req.body.denoise = denoise;
+  
+  return handleCompress(req, res);
+});
+
+app.post('/api/compress', upload.single('file'), (req, res) => handleCompress(req, res));
+
+const ALLOWED_FORMATS = ['mp4', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'opus', 'wav', 'flac'];
+const ALLOWED_REENCODES = ['auto', 'always', 'never'];
+
+app.post('/api/convert-chunked', express.json(), async (req, res) => {
+  const { 
+    filePath,
+    fileName,
+    format = 'mp4',
+    clientId,
+    quality = 'medium',
+    reencode = 'auto',
+    startTime,
+    endTime,
+    audioBitrate = '192'
+  } = req.body;
+  
+  const validPath = validateChunkedFilePath(filePath);
+  if (!validPath) {
+    return res.status(400).json({ error: 'Invalid file path' });
+  }
+  
+  if (!fs.existsSync(validPath)) {
+    return res.status(400).json({ error: 'File not found. Complete chunked upload first.' });
+  }
+  
+  if (!ALLOWED_FORMATS.includes(format)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid format. Allowed: ${ALLOWED_FORMATS.join(', ')}` });
+  }
+  if (!ALLOWED_REENCODES.includes(reencode)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid reencode option. Allowed: ${ALLOWED_REENCODES.join(', ')}` });
+  }
+  if (!ALLOWED_QUALITIES.includes(quality)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
+  }
+  
+  req.file = { path: validPath, originalname: fileName || 'video.mp4' };
+  req.body.format = format;
+  req.body.clientId = clientId;
+  req.body.quality = quality;
+  req.body.reencode = reencode;
+  req.body.startTime = startTime;
+  req.body.endTime = endTime;
+  req.body.audioBitrate = audioBitrate;
+  
+  return handleConvert(req, res);
+});
+
+async function handleCompress(req, res) {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
@@ -2424,7 +2691,7 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
       res.status(500).json({ error: err.message || 'Compression failed' });
     }
   }
-});
+}
 
 app.post('/api/analytics/track', (req, res) => {
   const { type, page, trackingId } = req.body;

@@ -461,6 +461,73 @@
       status.className = 'status';
     }
 
+    const CHUNK_SIZE = 50 * 1024 * 1024;
+
+    async function safeParseError(res) {
+      const text = await res.text().catch(() => '');
+      try {
+        const data = JSON.parse(text);
+        return data.error || `Request failed with status ${res.status}`;
+      } catch {
+        return text || `Request failed with status ${res.status}`;
+      }
+    }
+
+    async function uploadChunked(file, onProgress) {
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      
+      const initRes = await fetch(`${API_BASE}/api/upload/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          totalChunks
+        })
+      });
+      
+      if (!initRes.ok) {
+        const errMsg = await safeParseError(initRes);
+        throw new Error(errMsg);
+      }
+      
+      const { uploadId } = await initRes.json();
+      
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        
+        const chunkRes = await fetch(`${API_BASE}/api/upload/chunk/${uploadId}/${i}`, {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!chunkRes.ok) {
+          const errMsg = await safeParseError(chunkRes);
+          throw new Error(errMsg);
+        }
+        
+        onProgress(((i + 1) / totalChunks) * 100);
+      }
+      
+      const completeRes = await fetch(`${API_BASE}/api/upload/complete/${uploadId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      
+      if (!completeRes.ok) {
+        const errMsg = await safeParseError(completeRes);
+        throw new Error(errMsg);
+      }
+      
+      return await completeRes.json();
+    }
+
     async function convertFile() {
       if (!selectedFile) return;
 
@@ -470,28 +537,52 @@
       progressText.textContent = 'Uploading...';
       status.className = 'status';
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('format', targetFormat);
+      const useChunked = selectedFile.size > 90 * 1024 * 1024;
 
       try {
-        let progress = 0;
-        const uploadInterval = setInterval(() => {
-          progress += Math.random() * 15;
-          if (progress > 90) progress = 90;
-          progressFill.style.width = progress + '%';
-        }, 200);
+        let response;
 
-        const response = await fetch(`${API_BASE}/api/convert`, {
-          method: 'POST',
-          body: formData
-        });
+        if (useChunked) {
+          const { filePath, fileName } = await uploadChunked(selectedFile, (progress) => {
+            progressFill.style.width = `${progress * 0.9}%`;
+          });
+          
+          progressText.textContent = 'Converting...';
+          
+          response = await fetch(`${API_BASE}/api/convert-chunked`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filePath,
+              fileName,
+              format: targetFormat
+            })
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          formData.append('format', targetFormat);
 
-        clearInterval(uploadInterval);
+          let progress = 0;
+          const uploadInterval = setInterval(() => {
+            progress += Math.random() * 15;
+            if (progress > 90) progress = 90;
+            progressFill.style.width = progress + '%';
+          }, 200);
+
+          try {
+            response = await fetch(`${API_BASE}/api/convert`, {
+              method: 'POST',
+              body: formData
+            });
+          } finally {
+            clearInterval(uploadInterval);
+          }
+        }
 
         if (!response.ok) {
-          const err = await response.json();
-          throw new Error(err.error || 'Conversion failed');
+          const errMsg = await safeParseError(response);
+          throw new Error(errMsg);
         }
 
         progressFill.style.width = '100%';
