@@ -803,6 +803,7 @@ app.get('/api/download', async (req, res) => {
     console.log(`[${downloadId}] yt-dlp command: yt-dlp ${ytdlpArgs.join(' ')}`);
 
     let lastProgress = 0;
+    let stderrOutput = '';
     await new Promise((resolve, reject) => {
       const ytdlp = spawn('yt-dlp', ytdlpArgs);
       
@@ -822,6 +823,7 @@ app.get('/api/download', async (req, res) => {
 
       ytdlp.stderr.on('data', (data) => {
         const msg = data.toString();
+        stderrOutput += msg;
         if (msg.includes('ERROR')) {
           console.error(`[${downloadId}] yt-dlp error: ${msg.trim()}`);
         } else if (msg.includes('[download]') && msg.includes('%')) {
@@ -838,7 +840,11 @@ app.get('/api/download', async (req, res) => {
 
       ytdlp.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`Download failed (code ${code}). Try again or use a different URL.`));
+        else {
+          const errorMatch = stderrOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
+          const errorMessage = errorMatch ? errorMatch[1].trim() : 'Download failed';
+          reject(new Error(errorMessage));
+        }
       });
 
       ytdlp.on('error', reject);
@@ -1022,6 +1028,8 @@ app.get('/api/download', async (req, res) => {
   } catch (err) {
     console.error(`[${downloadId}] Error:`, err.message);
     
+    sendProgress(downloadId, 'error', err.message || 'Download failed');
+    
     activeProcesses.delete(downloadId);
     activeJobsByType.download--;
     unlinkJobFromClient(downloadId);
@@ -1110,7 +1118,9 @@ app.get('/api/download-playlist', async (req, res) => {
 
       ytdlp.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error('Failed to get playlist info'));
+          const errorMatch = errorOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
+          const errorMessage = errorMatch ? errorMatch[1].trim() : 'Failed to get playlist info';
+          reject(new Error(errorMessage));
           return;
         }
         try {
@@ -1229,6 +1239,8 @@ app.get('/api/download-playlist', async (req, res) => {
           
           processInfo.process = ytdlp;
           
+          let stderrOutput = '';
+          
           ytdlp.stdout.on('data', (data) => {
             const msg = data.toString().trim();
             const match = msg.match(/([\d.]+)%/);
@@ -1250,6 +1262,7 @@ app.get('/api/download-playlist', async (req, res) => {
 
           ytdlp.stderr.on('data', (data) => {
             const msg = data.toString();
+            stderrOutput += msg;
             if (msg.includes('[download]') && msg.includes('%')) {
               const match = msg.match(/([\d.]+)%/);
               if (match) {
@@ -1271,7 +1284,11 @@ app.get('/api/download-playlist', async (req, res) => {
 
           ytdlp.on('close', (code) => {
             if (code === 0) resolve();
-            else reject(new Error(`Failed to download video ${videoNum}`));
+            else {
+              const errorMatch = stderrOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
+              const errorMessage = errorMatch ? errorMatch[1].trim() : `Failed to download video ${videoNum}`;
+              reject(new Error(errorMessage));
+            }
           });
 
           ytdlp.on('error', reject);
