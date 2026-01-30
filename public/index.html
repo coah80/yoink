@@ -345,10 +345,11 @@
     .url-input-wrapper {
       display: flex;
       align-items: center;
+      gap: 8px;
       background: var(--surface);
       border: 2px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 4px;
+      padding: 6px 6px 6px 16px;
       transition: border-color 0.15s ease-out;
     }
 
@@ -356,17 +357,17 @@
       border-color: var(--purple-500);
     }
 
-    .url-input-wrapper svg {
+    .url-input-wrapper > svg {
       width: 20px;
       height: 20px;
-      margin-left: 16px;
       color: var(--text-muted);
       flex-shrink: 0;
     }
 
     .url-input {
       flex: 1;
-      padding: 14px 16px;
+      min-width: 0;
+      padding: 12px 8px;
       font-family: var(--font-body);
       font-size: 1rem;
       font-weight: 400;
@@ -384,15 +385,15 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 44px;
-      height: 44px;
-      font-family: var(--font-body);
+      width: 42px;
+      height: 42px;
       background: var(--surface-elevated);
       color: var(--text-secondary);
       border: none;
       border-radius: var(--radius-md);
       cursor: pointer;
       transition: all 0.15s ease-out;
+      flex-shrink: 0;
     }
 
     .paste-btn:hover {
@@ -1380,10 +1381,6 @@ https://youtube.com/watch?v=..."></textarea>
   </div>
 
   <script>
-    const API_BASE = window.location.hostname === 'localhost' 
-      ? 'http://localhost:3001'
-      : 'https://yoink.coah80.com';
-
     const splashTexts = [
       { text: "yoink it, go on..." },
       { text: "not cobalt" },

@@ -420,20 +420,11 @@ const ALLOWED_ORIGINS = [
   'https://yoink.pages.dev',
   'https://yoink-tools.pages.dev',
   /\.pages\.dev$/,
+  /\.yoink\.tools$/,
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    for (const allowed of ALLOWED_ORIGINS) {
-      if (allowed instanceof RegExp) {
-        if (allowed.test(origin)) return callback(null, true);
-      } else if (allowed === origin) {
-        return callback(null, true);
-      }
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: true,
   credentials: true
 }));
 
@@ -498,13 +489,13 @@ function sanitizeFilename(filename) {
 }
 
 const QUALITY_FORMATS = {
-  'best': 'bestvideo+bestaudio/best',
-  '4k': 'bestvideo[height<=2160]+bestaudio/best[height<=2160]',
-  '1440p': 'bestvideo[height<=1440]+bestaudio/best[height<=1440]',
-  '1080p': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-  '720p': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
-  '480p': 'bestvideo[height<=480]+bestaudio/best[height<=480]',
-  '360p': 'bestvideo[height<=360]+bestaudio/best[height<=360]'
+  'best': 'bestvideo*+bestaudio/best',
+  '4k': 'bestvideo*[height<=2160]+bestaudio/bestvideo*+bestaudio/best',
+  '1440p': 'bestvideo*[height<=1440]+bestaudio/bestvideo*+bestaudio/best',
+  '1080p': 'bestvideo*[height<=1080]+bestaudio/bestvideo*+bestaudio/best',
+  '720p': 'bestvideo*[height<=720]+bestaudio/bestvideo*+bestaudio/best',
+  '480p': 'bestvideo*[height<=480]+bestaudio/bestvideo*+bestaudio/best',
+  '360p': 'bestvideo*[height<=360]+bestaudio/bestvideo*+bestaudio/best'
 };
 
 const CONTAINER_MIMES = {
