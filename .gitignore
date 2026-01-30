@@ -3,21 +3,15 @@ node_modules/
 *.log
 downloads/
 
-# Admin config (create your own)
+## make ur own admin panel config :)
 api/admin-config.js
 api/analytics.json
-
-# OS files
 Thumbs.db
 .Spotlight-V100
 .Trashes
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Temp files
 *.tmp
 *.bak
