@@ -734,9 +734,11 @@ app.get('/api/download', async (req, res) => {
     audioBitrate = '320',
     progressId,
     playlist = 'false',
-    clientId
+    clientId,
+    twitterGifs = 'true'
   } = req.query;
   
+  const convertTwitterGifs = twitterGifs === 'true';
   const downloadPlaylist = playlist === 'true';
 
   const urlCheck = validateUrl(url);
@@ -858,7 +860,7 @@ app.get('/api/download', async (req, res) => {
     const isTwitter = url.includes('twitter.com') || url.includes('x.com');
     let isGif = false;
     
-    if (isTwitter && !isAudio) {
+    if (isTwitter && !isAudio && convertTwitterGifs) {
       try {
         const probeResult = execSync(
           `ffprobe -v quiet -print_format json -show_streams -show_format "${downloadedPath}"`,

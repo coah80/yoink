@@ -566,6 +566,16 @@
       </div>
 
       <div class="settings-card">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="setting-label">twitter/x gifs as gif</div>
+            <p class="setting-description">automatically convert twitter/x "gifs" (which are actually videos) to real gif files. turn off to keep them as mp4.</p>
+          </div>
+          <button class="toggle active" id="twitterGifsToggle"></button>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <div class="setting-label">playlist behavior</div>
         <div class="segmented-control" id="playlistControl">
           <button class="segment active" data-value="ask">ask me</button>
@@ -672,7 +682,8 @@
       h265: false,
       metadata: true,
       playlistPreference: null,
-      analytics: true
+      analytics: true,
+      twitterGifs: true
     };
 
     const filenameExamples = {
@@ -701,6 +712,8 @@
       const playlistValue = settings.playlistPreference === null ? 'ask' : settings.playlistPreference;
       setActiveOption('playlistControl', playlistValue);
       if (settings.subtitles) document.getElementById('subtitlesToggle').classList.add('active');
+      if (settings.twitterGifs !== false) document.getElementById('twitterGifsToggle').classList.add('active');
+      else document.getElementById('twitterGifsToggle').classList.remove('active');
       if (settings.h265) document.getElementById('h265Toggle').classList.add('active');
       if (settings.metadata) document.getElementById('metadataToggle').classList.add('active');
       if (settings.analytics) document.getElementById('analyticsToggle').classList.add('active');
@@ -820,6 +833,12 @@
     document.getElementById('subtitlesToggle').addEventListener('click', function() {
       this.classList.toggle('active');
       settings.subtitles = this.classList.contains('active');
+      saveSettings();
+    });
+
+    document.getElementById('twitterGifsToggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      settings.twitterGifs = this.classList.contains('active');
       saveSettings();
     });
 

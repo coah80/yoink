@@ -1502,8 +1502,12 @@ https://youtube.com/watch?v=..."></textarea>
       if (savedQueue) {
         try {
           const parsed = JSON.parse(savedQueue);
-          queue = parsed.filter(item => item.stage === 'queued' || item.stage === 'complete' || item.stage === 'error');
-          queue = queue.filter(item => item.stage !== 'complete' && item.stage !== 'error');
+          queue = parsed.map(item => {
+            if (['downloading', 'processing', 'remuxing', 'starting', 'zipping', 'playlist-info'].includes(item.stage)) {
+              return { ...item, stage: 'queued', progress: 0, status: 'Interrupted - tap to restart' };
+            }
+            return item;
+          }).filter(item => item.stage !== 'complete' && item.stage !== 'error');
         } catch (e) {
           queue = [];
         }
@@ -1564,7 +1568,8 @@ https://youtube.com/watch?v=..."></textarea>
         audioFormat: 'mp3',
         audioBitrate: '320',
         filenameStyle: 'basic',
-        playlistPreference: null
+        playlistPreference: null,
+        twitterGifs: true
       };
     }
 
@@ -2009,7 +2014,8 @@ https://youtube.com/watch?v=..."></textarea>
         container: settings.container,
         audioFormat: settings.audioFormat,
         audioBitrate: settings.audioBitrate,
-        progressId: item.id
+        progressId: item.id,
+        twitterGifs: settings.twitterGifs !== false ? 'true' : 'false'
       });
 
       const endpoint = item.isPlaylist ? '/api/download-playlist' : '/api/download';
