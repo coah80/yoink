@@ -1425,8 +1425,35 @@ https://youtube.com/watch?v=..."></textarea>
       { text: "powered by yt-dlp" },
       { text: "hello world!" },
       { text: "1000+ sites!", link: "https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md", classes: ["clickable"] },
+      { text: "yes, that site works. even the one you're thinking of." }
+    ];
+// this is the stupidest fucking thing i have ever done for a website bro
+    const pornSites = [
+      '4tube', 'alphaporno', 'beeg', 'behindkink', 'bongacams', 'cam4', 'cammodels', 'camsoda',
+      'chaturbate', 'drtuber', 'empflix', 'eporner', 'erocast', 'eroprofile', 'fux', 'hellporno',
+      'hotmovs', 'iceporn', 'lovehomeporn', 'manyvids', 'motherless', 'moviefap', 'noodlemagazine',
+      'nuvid', 'peekvideos', 'peekvids', 'playvids', 'porn', 'pornbox', 'pornerbros', 'pornflip',
+      'pornhub', 'pornotube', 'pornovoisines', 'pornoxo', 'porntop', 'porntube', 'redtube',
+      'rule34video', 'slutload', 'spankbang', 'stripchat', 'sunporno', 'thisvid', 'tnaflix',
+      'tube8', 'txxx', 'xhamster', 'xnxx', 'xvideos', 'xxxymovies', 'youjizz', 'youporn',
+      'zenporn', 'xtube', 'erome', 'hentai', 'hclips', 'gotporn', 'fuq', 'ashemaletube'
     ];
 
+    function isPornSite(url) {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase().replace('www.', '');
+        return pornSites.some(site => hostname.includes(site));
+      } catch {
+        return false;
+      }
+    }
+
+    function showPornSplash() {
+      const splashEl = document.getElementById('splash');
+      splashEl.textContent = "okay dude are you just gonna download porn";
+      splashEl.className = 'splash';
+    }
+// porn ends here
     let currentFormat = 'auto';
     let queue = [];
     let settings = loadSettings();
@@ -2059,6 +2086,10 @@ https://youtube.com/watch?v=..."></textarea>
       } catch {
         showToast('Please enter a valid URL', 'error');
         return;
+      }
+// more porn
+      if (isPornSite(url)) {
+        showPornSplash();
       }
 
       let downloadPlaylist = false;
