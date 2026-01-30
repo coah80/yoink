@@ -488,14 +488,15 @@ function sanitizeFilename(filename) {
     .slice(0, 200);
 }
 
-const QUALITY_FORMATS = {
-  'best': 'bestvideo*+bestaudio/best',
-  '4k': 'bestvideo*[height<=2160]+bestaudio/bestvideo*+bestaudio/best',
-  '1440p': 'bestvideo*[height<=1440]+bestaudio/bestvideo*+bestaudio/best',
-  '1080p': 'bestvideo*[height<=1080]+bestaudio/bestvideo*+bestaudio/best',
-  '720p': 'bestvideo*[height<=720]+bestaudio/bestvideo*+bestaudio/best',
-  '480p': 'bestvideo*[height<=480]+bestaudio/bestvideo*+bestaudio/best',
-  '360p': 'bestvideo*[height<=360]+bestaudio/bestvideo*+bestaudio/best'
+// Max height for each quality setting
+const QUALITY_HEIGHT = {
+  'best': null,  // No limit
+  '4k': 2160,
+  '1440p': 1440,
+  '1080p': 1080,
+  '720p': 720,
+  '480p': 480,
+  '360p': 360
 };
 
 const CONTAINER_MIMES = {
@@ -781,17 +782,28 @@ app.get('/api/download', async (req, res) => {
       '--newline',
       '--progress-template', '%(progress._percent_str)s',
       '-o', tempFile,
-      '--extractor-args', 'youtube:player_client=web',
+      '--ffmpeg-location', '/usr/bin/ffmpeg',
     ];
 
     if (isAudio) {
       ytdlpArgs.push('-f', 'bestaudio/best');
     } else {
-      const formatStr = QUALITY_FORMATS[quality] || QUALITY_FORMATS['1080p'];
-      ytdlpArgs.push('-f', formatStr);
+      // Prefer H.264 video + AAC/M4A audio for QuickTime compatibility
+      // Fall back to any format if H.264 not available
+      const maxHeight = QUALITY_HEIGHT[quality];
+      if (maxHeight) {
+        // H.264 with height limit, fallback to any codec
+        ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
+      } else {
+        // Best H.264, fallback to any
+        ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
+      }
+      ytdlpArgs.push('--merge-output-format', container);
     }
 
     ytdlpArgs.push(url);
+    
+    console.log(`[${downloadId}] yt-dlp command: yt-dlp ${ytdlpArgs.join(' ')}`);
 
     let lastProgress = 0;
     await new Promise((resolve, reject) => {
@@ -847,7 +859,33 @@ app.get('/api/download', async (req, res) => {
     }
 
     const downloadedPath = path.join(TEMP_DIR, downloadedFile);
-    sendProgress(downloadId, 'processing', 'Processing video...', 100);
+    
+    // Check if this is a Twitter/X GIF (short video, no audio, from twitter)
+    const isTwitter = url.includes('twitter.com') || url.includes('x.com');
+    let isGif = false;
+    
+    if (isTwitter && !isAudio) {
+      // Use ffprobe to check if it's a GIF-like video (short, no audio)
+      try {
+        const probeResult = execSync(
+          `ffprobe -v quiet -print_format json -show_streams -show_format "${downloadedPath}"`,
+          { encoding: 'utf8' }
+        );
+        const probe = JSON.parse(probeResult);
+        const hasAudio = probe.streams?.some(s => s.codec_type === 'audio');
+        const duration = parseFloat(probe.format?.duration || '999');
+        // Twitter GIFs are typically short (< 60s) and have no audio
+        isGif = !hasAudio && duration < 60;
+      } catch (e) {
+        console.log(`[${downloadId}] Could not probe for GIF detection: ${e.message}`);
+      }
+    }
+    
+    // Update output extension if it's a GIF
+    const actualOutputExt = isGif ? 'gif' : outputExt;
+    const actualFinalFile = isGif ? path.join(TEMP_DIR, `${downloadId}-final.gif`) : finalFile;
+
+    sendProgress(downloadId, 'processing', isGif ? 'Converting to GIF...' : 'Processing video...', 100);
 
     const ffmpegArgs = [
       '-y',
@@ -869,16 +907,27 @@ app.get('/api/download', async (req, res) => {
       } else {
         ffmpegArgs.push('-codec:a', 'copy');
       }
+    } else if (isGif) {
+      // Convert to GIF with good quality
+      // Use palettegen for better colors
+      ffmpegArgs.length = 0; // Clear and rebuild for GIF
+      ffmpegArgs.push(
+        '-y',
+        '-i', downloadedPath,
+        '-vf', 'fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse',
+        '-loop', '0'
+      );
     } else {
+      // Just copy streams - yt-dlp already downloaded H.264+AAC
       ffmpegArgs.push('-codec', 'copy');
       if (container === 'mp4' || container === 'mov') {
         ffmpegArgs.push('-movflags', '+faststart');
       }
     }
 
-    ffmpegArgs.push(finalFile);
+    ffmpegArgs.push(actualFinalFile);
 
-    sendProgress(downloadId, 'remuxing', 'Preparing file for playback...');
+    sendProgress(downloadId, 'remuxing', isGif ? 'Creating GIF...' : 'Preparing file...');
 
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
@@ -889,10 +938,10 @@ app.get('/api/download', async (req, res) => {
           console.error(`[${downloadId}] ffmpeg: ${msg.trim()}`);
         }
       });
-
+      
       ffmpeg.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`Processing failed (code ${code})`));
+        else reject(new Error(`Encoding failed (code ${code})`));
       });
 
       ffmpeg.on('error', reject);
@@ -902,21 +951,29 @@ app.get('/api/download', async (req, res) => {
 
     sendProgress(downloadId, 'sending', 'Sending file to you...');
     
-    const stat = fs.statSync(finalFile);
+    const stat = fs.statSync(actualFinalFile);
     const safeFilename = sanitizeFilename(filename || 'download');
-    const fullFilename = `${safeFilename}.${outputExt}`;
-    const mimeType = isAudio 
-      ? (AUDIO_MIMES[audioFormat] || 'audio/mpeg')
-      : (CONTAINER_MIMES[container] || 'video/mp4');
+    const fullFilename = `${safeFilename}.${actualOutputExt}`;
+    // For Content-Disposition, use ASCII-only filename and UTF-8 encoded version
+    const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, '_') + '.' + actualOutputExt;
+    const mimeType = isGif 
+      ? 'image/gif'
+      : isAudio 
+        ? (AUDIO_MIMES[audioFormat] || 'audio/mpeg')
+        : (CONTAINER_MIMES[container] || 'video/mp4');
 
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', stat.size);
-    res.setHeader('Content-Disposition', `attachment; filename="${fullFilename}"; filename*=UTF-8''${encodeURIComponent(fullFilename)}`);
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(fullFilename)}`);
 
-    const stream = fs.createReadStream(finalFile);
+    const stream = fs.createReadStream(actualFinalFile);
+    let finished = false;
+    
     stream.pipe(res);
 
     stream.on('close', () => {
+      if (finished) return;
+      finished = true;
       sendProgress(downloadId, 'complete', 'Download complete!');
       activeDownloads.delete(downloadId);
       activeProcesses.delete(downloadId);
@@ -925,33 +982,51 @@ app.get('/api/download', async (req, res) => {
       
       try {
         const site = new URL(url).hostname.replace('www.', '');
-        trackDownload(outputExt, site, getCountryFromIP(req.headers['x-forwarded-for'] || req.ip));
+        trackDownload(actualOutputExt, site, getCountryFromIP(req.headers['x-forwarded-for'] || req.ip));
       } catch (e) {}
       
       console.log(`[Queue] Download finished. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => {
-        try { fs.unlinkSync(finalFile); } catch {}
+        try { fs.unlinkSync(actualFinalFile); } catch {}
       }, 5000);
     });
 
     stream.on('error', (err) => {
+      if (finished) return;
+      finished = true;
       console.error(`[${downloadId}] Stream error:`, err);
       sendProgress(downloadId, 'error', 'Failed to send file');
       activeProcesses.delete(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download failed. Active: ${JSON.stringify(activeJobsByType)}`);
-      try { fs.unlinkSync(finalFile); } catch {}
+      try { fs.unlinkSync(actualFinalFile); } catch {}
+    });
+
+    res.on('finish', () => {
+      if (finished) return;
+      finished = true;
+      sendProgress(downloadId, 'complete', 'Download complete!');
+      activeDownloads.delete(downloadId);
+      activeProcesses.delete(downloadId);
+      activeJobsByType.download--;
+      unlinkJobFromClient(downloadId);
+      console.log(`[Queue] Download finished (res). Active: ${JSON.stringify(activeJobsByType)}`);
+      setTimeout(() => {
+        try { fs.unlinkSync(actualFinalFile); } catch {}
+      }, 5000);
     });
 
     req.on('close', () => {
+      if (finished) return;
+      finished = true;
       stream.destroy();
       activeProcesses.delete(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download cancelled. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => {
-        try { fs.unlinkSync(finalFile); } catch {}
+        try { fs.unlinkSync(actualFinalFile); } catch {}
       }, 1000);
     });
 
@@ -1143,14 +1218,20 @@ app.get('/api/download-playlist', async (req, res) => {
           '--newline',
           '--progress-template', '%(progress._percent_str)s',
           '-o', tempVideoFile,
-          '--extractor-args', 'youtube:player_client=web',
+          '--ffmpeg-location', '/usr/bin/ffmpeg',
         ];
 
         if (isAudio) {
           ytdlpArgs.push('-f', 'bestaudio/best');
         } else {
-          const formatStr = QUALITY_FORMATS[quality] || QUALITY_FORMATS['1080p'];
-          ytdlpArgs.push('-f', formatStr);
+          // Prefer H.264 video + AAC audio for compatibility
+          const maxHeight = QUALITY_HEIGHT[quality];
+          if (maxHeight) {
+            ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
+          } else {
+            ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
+          }
+          ytdlpArgs.push('--merge-output-format', container);
         }
 
         ytdlpArgs.push(videoUrl || `https://www.youtube.com/watch?v=${entry.id}`);

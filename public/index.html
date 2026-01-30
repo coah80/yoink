@@ -1435,15 +1435,22 @@ https://youtube.com/watch?v=..."></textarea>
         const parsed = new URL(url);
         if (parsed.hostname === 'youtu.be') {
           const videoId = parsed.pathname.slice(1).split('?')[0];
-          return `https://www.youtube.com/watch?v=${videoId}`;
+          const listParam = parsed.searchParams.get('list');
+          return `https://www.youtube.com/watch?v=${videoId}${listParam ? `&list=${listParam}` : ''}`;
         }
         if (parsed.hostname.includes('youtube.com')) {
           if (parsed.pathname.startsWith('/shorts/')) {
             const videoId = parsed.pathname.replace('/shorts/', '').split('?')[0];
             return `https://www.youtube.com/watch?v=${videoId}`;
           }
+          // Preserve playlist parameter if present
           if (parsed.searchParams.get('v')) {
-            return `https://www.youtube.com/watch?v=${parsed.searchParams.get('v')}`;
+            const listParam = parsed.searchParams.get('list');
+            return `https://www.youtube.com/watch?v=${parsed.searchParams.get('v')}${listParam ? `&list=${listParam}` : ''}`;
+          }
+          // Handle playlist-only URLs (e.g., youtube.com/playlist?list=XXX)
+          if (parsed.pathname === '/playlist' && parsed.searchParams.get('list')) {
+            return `https://www.youtube.com/playlist?list=${parsed.searchParams.get('list')}`;
           }
         }
         return url;
