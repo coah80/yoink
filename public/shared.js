@@ -47,6 +47,41 @@ function getClientId() {
   return clientId;
 }
 
+function getTrackingId() {
+  let trackingId = localStorage.getItem('yoink_trackingId');
+  if (!trackingId) {
+    trackingId = 'tid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 16);
+    localStorage.setItem('yoink_trackingId', trackingId);
+  }
+  return trackingId;
+}
+
+function clearTrackingId() {
+  localStorage.removeItem('yoink_trackingId');
+  localStorage.removeItem('yoink_last_daily_report');
+}
+
+async function deleteUserAnalyticsData() {
+  const trackingId = localStorage.getItem('yoink_trackingId');
+  if (!trackingId) return { deleted: false };
+  
+  try {
+    const res = await fetch(`${API_BASE}/api/analytics/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trackingId })
+    });
+    const result = await res.json();
+    if (result.deleted) {
+      clearTrackingId();
+    }
+    return result;
+  } catch (e) {
+    console.error('Failed to delete analytics data:', e);
+    return { deleted: false, error: e.message };
+  }
+}
+
 function getSettings() {
   try {
     const saved = localStorage.getItem('yoink_settings');
@@ -66,7 +101,7 @@ async function reportPageView(page) {
     await fetch(`${API_BASE}/api/analytics/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'pageview', page })
+      body: JSON.stringify({ type: 'pageview', page, trackingId: getTrackingId() })
     });
   } catch (e) {}
 }
@@ -82,7 +117,7 @@ async function reportDailyUser() {
     await fetch(`${API_BASE}/api/analytics/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'dailyUser' })
+      body: JSON.stringify({ type: 'dailyUser', trackingId: getTrackingId() })
     });
     localStorage.setItem('yoink_last_daily_report', today);
   } catch (e) {}

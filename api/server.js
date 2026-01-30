@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn, execSync } = require('child_process');
+const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -8,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const archiver = require('archiver');
 const crypto = require('crypto');
+const geoip = require('geoip-lite');
 
 let adminConfig = { ADMIN_PASSWORD: null, ADMIN_TOKEN_SECRET: 'default-secret' };
 try {
@@ -19,14 +21,7 @@ try {
 const ANALYTICS_FILE = path.join(__dirname, 'analytics.json');
 const adminTokens = new Map();
 
-function loadAnalytics() {
-  try {
-    if (fs.existsSync(ANALYTICS_FILE)) {
-      return JSON.parse(fs.readFileSync(ANALYTICS_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.error('[Analytics] Failed to load:', e.message);
-  }
+function getDefaultAnalytics() {
   return {
     totalDownloads: 0,
     totalConverts: 0,
@@ -38,8 +33,24 @@ function loadAnalytics() {
     pageViews: {},
     popularUrls: [],
     peakUsers: { count: 0, timestamp: Date.now() },
-    lastUpdated: Date.now()
+    lastUpdated: Date.now(),
+    userData: {}
   };
+}
+
+function loadAnalytics() {
+  try {
+    if (fs.existsSync(ANALYTICS_FILE)) {
+      const loaded = JSON.parse(fs.readFileSync(ANALYTICS_FILE, 'utf8'));
+      if (!loaded.userData) {
+        loaded.userData = {};
+      }
+      return loaded;
+    }
+  } catch (e) {
+    console.error('[Analytics] Failed to load:', e.message);
+  }
+  return getDefaultAnalytics();
 }
 
 function saveAnalytics(data) {
@@ -53,7 +64,7 @@ function saveAnalytics(data) {
 
 let analytics = loadAnalytics();
 
-function trackDownload(format, site, country) {
+function trackDownload(format, site, country, trackingId) {
   analytics.totalDownloads++;
   analytics.formats[format] = (analytics.formats[format] || 0) + 1;
   if (site) {
@@ -62,22 +73,44 @@ function trackDownload(format, site, country) {
   if (country) {
     analytics.countries[country] = (analytics.countries[country] || 0) + 1;
   }
+  if (trackingId) {
+    if (!analytics.userData[trackingId]) {
+      analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {} };
+    }
+    analytics.userData[trackingId].downloads++;
+    analytics.userData[trackingId].formats[format] = (analytics.userData[trackingId].formats[format] || 0) + 1;
+    if (site) analytics.userData[trackingId].sites[site] = (analytics.userData[trackingId].sites[site] || 0) + 1;
+    if (country) analytics.userData[trackingId].countries[country] = (analytics.userData[trackingId].countries[country] || 0) + 1;
+  }
   saveAnalytics(analytics);
 }
 
-function trackConvert(fromFormat, toFormat) {
+function trackConvert(fromFormat, toFormat, trackingId) {
   analytics.totalConverts++;
   const key = `${fromFormat}->${toFormat}`;
   analytics.formats[key] = (analytics.formats[key] || 0) + 1;
+  if (trackingId) {
+    if (!analytics.userData[trackingId]) {
+      analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {} };
+    }
+    analytics.userData[trackingId].converts++;
+    analytics.userData[trackingId].formats[key] = (analytics.userData[trackingId].formats[key] || 0) + 1;
+  }
   saveAnalytics(analytics);
 }
 
-function trackCompress() {
+function trackCompress(trackingId) {
   analytics.totalCompresses++;
+  if (trackingId) {
+    if (!analytics.userData[trackingId]) {
+      analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {} };
+    }
+    analytics.userData[trackingId].compresses++;
+  }
   saveAnalytics(analytics);
 }
 
-function trackPageView(page, country) {
+function trackPageView(page, country, trackingId) {
   const today = new Date().toISOString().split('T')[0];
   if (!analytics.pageViews[today]) {
     analytics.pageViews[today] = {};
@@ -86,10 +119,17 @@ function trackPageView(page, country) {
   if (country) {
     analytics.countries[country] = (analytics.countries[country] || 0) + 1;
   }
+  if (trackingId) {
+    if (!analytics.userData[trackingId]) {
+      analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {}, pageViews: 0 };
+    }
+    analytics.userData[trackingId].pageViews = (analytics.userData[trackingId].pageViews || 0) + 1;
+    if (country) analytics.userData[trackingId].countries[country] = (analytics.userData[trackingId].countries[country] || 0) + 1;
+  }
   saveAnalytics(analytics);
 }
 
-function trackDailyUser(clientId, country) {
+function trackDailyUser(clientId, country, trackingId) {
   const today = new Date().toISOString().split('T')[0];
   if (!analytics.dailyUsers[today]) {
     analytics.dailyUsers[today] = new Set();
@@ -101,10 +141,98 @@ function trackDailyUser(clientId, country) {
   if (country) {
     analytics.countries[country] = (analytics.countries[country] || 0) + 1;
   }
+  if (trackingId) {
+    if (!analytics.userData[trackingId]) {
+      analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {}, pageViews: 0 };
+    }
+  }
+  saveAnalytics(analytics);
+}
+
+function deleteUserData(trackingId) {
+  if (!trackingId || !analytics.userData[trackingId]) {
+    return { deleted: false, reason: 'No data found for this tracking ID' };
+  }
+  
+  const userData = analytics.userData[trackingId];
+  
+  analytics.totalDownloads = Math.max(0, analytics.totalDownloads - (userData.downloads || 0));
+  analytics.totalConverts = Math.max(0, analytics.totalConverts - (userData.converts || 0));
+  analytics.totalCompresses = Math.max(0, analytics.totalCompresses - (userData.compresses || 0));
+  
+  for (const [format, count] of Object.entries(userData.formats || {})) {
+    if (analytics.formats[format]) {
+      analytics.formats[format] = Math.max(0, analytics.formats[format] - count);
+      if (analytics.formats[format] === 0) delete analytics.formats[format];
+    }
+  }
+  
+  for (const [site, count] of Object.entries(userData.sites || {})) {
+    if (analytics.sites[site]) {
+      analytics.sites[site] = Math.max(0, analytics.sites[site] - count);
+      if (analytics.sites[site] === 0) delete analytics.sites[site];
+    }
+  }
+  
+  for (const [country, count] of Object.entries(userData.countries || {})) {
+    if (analytics.countries[country]) {
+      analytics.countries[country] = Math.max(0, analytics.countries[country] - count);
+      if (analytics.countries[country] === 0) delete analytics.countries[country];
+    }
+  }
+  
+  delete analytics.userData[trackingId];
+  
+  saveAnalytics(analytics);
+  console.log(`[Analytics] Deleted all data for tracking ID: ${trackingId.slice(0, 8)}...`);
+  return { deleted: true };
+}
+
+function normalizeIp(rawIp) {
+  if (!rawIp || typeof rawIp !== 'string') return null;
+  let ip = rawIp.split(',')[0].trim();
+  if (!ip) return null;
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.replace('::ffff:', '');
+  }
+  if (ip.startsWith('[') && ip.includes(']')) {
+    ip = ip.slice(1, ip.indexOf(']'));
+  }
+  if (net.isIP(ip) === 0 && ip.includes(':') && ip.split(':').length === 2) {
+    ip = ip.split(':')[0];
+  }
+  return net.isIP(ip) ? ip : null;
+}
+
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    const [a, b] = parts;
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1') return true;
+    if (lower.startsWith('fe80:')) return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  }
+  return false;
 }
 
 function getCountryFromIP(ip) {
-  return null;
+  const normalized = normalizeIp(ip);
+  if (!normalized || isPrivateIp(normalized)) return null;
+  try {
+    const result = geoip.lookup(normalized);
+    return result?.country || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function generateAdminToken() {
@@ -118,6 +246,7 @@ function validateAdminToken(token) {
 }
 
 const app = express();
+app.set('trust proxy', true);
 const PORT = process.env.PORT || 3001;
 
 const JOB_LIMITS = {
@@ -977,7 +1106,7 @@ app.get('/api/download', async (req, res) => {
       
       try {
         const site = new URL(url).hostname.replace('www.', '');
-        trackDownload(actualOutputExt, site, getCountryFromIP(req.headers['x-forwarded-for'] || req.ip));
+        trackDownload(actualOutputExt, site, getCountryFromIP(getClientIp(req)));
       } catch (e) {}
       
       console.log(`[Queue] Download finished. Active: ${JSON.stringify(activeJobsByType)}`);
@@ -1813,17 +1942,28 @@ app.post('/api/compress', upload.single('file'), async (req, res) => {
 });
 
 app.post('/api/analytics/track', (req, res) => {
-  const { type, page } = req.body;
+  const { type, page, trackingId } = req.body;
   const country = getCountryFromIP(getClientIp(req));
   
   if (type === 'pageview' && page) {
-    trackPageView(page, country);
+    trackPageView(page, country, trackingId);
   }
   if (type === 'dailyUser') {
-    trackDailyUser(getClientIp(req), country);
+    trackDailyUser(getClientIp(req), country, trackingId);
   }
   
   res.json({ ok: true });
+});
+
+app.post('/api/analytics/delete', (req, res) => {
+  const { trackingId } = req.body;
+  
+  if (!trackingId) {
+    return res.status(400).json({ error: 'trackingId is required' });
+  }
+  
+  const result = deleteUserData(trackingId);
+  res.json(result);
 });
 
 app.post('/api/admin/login', (req, res) => {

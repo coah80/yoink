@@ -645,10 +645,17 @@
         </div>
       </div>
 
-      <div class="settings-card">
-        <div class="setting-label">what we collect</div>
+      <div class="settings-card" style="border-color: var(--purple-500); background: rgba(139, 92, 246, 0.05);">
+        <div class="setting-label">🗑️ your data, your choice</div>
         <p class="setting-description" style="margin-top: 8px;">
-          when enabled, we collect: which file formats are popular, how many downloads happen daily, and general country data (from IP, not stored). we do <strong>not</strong> collect: URLs you download, video titles, your IP address, or any identifying information.
+          if you turn off analytics above, <strong>i will permanently delete ALL data</strong> i've collected from you. no questions asked. i believe if you don't want to be tracked, you shouldn't be - and that means wiping everything, not just stopping future collection.
+        </p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">what i collect</div>
+        <p class="setting-description" style="margin-top: 8px;">
+          when enabled, i collect: which file formats are popular, how many downloads happen daily, and general country data (from IP, not stored). i do <strong>not</strong> collect: URLs you download, video titles, your IP address, or any identifying information.
         </p>
       </div>
 
@@ -854,10 +861,42 @@
       saveSettings();
     });
 
-    document.getElementById('analyticsToggle').addEventListener('click', function() {
-      this.classList.toggle('active');
-      settings.analytics = this.classList.contains('active');
-      saveSettings();
+    document.getElementById('analyticsToggle').addEventListener('click', async function() {
+      const wasEnabled = this.classList.contains('active');
+      
+      if (wasEnabled) {
+        // User is turning OFF analytics - show warning
+        const confirmed = confirm(
+          '⚠️ This will delete ALL your tracking data from my server!\n\n' +
+          'I respect your privacy - when you opt out, i permanently delete everything i\'ve collected from you.\n\n' +
+          'Are you sure you want to disable analytics and delete your data?'
+        );
+        
+        if (confirmed) {
+          this.classList.remove('active');
+          settings.analytics = false;
+          saveSettings();
+          
+          // Delete data from server
+          if (typeof deleteUserAnalyticsData === 'function') {
+            const result = await deleteUserAnalyticsData();
+            if (result.deleted) {
+              showToast('Analytics disabled & your data has been deleted! 💜');
+            } else {
+              showToast('Analytics disabled!');
+            }
+          } else {
+            showToast('Analytics disabled!');
+          }
+        }
+        // If not confirmed, don't change anything
+      } else {
+        // User is turning ON analytics
+        this.classList.add('active');
+        settings.analytics = true;
+        saveSettings();
+        showToast('Analytics enabled - thanks for helping! 💜');
+      }
     });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
