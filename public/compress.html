@@ -839,34 +839,22 @@
       </div>
 
       <div class="size-section">
-        <div class="size-label">encoding speed</div>
-        <div class="size-description">slower = smaller file, better quality | faster = quicker encoding</div>
-        <div class="size-grid" id="speedGrid" style="grid-template-columns: repeat(5, 1fr);">
-          <div class="size-option" data-speed="slowest">
-            <div class="size-option-value">slowest</div>
-            <div class="size-option-label">best quality</div>
+        <div class="size-label">encoding preset</div>
+        <div class="size-description">quality = better compression, slower | fast = quicker encoding</div>
+        <div class="size-grid" id="presetGrid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="size-option" data-preset="fast">
+            <div class="size-option-value">fast</div>
+            <div class="size-option-label">quick encode</div>
           </div>
-          <div class="size-option" data-speed="slow">
-            <div class="size-option-value">slow</div>
-            <div class="size-option-label">great quality</div>
-          </div>
-          <div class="size-option active" data-speed="balanced">
+          <div class="size-option active" data-preset="balanced">
             <div class="size-option-value">balanced</div>
             <div class="size-option-label">recommended</div>
           </div>
-          <div class="size-option" data-speed="fast">
-            <div class="size-option-value">fast</div>
-            <div class="size-option-label">quicker</div>
-          </div>
-          <div class="size-option" data-speed="fastest">
-            <div class="size-option-value">fastest</div>
-            <div class="size-option-label">lowest quality</div>
+          <div class="size-option" data-preset="quality">
+            <div class="size-option-value">quality</div>
+            <div class="size-option-label">best results</div>
           </div>
         </div>
-        <label class="checkbox-row" style="margin-top: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input type="checkbox" id="allowDownscale" style="width: 16px; height: 16px; cursor: pointer;">
-          <span style="font-size: 13px; color: var(--text-secondary);">allow downscale to 720p for better quality at low bitrates</span>
-        </label>
       </div>
 
       <button class="compress-btn" id="compressBtn" disabled>
@@ -1003,7 +991,7 @@
     let actualSize = 47;
     let videoDuration = 0;
     let isCustomSize = false;
-    let selectedSpeed = 'balanced';
+    let selectedPreset = 'balanced';
 
     function formatBytes(bytes) {
       if (bytes === 0) return '0 B';
@@ -1324,8 +1312,7 @@
               targetSize: actualSize.toString(),
               duration: videoDuration.toString(),
               progressId,
-              speed: selectedSpeed,
-              downscale: document.getElementById('allowDownscale').checked
+              preset: selectedPreset
             })
           });
           
@@ -1374,8 +1361,7 @@
           formData.append('targetSize', actualSize.toString());
           formData.append('duration', videoDuration.toString());
           formData.append('progressId', progressId);
-          formData.append('speed', selectedSpeed);
-          formData.append('downscale', document.getElementById('allowDownscale').checked);
+          formData.append('preset', selectedPreset);
 
           response = await fetch(`${API_BASE}/api/compress`, {
             method: 'POST',
@@ -1464,14 +1450,14 @@
       updateEstimate();
     });
 
-    const speedGrid = document.getElementById('speedGrid');
-    speedGrid.addEventListener('click', (e) => {
+    const presetGrid = document.getElementById('presetGrid');
+    presetGrid.addEventListener('click', (e) => {
       const option = e.target.closest('.size-option');
-      if (!option || !option.dataset.speed) return;
+      if (!option || !option.dataset.preset) return;
 
-      speedGrid.querySelectorAll('.size-option').forEach(o => o.classList.remove('active'));
+      presetGrid.querySelectorAll('.size-option').forEach(o => o.classList.remove('active'));
       option.classList.add('active');
-      selectedSpeed = option.dataset.speed;
+      selectedPreset = option.dataset.preset;
     });
 
     customSizeInput.addEventListener('input', () => {
