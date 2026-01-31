@@ -745,6 +745,10 @@ app.get('/health', (req, res) => {
   });
 });
 
+
+// client & session management APIs
+
+
 app.post('/api/heartbeat/:clientId', (req, res) => {
   const { clientId } = req.params;
   
@@ -977,6 +981,9 @@ function sendQueuePosition(progressId) {
     });
   }
 }
+
+// download API
+
 
 app.get('/api/download', async (req, res) => {
   const { 
@@ -1715,6 +1722,10 @@ const upload = multer({
   limits: { fileSize: FILE_SIZE_LIMIT }
 });
 
+
+// convert API
+
+
 app.post('/api/convert', upload.single('file'), (req, res) => handleConvert(req, res));
 
 async function handleConvert(req, res) {
@@ -2131,6 +2142,9 @@ setInterval(() => {
   }
 }, 60000);
 
+
+// chunked upload API
+
 app.post('/api/upload/init', express.json(), (req, res) => {
   const { fileName, fileSize, totalChunks } = req.body;
   
@@ -2335,6 +2349,9 @@ function validateChunkedFilePath(filePath) {
   }
   return resolved;
 }
+
+// compress API
+
 
 app.post('/api/compress-chunked', express.json(), async (req, res) => {
   const { 
@@ -3352,6 +3369,7 @@ async function handleCompressAsync(req, jobId) {
     job.error = err.message || 'Compression failed';
   }
 }
+
 
 app.post('/api/analytics/track', (req, res) => {
   const { type, page, trackingId } = req.body;
