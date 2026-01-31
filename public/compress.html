@@ -855,6 +855,10 @@
             <div class="size-option-label">best results</div>
           </div>
         </div>
+        <label class="checkbox-row" style="margin-top: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="downscaleCheck" style="width: 18px; height: 18px; accent-color: var(--purple-500); cursor: pointer;">
+          <span style="font-size: 13px; color: var(--text-secondary);">downscale for better quality (reduces blockiness)</span>
+        </label>
       </div>
 
       <button class="compress-btn" id="compressBtn" disabled>
@@ -1312,7 +1316,8 @@
               targetSize: actualSize.toString(),
               duration: videoDuration.toString(),
               progressId,
-              preset: selectedPreset
+              preset: selectedPreset,
+              downscale: document.getElementById('downscaleCheck').checked
             })
           });
           
@@ -1362,6 +1367,7 @@
           formData.append('duration', videoDuration.toString());
           formData.append('progressId', progressId);
           formData.append('preset', selectedPreset);
+          formData.append('downscale', document.getElementById('downscaleCheck').checked);
 
           response = await fetch(`${API_BASE}/api/compress`, {
             method: 'POST',

@@ -341,9 +341,9 @@ const ALLOWED_DENOISE = ['auto', 'none', 'light', 'moderate', 'heavy'];
 
 const COMPRESSION_CONFIG = {
   presets: {
-    fast: { ffmpegPreset: 'veryfast', crf: { high: 24, medium: 26, low: 28 }, denoise: 'light' },
-    balanced: { ffmpegPreset: 'medium', crf: { high: 22, medium: 24, low: 26 }, denoise: 'moderate' },
-    quality: { ffmpegPreset: 'slow', crf: { high: 20, medium: 22, low: 24 }, denoise: 'moderate' }
+    fast: { ffmpegPreset: 'ultrafast', crf: { high: 26, medium: 28, low: 30 }, denoise: 'none', x264Params: 'aq-mode=1' },
+    balanced: { ffmpegPreset: 'medium', crf: { high: 22, medium: 24, low: 26 }, denoise: 'auto', x264Params: 'aq-mode=3:aq-strength=0.9:psy-rd=1.0,0.0' },
+    quality: { ffmpegPreset: 'slow', crf: { high: 20, medium: 22, low: 24 }, denoise: 'auto', x264Params: 'aq-mode=3:aq-strength=0.9:psy-rd=1.0,0.0' }
   },
   denoise: {
     none: null,
@@ -356,8 +356,7 @@ const COMPRESSION_CONFIG = {
     720: 1500,
     480: 800,
     360: 400
-  },
-  x264Params: 'aq-mode=3:aq-strength=0.9:psy-rd=1.0,0.0'
+  }
 };
 
 function selectResolution(width, height, availableBitrateK) {
@@ -384,9 +383,10 @@ function selectResolution(width, height, availableBitrateK) {
   return { width: 640, height: 360, needsScale: width > 640 };
 }
 
-function getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps) {
-  if (denoise === 'none') return null;
+function getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps, presetDenoise = 'auto') {
+  if (denoise === 'none' || presetDenoise === 'none') return null;
   if (denoise !== 'auto') return COMPRESSION_CONFIG.denoise[denoise];
+  if (presetDenoise !== 'auto') return COMPRESSION_CONFIG.denoise[presetDenoise];
   
   const expectedBitrate = { 360: 1, 480: 1.5, 720: 3, 1080: 6, 1440: 12, 2160: 25 };
   const heights = Object.keys(expectedBitrate).map(Number);
@@ -400,12 +400,23 @@ function getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps) {
   return COMPRESSION_CONFIG.denoise.light;
 }
 
+function getDownscaleResolution(sourceWidth, sourceHeight) {
+  if (sourceWidth > 1920 || sourceHeight > 1080) {
+    return 1920;
+  } else if (sourceWidth >= 1920 || sourceHeight >= 1080) {
+    return 1280;
+  } else if (sourceWidth >= 1280 || sourceHeight >= 720) {
+    return 854;
+  }
+  return null;
+}
+
 function buildVideoFilters(denoiseFilter, scaleWidth, sourceWidth) {
   const filters = [];
-  if (denoiseFilter) filters.push(denoiseFilter);
   if (scaleWidth && scaleWidth < sourceWidth) {
     filters.push(`scale=${scaleWidth}:-2:flags=lanczos`);
   }
+  if (denoiseFilter) filters.push(denoiseFilter);
   return filters.length > 0 ? filters.join(',') : null;
 }
 
@@ -2426,7 +2437,8 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     mode = 'size',
     quality = 'medium',
     preset = 'balanced',
-    denoise = 'auto'
+    denoise = 'auto',
+    downscale = false
   } = req.body;
   
   const validPath = validateChunkedFilePath(filePath);
@@ -2464,6 +2476,7 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
   req.body.quality = quality;
   req.body.preset = preset;
   req.body.denoise = denoise;
+  req.body.downscale = downscale;
   
   const jobId = uuidv4();
   
@@ -2577,8 +2590,11 @@ async function handleCompress(req, res) {
     mode = 'size',
     quality = 'medium',
     preset = 'balanced',
-    denoise = 'auto'
+    denoise = 'auto',
+    downscale = false
   } = req.body;
+  
+  const shouldDownscale = downscale === true || downscale === 'true';
   
   if (!ALLOWED_MODES.includes(mode)) {
     fs.unlink(req.file.path, () => {});
@@ -2649,15 +2665,19 @@ async function handleCompress(req, res) {
     const sourceBitrateMbps = (sourceFileSizeMB * 8) / actualDuration;
 
     const presetConfig = COMPRESSION_CONFIG.presets[preset];
-    const denoiseFilter = getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps);
+    const denoiseFilter = getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps, presetConfig.denoise);
+    const downscaleWidth = shouldDownscale ? getDownscaleResolution(sourceWidth, sourceHeight) : null;
     
     if (denoiseFilter) {
       console.log(`[${compressId}] Denoise: ${denoise === 'auto' ? 'auto-detected' : denoise}`);
     }
+    if (downscaleWidth) {
+      console.log(`[${compressId}] Downscaling to ${downscaleWidth}p`);
+    }
 
     if (mode === 'quality') {
       const crf = presetConfig.crf[quality];
-      const vfArg = buildVideoFilters(denoiseFilter, null, sourceWidth);
+      const vfArg = buildVideoFilters(denoiseFilter, downscaleWidth, sourceWidth);
       
       console.log(`[${compressId}] CRF mode: preset=${preset}, quality=${quality}, crf=${crf}`);
       sendProgress(compressId, 'compressing', `Encoding (${preset})...`, 5);
@@ -2668,6 +2688,7 @@ async function handleCompress(req, res) {
         crf,
         ffmpegPreset: presetConfig.ffmpegPreset,
         vfArg,
+        x264Params: presetConfig.x264Params,
         processInfo,
         compressId,
         actualDuration,
@@ -2688,7 +2709,8 @@ async function handleCompress(req, res) {
       } else {
         const videoBitrateK = calculateTargetBitrate(targetMB, actualDuration, 96);
         const resolution = selectResolution(sourceWidth, sourceHeight, videoBitrateK);
-        const vfArg = buildVideoFilters(denoiseFilter, resolution.needsScale ? resolution.width : null, sourceWidth);
+        const scaleWidth = downscaleWidth || (resolution.needsScale ? resolution.width : null);
+        const vfArg = buildVideoFilters(denoiseFilter, scaleWidth, sourceWidth);
         
         console.log(`[${compressId}] Two-pass: target=${targetMB}MB, bitrate=${videoBitrateK}k, res=${resolution.width}x${resolution.height}`);
 
@@ -2699,6 +2721,7 @@ async function handleCompress(req, res) {
           videoBitrateK,
           ffmpegPreset: presetConfig.ffmpegPreset,
           vfArg,
+          x264Params: presetConfig.x264Params,
           processInfo,
           compressId,
           actualDuration,
@@ -2802,7 +2825,7 @@ async function probeVideo(inputPath) {
   });
 }
 
-async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, processInfo, compressId, actualDuration, sendProgress }) {
+async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, x264Params, processInfo, compressId, actualDuration, sendProgress }) {
   const args = ['-y', '-i', inputPath, '-threads', '0'];
   if (vfArg) args.push('-vf', vfArg);
   args.push(
@@ -2812,7 +2835,7 @@ async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, p
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-c:a', 'aac', '-b:a', '128k',
     '-movflags', '+faststart',
     outputPath
@@ -2851,7 +2874,7 @@ async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, p
   });
 }
 
-async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitrateK, ffmpegPreset, vfArg, processInfo, compressId, actualDuration, sendProgress }) {
+async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitrateK, ffmpegPreset, vfArg, x264Params, processInfo, compressId, actualDuration, sendProgress }) {
   const maxrateK = Math.floor(videoBitrateK * 1.5);
   const bufsizeK = Math.floor(videoBitrateK * 2);
 
@@ -2868,7 +2891,7 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-pass', '1',
     '-passlogfile', passLogFile,
     '-an',
@@ -2923,7 +2946,7 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-pass', '2',
     '-passlogfile', passLogFile,
     '-c:a', 'aac', '-b:a', '128k',
@@ -2975,9 +2998,11 @@ async function handleCompressAsync(req, jobId) {
     mode = 'size',
     quality = 'medium',
     preset = 'balanced',
-    denoise = 'auto'
+    denoise = 'auto',
+    downscale = false
   } = req.body;
   
+  const shouldDownscale = downscale === true || downscale === 'true';
   const targetMB = parseFloat(targetSize);
   const videoDuration = parseFloat(duration);
   
@@ -3026,11 +3051,12 @@ async function handleCompressAsync(req, jobId) {
     const sourceBitrateMbps = (sourceFileSizeMB * 8) / actualDuration;
 
     const presetConfig = COMPRESSION_CONFIG.presets[preset] || COMPRESSION_CONFIG.presets.balanced;
-    const denoiseFilter = getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps);
+    const denoiseFilter = getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps, presetConfig.denoise);
+    const downscaleWidth = shouldDownscale ? getDownscaleResolution(sourceWidth, sourceHeight) : null;
 
     if (mode === 'quality') {
       const crf = presetConfig.crf[quality];
-      const vfArg = buildVideoFilters(denoiseFilter, null, sourceWidth);
+      const vfArg = buildVideoFilters(denoiseFilter, downscaleWidth, sourceWidth);
       
       job.message = `Encoding (${preset})...`;
       job.progress = 5;
@@ -3041,6 +3067,7 @@ async function handleCompressAsync(req, jobId) {
         crf,
         ffmpegPreset: presetConfig.ffmpegPreset,
         vfArg,
+        x264Params: presetConfig.x264Params,
         processInfo,
         actualDuration,
         job
@@ -3060,7 +3087,8 @@ async function handleCompressAsync(req, jobId) {
       } else {
         const videoBitrateK = calculateTargetBitrate(targetMB, actualDuration, 96);
         const resolution = selectResolution(sourceWidth, sourceHeight, videoBitrateK);
-        const vfArg = buildVideoFilters(denoiseFilter, resolution.needsScale ? resolution.width : null, sourceWidth);
+        const scaleWidth = downscaleWidth || (resolution.needsScale ? resolution.width : null);
+        const vfArg = buildVideoFilters(denoiseFilter, scaleWidth, sourceWidth);
 
         await runTwoPassEncodeAsync({
           inputPath,
@@ -3069,6 +3097,7 @@ async function handleCompressAsync(req, jobId) {
           videoBitrateK,
           ffmpegPreset: presetConfig.ffmpegPreset,
           vfArg,
+          x264Params: presetConfig.x264Params,
           processInfo,
           actualDuration,
           job
@@ -3114,7 +3143,7 @@ async function handleCompressAsync(req, jobId) {
   }
 }
 
-async function runCrfEncodeAsync({ inputPath, outputPath, crf, ffmpegPreset, vfArg, processInfo, actualDuration, job }) {
+async function runCrfEncodeAsync({ inputPath, outputPath, crf, ffmpegPreset, vfArg, x264Params, processInfo, actualDuration, job }) {
   const args = ['-y', '-i', inputPath, '-threads', '0'];
   if (vfArg) args.push('-vf', vfArg);
   args.push(
@@ -3124,7 +3153,7 @@ async function runCrfEncodeAsync({ inputPath, outputPath, crf, ffmpegPreset, vfA
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-c:a', 'aac', '-b:a', '128k',
     '-movflags', '+faststart',
     outputPath
@@ -3154,7 +3183,7 @@ async function runCrfEncodeAsync({ inputPath, outputPath, crf, ffmpegPreset, vfA
   });
 }
 
-async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, videoBitrateK, ffmpegPreset, vfArg, processInfo, actualDuration, job }) {
+async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, videoBitrateK, ffmpegPreset, vfArg, x264Params, processInfo, actualDuration, job }) {
   const maxrateK = Math.floor(videoBitrateK * 1.5);
   const bufsizeK = Math.floor(videoBitrateK * 2);
 
@@ -3172,7 +3201,7 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-pass', '1',
     '-passlogfile', passLogFile,
     '-an',
@@ -3219,7 +3248,7 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-x264-params', COMPRESSION_CONFIG.x264Params,
+    '-x264-params', x264Params,
     '-pass', '2',
     '-passlogfile', passLogFile,
     '-c:a', 'aac', '-b:a', '128k',
