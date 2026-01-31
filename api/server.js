@@ -2348,7 +2348,8 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     quality = 'medium',
     codec = 'h264',
     denoise = 'auto',
-    speed = 'slow'
+    speed = 'slow',
+    downscale = false
   } = req.body;
   
   const validPath = validateChunkedFilePath(filePath);
@@ -2391,6 +2392,7 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
   req.body.codec = codec;
   req.body.denoise = denoise;
   req.body.speed = speed;
+  req.body.downscale = downscale;
   
   const jobId = uuidv4();
   
@@ -2505,8 +2507,11 @@ async function handleCompress(req, res) {
     quality = 'medium',
     codec = 'h264',
     denoise = 'auto',
-    speed = 'slow'
+    speed = 'slow',
+    downscale = false
   } = req.body;
+  
+  const allowDownscale = downscale === true || downscale === 'true';
   
   if (!ALLOWED_MODES.includes(mode)) {
     fs.unlink(req.file.path, () => {});
@@ -2659,13 +2664,24 @@ async function handleCompress(req, res) {
         ffmpeg.on('error', reject);
       });
     } else {
-      console.log(`[${compressId}] Keeping source resolution: ${sourceWidth}x${sourceHeight}`);
+      let targetWidth = sourceWidth;
+      
+      if (allowDownscale && sourceWidth > 1280) {
+        targetWidth = 1280;
+        console.log(`[${compressId}] Downscaling from ${sourceWidth}x${sourceHeight} to 720p`);
+      } else {
+        console.log(`[${compressId}] Keeping source resolution: ${sourceWidth}x${sourceHeight}`);
+      }
 
       const videoFilters = [];
       
       if (shouldDenoise) {
         const denoiseStrength = denoise === 'heavy' ? 'hqdn3d=6:4:9:6' : 'hqdn3d=4:3:6:4.5';
         videoFilters.push(denoiseStrength);
+      }
+      
+      if (targetWidth < sourceWidth) {
+        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
       }
       
       const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
@@ -3002,9 +3018,11 @@ async function handleCompressAsync(req, jobId) {
     quality = 'medium',
     codec = 'h264',
     denoise = 'auto',
-    speed = 'slow'
+    speed = 'slow',
+    downscale = false
   } = req.body;
   
+  const allowDownscale = downscale === true || downscale === 'true';
   const targetMB = parseFloat(targetSize);
   const videoDuration = parseFloat(duration);
   
@@ -3138,10 +3156,19 @@ async function handleCompressAsync(req, jobId) {
         ffmpeg.on('error', reject);
       });
     } else {
+      let targetWidth = sourceWidth;
+      
+      if (allowDownscale && sourceWidth > 1280) {
+        targetWidth = 1280;
+      }
+      
       const videoFilters = [];
       if (shouldDenoise) {
         const denoiseStrength = denoise === 'heavy' ? 'hqdn3d=6:4:9:6' : 'hqdn3d=4:3:6:4.5';
         videoFilters.push(denoiseStrength);
+      }
+      if (targetWidth < sourceWidth) {
+        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
       }
       const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
 

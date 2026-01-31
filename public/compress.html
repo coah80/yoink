@@ -863,6 +863,10 @@
             <div class="size-option-label">lowest quality</div>
           </div>
         </div>
+        <label class="checkbox-row" style="margin-top: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="allowDownscale" style="width: 16px; height: 16px; cursor: pointer;">
+          <span style="font-size: 13px; color: var(--text-secondary);">allow downscale to 720p for better quality at low bitrates</span>
+        </label>
       </div>
 
       <button class="compress-btn" id="compressBtn" disabled>
@@ -1320,7 +1324,8 @@
               targetSize: actualSize.toString(),
               duration: videoDuration.toString(),
               progressId,
-              speed: selectedSpeed
+              speed: selectedSpeed,
+              downscale: document.getElementById('allowDownscale').checked
             })
           });
           
@@ -1370,6 +1375,7 @@
           formData.append('duration', videoDuration.toString());
           formData.append('progressId', progressId);
           formData.append('speed', selectedSpeed);
+          formData.append('downscale', document.getElementById('allowDownscale').checked);
 
           response = await fetch(`${API_BASE}/api/compress`, {
             method: 'POST',
