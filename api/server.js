@@ -1914,6 +1914,197 @@ async function handleConvert(req, res) {
   }
 }
 
+async function handleConvertAsync(req, jobId) {
+  const job = asyncJobs.get(jobId);
+  if (!job) return;
+  
+  const { 
+    format = 'mp4', 
+    clientId,
+    quality = 'medium',
+    reencode = 'auto',
+    startTime,
+    endTime,
+    audioBitrate = '192'
+  } = req.body;
+
+  const convertId = jobId;
+  const inputPath = req.file.path;
+  const outputPath = path.join(TEMP_DIR, `${convertId}-converted.${format}`);
+
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(convertId, clientId);
+  }
+
+  activeJobsByType.convert++;
+  console.log(`[Queue] Async convert started. Active: ${JSON.stringify(activeJobsByType)}`);
+  console.log(`[${convertId}] Converting ${req.file.originalname} to ${format} (async)`);
+
+  if (startTime && !validateTimeParam(startTime)) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    activeJobsByType.convert--;
+    unlinkJobFromClient(convertId);
+    job.status = 'error';
+    job.error = 'Invalid startTime format';
+    job.progress = 0;
+    console.log(`[${convertId}] Invalid startTime, aborting`);
+    return;
+  }
+  if (endTime && !validateTimeParam(endTime)) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    activeJobsByType.convert--;
+    unlinkJobFromClient(convertId);
+    job.status = 'error';
+    job.error = 'Invalid endTime format';
+    job.progress = 0;
+    console.log(`[${convertId}] Invalid endTime, aborting`);
+    return;
+  }
+
+  try {
+    const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
+    
+    const validStartTime = validateTimeParam(startTime);
+    const validEndTime = validateTimeParam(endTime);
+    
+    job.message = 'Analyzing file...';
+    job.progress = 5;
+    
+    const ffmpegArgs = ['-y'];
+    
+    if (validStartTime) {
+      ffmpegArgs.push('-ss', validStartTime);
+    }
+    if (validEndTime) {
+      ffmpegArgs.push('-to', validEndTime);
+    }
+    
+    ffmpegArgs.push('-i', inputPath);
+    ffmpegArgs.push('-threads', '0');
+
+    if (isAudioFormat) {
+      if (format === 'mp3') {
+        ffmpegArgs.push('-codec:a', 'libmp3lame', '-b:a', `${audioBitrate}k`);
+      } else if (format === 'm4a') {
+        ffmpegArgs.push('-codec:a', 'aac', '-b:a', `${audioBitrate}k`);
+      } else if (format === 'opus') {
+        ffmpegArgs.push('-codec:a', 'libopus', '-b:a', '128k');
+      } else if (format === 'wav') {
+        ffmpegArgs.push('-codec:a', 'pcm_s16le');
+      } else if (format === 'flac') {
+        ffmpegArgs.push('-codec:a', 'flac');
+      }
+      ffmpegArgs.push('-vn');
+    } else {
+      const codecCompatibility = {
+        'mp4': ['h264', 'avc', 'hevc', 'h265'],
+        'webm': ['vp8', 'vp9', 'av1'],
+        'mkv': ['*'],
+        'mov': ['h264', 'hevc', 'prores']
+      };
+      
+      const probeCodec = await new Promise((resolve) => {
+        const ffprobe = spawn('ffprobe', [
+          '-v', 'error', '-select_streams', 'v:0',
+          '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', inputPath
+        ]);
+        let out = '';
+        ffprobe.stdout.on('data', (d) => { out += d.toString(); });
+        ffprobe.on('close', () => resolve(out.trim().toLowerCase()));
+        ffprobe.on('error', () => resolve('unknown'));
+      });
+      
+      const compat = codecCompatibility[format] || [];
+      const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
+      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
+      
+      if (needsReencode) {
+        const crfValues = { high: 18, medium: 23, low: 28 };
+        const crf = crfValues[quality] || 23;
+        ffmpegArgs.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k');
+      } else {
+        ffmpegArgs.push('-codec', 'copy');
+      }
+      
+      if (format === 'mp4' || format === 'mov') {
+        ffmpegArgs.push('-movflags', '+faststart');
+      }
+    }
+
+    ffmpegArgs.push(outputPath);
+    
+    job.message = 'Converting...';
+    job.progress = 10;
+
+    const duration = await new Promise((resolve) => {
+      const ffprobe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath]);
+      let out = '';
+      ffprobe.stdout.on('data', (d) => { out += d.toString(); });
+      ffprobe.on('close', () => resolve(parseFloat(out) || 60));
+      ffprobe.on('error', () => resolve(60));
+    });
+
+    await new Promise((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      
+      ffmpeg.stderr.on('data', (data) => {
+        const msg = data.toString();
+        const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+        if (timeMatch) {
+          const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+          const progress = Math.min(95, 10 + (currentTime / duration) * 85);
+          job.progress = Math.round(progress);
+          job.message = `Converting... ${Math.round(progress)}%`;
+        }
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Conversion failed with code ${code}`));
+      });
+
+      ffmpeg.on('error', reject);
+    });
+
+    try { fs.unlinkSync(inputPath); } catch {}
+
+    const stat = fs.statSync(outputPath);
+    const originalName = path.parse(req.file.originalname).name;
+    const outputFilename = `${sanitizeFilename(originalName)}.${format}`;
+    const mimeType = isAudioFormat 
+      ? (AUDIO_MIMES[format] || 'audio/mpeg')
+      : (CONTAINER_MIMES[format] || 'video/mp4');
+
+    console.log(`[${convertId}] Async conversion complete: ${outputFilename}`);
+
+    job.status = 'complete';
+    job.progress = 100;
+    job.message = 'Conversion complete!';
+    job.outputPath = outputPath;
+    job.outputFilename = outputFilename;
+    job.mimeType = mimeType;
+    
+    activeJobsByType.convert--;
+    unlinkJobFromClient(convertId);
+    
+    const fromExt = path.extname(req.file.originalname).replace('.', '') || 'unknown';
+    trackConvert(fromExt, format);
+    
+    console.log(`[Queue] Async convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
+
+  } catch (err) {
+    console.error(`[${convertId}] Async convert error:`, err);
+    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(outputPath); } catch {}
+    activeJobsByType.convert--;
+    unlinkJobFromClient(convertId);
+    
+    job.status = 'error';
+    job.error = err.message || 'Conversion failed';
+  }
+}
+
 const chunkedUploads = new Map();
 const CHUNK_SIZE = 50 * 1024 * 1024;
 const CHUNK_TIMEOUT = 30 * 60 * 1000;
@@ -2064,6 +2255,71 @@ app.post('/api/upload/complete/:uploadId', express.json(), async (req, res) => {
   }
 });
 
+const asyncJobs = new Map();
+const ASYNC_JOB_TIMEOUT = 60 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [jobId, job] of asyncJobs.entries()) {
+    if (now - job.createdAt > ASYNC_JOB_TIMEOUT) {
+      console.log(`[AsyncJob] Job ${jobId} expired, cleaning up`);
+      if (job.outputPath) {
+        fs.unlink(job.outputPath, () => {});
+      }
+      asyncJobs.delete(jobId);
+    }
+  }
+}, 60000);
+
+app.get('/api/job/:jobId/status', (req, res) => {
+  const { jobId } = req.params;
+  const job = asyncJobs.get(jobId);
+  
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found or expired' });
+  }
+  
+  res.json({
+    status: job.status,
+    progress: job.progress || 0,
+    message: job.message || '',
+    error: job.error || null
+  });
+});
+
+app.get('/api/job/:jobId/download', (req, res) => {
+  const { jobId } = req.params;
+  const job = asyncJobs.get(jobId);
+  
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found or expired' });
+  }
+  
+  if (job.status !== 'complete') {
+    return res.status(400).json({ error: 'Job not complete yet' });
+  }
+  
+  if (!job.outputPath || !fs.existsSync(job.outputPath)) {
+    return res.status(404).json({ error: 'Output file not found' });
+  }
+  
+  const stat = fs.statSync(job.outputPath);
+  
+  res.setHeader('Content-Type', job.mimeType || 'video/mp4');
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', `attachment; filename="${job.outputFilename}"; filename*=UTF-8''${encodeURIComponent(job.outputFilename)}`);
+  
+  const stream = fs.createReadStream(job.outputPath);
+  stream.pipe(res);
+  
+  stream.on('close', () => {
+    setTimeout(() => {
+      fs.unlink(job.outputPath, () => {});
+      asyncJobs.delete(jobId);
+    }, 5000);
+  });
+});
+
 function validateChunkedFilePath(filePath) {
   if (!filePath) return null;
   const resolved = path.resolve(filePath);
@@ -2124,7 +2380,30 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
   req.body.codec = codec;
   req.body.denoise = denoise;
   
-  return handleCompress(req, res);
+  const jobId = uuidv4();
+  
+  asyncJobs.set(jobId, {
+    status: 'processing',
+    progress: 0,
+    message: 'Starting compression...',
+    createdAt: Date.now(),
+    outputPath: null,
+    outputFilename: null,
+    mimeType: null
+  });
+  
+  res.json({ jobId });
+  
+  handleCompressAsync(req, jobId).catch(err => {
+    console.error(`[AsyncJob] Job ${jobId} failed:`, err);
+    const job = asyncJobs.get(jobId);
+    if (job) {
+      job.status = 'error';
+      job.error = err.message || 'Compression failed';
+    } else {
+      console.error(`[AsyncJob] Job entry not found for ${jobId}, original error:`, err.message || err);
+    }
+  });
 });
 
 app.post('/api/compress', upload.single('file'), (req, res) => handleCompress(req, res));
@@ -2176,7 +2455,28 @@ app.post('/api/convert-chunked', express.json(), async (req, res) => {
   req.body.endTime = endTime;
   req.body.audioBitrate = audioBitrate;
   
-  return handleConvert(req, res);
+  const jobId = uuidv4();
+  
+  asyncJobs.set(jobId, {
+    status: 'processing',
+    progress: 0,
+    message: 'Starting conversion...',
+    createdAt: Date.now(),
+    outputPath: null,
+    outputFilename: null,
+    mimeType: null
+  });
+  
+  res.json({ jobId });
+  
+  handleConvertAsync(req, jobId).catch(err => {
+    console.error(`[AsyncJob] Convert job ${jobId} failed:`, err);
+    const job = asyncJobs.get(jobId);
+    if (job) {
+      job.status = 'error';
+      job.error = err.message || 'Conversion failed';
+    }
+  });
 });
 
 async function handleCompress(req, res) {
@@ -2690,6 +2990,351 @@ async function handleCompress(req, res) {
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Compression failed' });
     }
+  }
+}
+
+async function handleCompressAsync(req, jobId) {
+  const job = asyncJobs.get(jobId);
+  if (!job) return;
+  
+  const { 
+    targetSize = '50', 
+    duration = '0', 
+    clientId,
+    mode = 'size',
+    quality = 'medium',
+    codec = 'h264',
+    denoise = 'auto'
+  } = req.body;
+  
+  const targetMB = parseFloat(targetSize);
+  const videoDuration = parseFloat(duration);
+  
+  const compressId = jobId;
+  const inputPath = req.file.path;
+  const outputExt = codec === 'vp9' ? 'webm' : 'mp4';
+  const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.${outputExt}`);
+  const passLogFile = path.join(TEMP_DIR, `${compressId}-pass`);
+
+  if (isNaN(targetMB) || targetMB <= 0) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    job.status = 'error';
+    job.error = 'Invalid target size';
+    job.progress = 0;
+    console.log(`[${compressId}] Invalid targetMB: ${targetSize}, aborting`);
+    return;
+  }
+
+  if (isNaN(videoDuration) || videoDuration <= 0) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    job.status = 'error';
+    job.error = 'Invalid video duration';
+    job.progress = 0;
+    console.log(`[${compressId}] Invalid duration: ${duration}, aborting`);
+    return;
+  }
+
+  if (videoDuration > SAFETY_LIMITS.maxVideoDuration) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    job.status = 'error';
+    job.error = `Video too long. Maximum duration is ${SAFETY_LIMITS.maxVideoDuration / 3600} hours.`;
+    job.progress = 0;
+    console.log(`[${compressId}] Video too long: ${videoDuration}s, aborting`);
+    return;
+  }
+
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(compressId, clientId);
+  }
+
+  activeJobsByType.compress++;
+  console.log(`[Queue] Async compress started. Active: ${JSON.stringify(activeJobsByType)}`);
+  console.log(`[${compressId}] Compressing ${req.file.originalname} to ${targetMB}MB (async)`);
+
+  const processInfo = { cancelled: false, process: null, tempFile: outputPath };
+  activeProcesses.set(compressId, processInfo);
+
+  try {
+    job.message = 'Analyzing video...';
+    
+    if (!validateVideoFile(inputPath)) {
+      throw new Error('File does not contain valid video');
+    }
+    
+    const probeResult = await new Promise((resolve, reject) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height,bit_rate,codec_name,r_frame_rate:format=duration,bit_rate',
+        '-of', 'json',
+        inputPath
+      ]);
+      
+      let output = '';
+      ffprobe.stdout.on('data', (data) => { output += data.toString(); });
+      ffprobe.on('close', () => {
+        try {
+          const parsed = JSON.parse(output);
+          const stream = parsed.streams?.[0] || {};
+          const format = parsed.format || {};
+          let fps = 30;
+          if (stream.r_frame_rate) {
+            const parts = stream.r_frame_rate.split('/');
+            const num = Number(parts[0]);
+            const den = Number(parts[1]);
+            if (isFinite(num) && isFinite(den) && den !== 0) {
+              const calculated = num / den;
+              fps = isFinite(calculated) && calculated > 0 ? calculated : 30;
+            }
+          }
+          resolve({
+            duration: parseFloat(format.duration) || 60,
+            width: parseInt(stream.width) || 1920,
+            height: parseInt(stream.height) || 1080,
+            videoBitrate: parseInt(stream.bit_rate) || parseInt(format.bit_rate) || 0,
+            codec: stream.codec_name || 'unknown',
+            fps
+          });
+        } catch (e) {
+          resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown', fps: 30 });
+        }
+      });
+      ffprobe.on('error', () => resolve({ duration: 60, width: 1920, height: 1080, videoBitrate: 0, codec: 'unknown', fps: 30 }));
+    });
+
+    let actualDuration = videoDuration > 0 ? videoDuration : probeResult.duration;
+    const sourceWidth = probeResult.width;
+    const sourceHeight = probeResult.height;
+    const sourceFileSizeMB = fs.statSync(inputPath).size / (1024 * 1024);
+    const actualBitrateMbps = (sourceFileSizeMB * 8) / actualDuration;
+
+    const targetBytes = targetMB * 1024 * 1024;
+    const containerOverhead = 0.95;
+    const effectiveBytes = targetBytes * containerOverhead;
+    
+    const audioBitrateK = 96;
+    const audioBytes = (audioBitrateK * 1000 / 8) * actualDuration;
+    
+    const videoBytes = effectiveBytes - audioBytes;
+    const videoBitrate = Math.floor((videoBytes * 8) / actualDuration);
+    const videoBitrateK = Math.floor(videoBitrate / 1000);
+
+    const tuneOption = detectContentTune(probeResult);
+    const shouldDenoise = denoise === 'heavy' || denoise === 'light' || 
+      (denoise === 'auto' && isLikelyNoisy(sourceHeight, actualBitrateMbps));
+
+    if (sourceFileSizeMB <= targetMB && mode === 'size') {
+      job.message = 'File already small enough, optimizing...';
+      job.progress = 50;
+      
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', [
+          '-y', '-i', inputPath,
+          '-c:v', 'copy', '-c:a', 'copy',
+          '-movflags', '+faststart',
+          outputPath
+        ]);
+        processInfo.process = ffmpeg;
+        ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Remux failed')));
+        ffmpeg.on('error', reject);
+      });
+    } else {
+      let targetWidth;
+      
+      if (mode === 'size') {
+        if (videoBitrateK < 500) targetWidth = 640;
+        else if (videoBitrateK < 1500) targetWidth = 854;
+        else if (videoBitrateK < 3000) targetWidth = 1280;
+        else targetWidth = Math.min(1920, sourceWidth);
+      } else {
+        targetWidth = sourceWidth;
+      }
+
+      const videoFilters = [];
+      if (shouldDenoise) {
+        const denoiseStrength = denoise === 'heavy' ? 'hqdn3d=6:4:9:6' : 'hqdn3d=4:3:6:4.5';
+        videoFilters.push(denoiseStrength);
+      }
+      if (targetWidth < sourceWidth) {
+        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
+      }
+      const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
+
+      const maxrateK = Math.floor(videoBitrateK * 1.5);
+      const bufsizeK = Math.floor(videoBitrateK * 2);
+
+      if (mode === 'quality') {
+        const crfValues = { high: 20, medium: 24, low: 28 };
+        const crf = crfValues[quality] || 24;
+        
+        job.message = 'Encoding video...';
+        job.progress = 5;
+
+        const ffmpegArgs = ['-y', '-i', inputPath, '-threads', '0'];
+        if (vfArg) ffmpegArgs.push('-vf', vfArg);
+        
+        if (codec === 'vp9') {
+          ffmpegArgs.push('-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-pix_fmt', 'yuv420p', '-row-mt', '1', '-c:a', 'libopus', '-b:a', `${audioBitrateK}k`);
+        } else {
+          ffmpegArgs.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-crf', String(crf), '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart');
+        }
+        ffmpegArgs.push(outputPath);
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+          processInfo.process = ffmpeg;
+          
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const progress = Math.min(95, (currentTime / actualDuration) * 95);
+              job.progress = Math.round(progress);
+              job.message = `Encoding... ${Math.round(progress)}%`;
+            }
+          });
+
+          ffmpeg.on('close', (code) => {
+            if (processInfo.cancelled) reject(new Error('Cancelled'));
+            else if (code === 0) resolve();
+            else reject(new Error(`Encoding failed with code ${code}`));
+          });
+          ffmpeg.on('error', reject);
+        });
+      } else if (codec === 'vp9') {
+        job.message = 'Encoding VP9...';
+        job.progress = 5;
+
+        const ffmpegArgs = ['-y', '-i', inputPath, '-threads', '0'];
+        if (vfArg) ffmpegArgs.push('-vf', vfArg);
+        ffmpegArgs.push('-c:v', 'libvpx-vp9', '-b:v', `${videoBitrateK}k`, '-crf', '30', '-pix_fmt', 'yuv420p', '-row-mt', '1', '-c:a', 'libopus', '-b:a', `${audioBitrateK}k`, outputPath);
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+          processInfo.process = ffmpeg;
+          
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const progress = Math.min(95, (currentTime / actualDuration) * 95);
+              job.progress = Math.round(progress);
+              job.message = `Encoding VP9... ${Math.round(progress)}%`;
+            }
+          });
+
+          ffmpeg.on('close', (code) => {
+            if (processInfo.cancelled) reject(new Error('Cancelled'));
+            else if (code === 0) resolve();
+            else reject(new Error(`VP9 encoding failed with code ${code}`));
+          });
+          ffmpeg.on('error', reject);
+        });
+      } else {
+        job.message = 'Pass 1/2 - Analyzing...';
+        job.progress = 5;
+
+        const pass1Args = ['-y', '-i', inputPath, '-threads', '0'];
+        if (vfArg) pass1Args.push('-vf', vfArg);
+        pass1Args.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '1', '-passlogfile', passLogFile, '-an', '-f', 'null', process.platform === 'win32' ? 'NUL' : '/dev/null');
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', pass1Args);
+          processInfo.process = ffmpeg;
+          
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const progress = Math.min(45, (currentTime / actualDuration) * 45);
+              job.progress = Math.round(progress);
+              job.message = `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`;
+            }
+          });
+
+          ffmpeg.on('close', (code) => {
+            if (processInfo.cancelled) reject(new Error('Cancelled'));
+            else if (code === 0) resolve();
+            else reject(new Error(`Pass 1 failed with code ${code}`));
+          });
+          ffmpeg.on('error', reject);
+        });
+
+        if (processInfo.cancelled) throw new Error('Cancelled');
+
+        job.message = 'Pass 2/2 - Encoding...';
+        job.progress = 50;
+
+        const pass2Args = ['-y', '-i', inputPath, '-threads', '0'];
+        if (vfArg) pass2Args.push('-vf', vfArg);
+        pass2Args.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '2', '-passlogfile', passLogFile, '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart', outputPath);
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', pass2Args);
+          processInfo.process = ffmpeg;
+          
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
+              job.progress = Math.round(progress);
+              job.message = `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`;
+            }
+          });
+
+          ffmpeg.on('close', (code) => {
+            if (processInfo.cancelled) reject(new Error('Cancelled'));
+            else if (code === 0) resolve();
+            else reject(new Error(`Pass 2 failed with code ${code}`));
+          });
+          ffmpeg.on('error', reject);
+        });
+      }
+    }
+
+    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
+    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
+
+    const stat = fs.statSync(outputPath);
+    const originalName = path.parse(req.file.originalname).name;
+    const outputFilename = `${sanitizeFilename(originalName)}_compressed.${outputExt}`;
+    const mimeType = codec === 'vp9' ? 'video/webm' : 'video/mp4';
+
+    console.log(`[${compressId}] Async compression complete: ${(stat.size / 1024 / 1024).toFixed(2)}MB (target: ${targetMB}MB)`);
+
+    job.status = 'complete';
+    job.progress = 100;
+    job.message = 'Compression complete!';
+    job.outputPath = outputPath;
+    job.outputFilename = outputFilename;
+    job.mimeType = mimeType;
+    
+    activeProcesses.delete(compressId);
+    activeJobsByType.compress--;
+    unlinkJobFromClient(compressId);
+    trackCompress();
+    console.log(`[Queue] Async compress finished. Active: ${JSON.stringify(activeJobsByType)}`);
+
+  } catch (err) {
+    console.error(`[${compressId}] Async error:`, err.message);
+    activeProcesses.delete(compressId);
+    activeJobsByType.compress--;
+    unlinkJobFromClient(compressId);
+    
+    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(outputPath); } catch {}
+    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
+    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
+    
+    job.status = 'error';
+    job.error = err.message || 'Compression failed';
   }
 }
 

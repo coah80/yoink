@@ -544,12 +544,14 @@
 
         if (useChunked) {
           const { filePath, fileName } = await uploadChunked(selectedFile, (progress) => {
-            progressFill.style.width = `${progress * 0.9}%`;
+            progressFill.style.width = `${progress}%`;
+            progressText.textContent = 'Uploading...';
           });
           
+          progressFill.style.width = '0%';
           progressText.textContent = 'Converting...';
           
-          response = await fetch(`${API_BASE}/api/convert-chunked`, {
+          const initResponse = await fetch(`${API_BASE}/api/convert-chunked`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -558,6 +560,40 @@
               format: targetFormat
             })
           });
+          
+          if (!initResponse.ok) {
+            const errMsg = await safeParseError(initResponse);
+            throw new Error(errMsg);
+          }
+          
+          const { jobId } = await initResponse.json();
+          
+          while (true) {
+            await new Promise(r => setTimeout(r, 2000));
+            
+            const statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`);
+            if (!statusRes.ok) {
+              if (statusRes.status === 404) {
+                throw new Error(`Job not found or expired (id: ${jobId})`);
+              }
+              throw new Error('Failed to check job status');
+            }
+            
+            const jobStatus = await statusRes.json();
+            
+            if (jobStatus.status === 'error') {
+              throw new Error(jobStatus.error || 'Conversion failed');
+            }
+            
+            progressFill.style.width = `${jobStatus.progress}%`;
+            progressText.textContent = jobStatus.message || 'Processing...';
+            
+            if (jobStatus.status === 'complete') {
+              break;
+            }
+          }
+          
+          response = await fetch(`${API_BASE}/api/job/${jobId}/download`);
         } else {
           const formData = new FormData();
           formData.append('file', selectedFile);

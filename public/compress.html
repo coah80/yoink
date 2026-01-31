@@ -1267,9 +1267,9 @@
           let uploadResult;
           try {
             uploadResult = await uploadChunked(selectedFile, (progress) => {
-              progressFill.style.width = `${progress * 0.5}%`;
-              progressPercent.textContent = `${Math.round(progress * 0.5)}%`;
-              progressDetails.textContent = `Uploading... ${Math.round(progress)}%`;
+              progressFill.style.width = `${progress}%`;
+              progressPercent.textContent = `${Math.round(progress)}%`;
+              progressDetails.textContent = `Uploading chunks...`;
             });
           } catch (uploadErr) {
             eventSource.close();
@@ -1277,10 +1277,13 @@
           }
           
           const { filePath, fileName } = uploadResult;
-          progressStatus.textContent = 'Starting compression...';
-          progressDetails.textContent = 'File uploaded, starting compression...';
           
-          response = await fetch(`${API_BASE}/api/compress-chunked`, {
+          progressFill.style.width = '0%';
+          progressPercent.textContent = '0%';
+          progressStatus.textContent = 'Compressing...';
+          progressDetails.textContent = 'Starting compression...';
+          
+          const initResponse = await fetch(`${API_BASE}/api/compress-chunked`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1291,6 +1294,46 @@
               progressId
             })
           });
+          
+          if (!initResponse.ok) {
+            const err = await initResponse.json();
+            throw new Error(err.error || 'Failed to start compression');
+          }
+          
+          const { jobId } = await initResponse.json();
+          
+          const pollStartTime = Date.now();
+          const maxPollDuration = 30 * 60 * 1000;
+          
+          while (true) {
+            await new Promise(r => setTimeout(r, 2000));
+            
+            if (Date.now() - pollStartTime > maxPollDuration) {
+              throw new Error('Job timed out after 30 minutes. Please try again with a smaller file.');
+            }
+            
+            const statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`);
+            if (!statusRes.ok) {
+              throw new Error('Failed to check job status');
+            }
+            
+            const status = await statusRes.json();
+            
+            if (status.status === 'error') {
+              throw new Error(status.error || 'Compression failed');
+            }
+            
+            const roundedProgress = Math.round(status.progress || 0);
+            progressFill.style.width = `${roundedProgress}%`;
+            progressPercent.textContent = `${roundedProgress}%`;
+            progressDetails.textContent = status.message || 'Processing...';
+            
+            if (status.status === 'complete') {
+              break;
+            }
+          }
+          
+          response = await fetch(`${API_BASE}/api/job/${jobId}/download`);
         } else {
           const formData = new FormData();
           formData.append('file', selectedFile);
