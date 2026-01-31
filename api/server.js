@@ -338,6 +338,7 @@ const ALLOWED_MODES = ['size', 'quality'];
 const ALLOWED_QUALITIES = ['high', 'medium', 'low'];
 const ALLOWED_CODECS = ['h264', 'vp9'];
 const ALLOWED_DENOISE = ['auto', 'none', 'light', 'heavy'];
+const ALLOWED_SPEEDS = ['fast', 'slow'];
 
 function detectContentTune(probeResult) {
   if (probeResult.fps && probeResult.fps < 15) return 'stillimage';
@@ -2054,8 +2055,13 @@ async function handleConvertAsync(req, jobId) {
         if (timeMatch) {
           const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
           const progress = Math.min(95, 10 + (currentTime / duration) * 85);
+          
+          const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+          const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+          const eta = speed ? formatETA((duration - currentTime) / speed) : null;
+          
           job.progress = Math.round(progress);
-          job.message = `Converting... ${Math.round(progress)}%`;
+          job.message = eta ? `Converting... ${Math.round(progress)}% (ETA: ${eta})` : `Converting... ${Math.round(progress)}%`;
         }
       });
 
@@ -2341,7 +2347,8 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     mode = 'size',
     quality = 'medium',
     codec = 'h264',
-    denoise = 'auto'
+    denoise = 'auto',
+    speed = 'slow'
   } = req.body;
   
   const validPath = validateChunkedFilePath(filePath);
@@ -2369,6 +2376,10 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     fs.unlink(validPath, () => {});
     return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
   }
+  if (!ALLOWED_SPEEDS.includes(speed)) {
+    fs.unlink(validPath, () => {});
+    return res.status(400).json({ error: `Invalid speed. Allowed: ${ALLOWED_SPEEDS.join(', ')}` });
+  }
   
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
   req.body.targetSize = targetSize;
@@ -2379,6 +2390,7 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
   req.body.quality = quality;
   req.body.codec = codec;
   req.body.denoise = denoise;
+  req.body.speed = speed;
   
   const jobId = uuidv4();
   
@@ -2492,7 +2504,8 @@ async function handleCompress(req, res) {
     mode = 'size',
     quality = 'medium',
     codec = 'h264',
-    denoise = 'auto'
+    denoise = 'auto',
+    speed = 'slow'
   } = req.body;
   
   if (!ALLOWED_MODES.includes(mode)) {
@@ -2510,6 +2523,10 @@ async function handleCompress(req, res) {
   if (!ALLOWED_DENOISE.includes(denoise)) {
     fs.unlink(req.file.path, () => {});
     return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
+  }
+  if (!ALLOWED_SPEEDS.includes(speed)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Invalid speed. Allowed: ${ALLOWED_SPEEDS.join(', ')}` });
   }
   
   const targetMB = parseFloat(targetSize);
@@ -2642,25 +2659,7 @@ async function handleCompress(req, res) {
         ffmpeg.on('error', reject);
       });
     } else {
-      let targetWidth;
-      
-      if (mode === 'size') {
-        if (videoBitrateK < 500) {
-          targetWidth = 640;
-          console.log(`[${compressId}] Very low bitrate (${videoBitrateK}k), scaling to 360p`);
-        } else if (videoBitrateK < 1500) {
-          targetWidth = 854;
-          console.log(`[${compressId}] Low bitrate (${videoBitrateK}k), scaling to 480p`);
-        } else if (videoBitrateK < 3000) {
-          targetWidth = 1280;
-          console.log(`[${compressId}] Moderate bitrate (${videoBitrateK}k), scaling to 720p`);
-        } else {
-          targetWidth = Math.min(1920, sourceWidth);
-          console.log(`[${compressId}] Good bitrate (${videoBitrateK}k), using ${targetWidth >= 1920 ? '1080p' : 'source resolution'}`);
-        }
-      } else {
-        targetWidth = sourceWidth;
-      }
+      console.log(`[${compressId}] Keeping source resolution: ${sourceWidth}x${sourceHeight}`);
 
       const videoFilters = [];
       
@@ -2669,25 +2668,22 @@ async function handleCompress(req, res) {
         videoFilters.push(denoiseStrength);
       }
       
-      if (targetWidth < sourceWidth) {
-        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
-        console.log(`[${compressId}] Scaling from ${sourceWidth}x${sourceHeight} to ${targetWidth}p with lanczos`);
-      } else {
-        console.log(`[${compressId}] Source (${sourceWidth}x${sourceHeight}) already at or below target, no scaling`);
-      }
-      
       const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
 
       const maxrateK = Math.floor(videoBitrateK * 1.5);
       const bufsizeK = Math.floor(videoBitrateK * 2);
 
-      console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio, Codec: ${codec}, Mode: ${mode}`);
+      console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio, Codec: ${codec}, Mode: ${mode}, Speed: ${speed}`);
+
+      const presetOption = speed === 'fast' ? 'veryfast' : 'slow';
 
       if (mode === 'quality') {
-        const crfValues = { high: 20, medium: 24, low: 28 };
-        const crf = crfValues[quality] || 24;
+        const crfValues = speed === 'fast' 
+          ? { high: 22, medium: 26, low: 30 }
+          : { high: 18, medium: 23, low: 26 };
+        const crf = crfValues[quality] || (speed === 'fast' ? 26 : 23);
         
-        sendProgress(compressId, 'compressing', 'Encoding video...', 5);
+        sendProgress(compressId, 'compressing', `Encoding video (${speed})...`, 5);
 
         const ffmpegArgs = [
           '-y', '-i', inputPath,
@@ -2708,7 +2704,7 @@ async function handleCompress(req, res) {
         } else {
           ffmpegArgs.push(
             '-c:v', 'libx264',
-            '-preset', 'slow',
+            '-preset', presetOption,
             '-tune', tuneOption,
             '-crf', String(crf),
             '-pix_fmt', 'yuv420p',
@@ -2807,7 +2803,7 @@ async function handleCompress(req, res) {
             ffmpeg.on('error', reject);
           });
         } else {
-          sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video...`, 5);
+          sendProgress(compressId, 'compressing', `Pass 1/2 - Analyzing video (${speed})...`, 5);
 
           const pass1Args = [
             '-y',
@@ -2819,7 +2815,7 @@ async function handleCompress(req, res) {
           
           pass1Args.push(
             '-c:v', 'libx264',
-            '-preset', 'slow',
+            '-preset', presetOption,
             '-tune', tuneOption,
             '-b:v', `${videoBitrateK}k`,
             '-maxrate', `${maxrateK}k`,
@@ -2869,7 +2865,7 @@ async function handleCompress(req, res) {
 
           if (processInfo.cancelled) throw new Error('Cancelled');
 
-          sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video...`, 50);
+          sendProgress(compressId, 'compressing', `Pass 2/2 - Encoding video (${speed})...`, 50);
 
           const pass2Args = [
             '-y',
@@ -2881,7 +2877,7 @@ async function handleCompress(req, res) {
           
           pass2Args.push(
             '-c:v', 'libx264',
-            '-preset', 'slow',
+            '-preset', presetOption,
             '-tune', tuneOption,
             '-b:v', `${videoBitrateK}k`,
             '-maxrate', `${maxrateK}k`,
@@ -3004,7 +3000,8 @@ async function handleCompressAsync(req, jobId) {
     mode = 'size',
     quality = 'medium',
     codec = 'h264',
-    denoise = 'auto'
+    denoise = 'auto',
+    speed = 'slow'
   } = req.body;
   
   const targetMB = parseFloat(targetSize);
@@ -3140,35 +3137,24 @@ async function handleCompressAsync(req, jobId) {
         ffmpeg.on('error', reject);
       });
     } else {
-      let targetWidth;
-      
-      if (mode === 'size') {
-        if (videoBitrateK < 500) targetWidth = 640;
-        else if (videoBitrateK < 1500) targetWidth = 854;
-        else if (videoBitrateK < 3000) targetWidth = 1280;
-        else targetWidth = Math.min(1920, sourceWidth);
-      } else {
-        targetWidth = sourceWidth;
-      }
-
       const videoFilters = [];
       if (shouldDenoise) {
         const denoiseStrength = denoise === 'heavy' ? 'hqdn3d=6:4:9:6' : 'hqdn3d=4:3:6:4.5';
         videoFilters.push(denoiseStrength);
       }
-      if (targetWidth < sourceWidth) {
-        videoFilters.push(`scale=${targetWidth}:-2:flags=lanczos`);
-      }
       const vfArg = videoFilters.length > 0 ? videoFilters.join(',') : null;
 
       const maxrateK = Math.floor(videoBitrateK * 1.5);
       const bufsizeK = Math.floor(videoBitrateK * 2);
+      const presetOption = speed === 'fast' ? 'veryfast' : 'slow';
 
       if (mode === 'quality') {
-        const crfValues = { high: 20, medium: 24, low: 28 };
-        const crf = crfValues[quality] || 24;
+        const crfValues = speed === 'fast' 
+          ? { high: 22, medium: 26, low: 30 }
+          : { high: 18, medium: 23, low: 26 };
+        const crf = crfValues[quality] || (speed === 'fast' ? 26 : 23);
         
-        job.message = 'Encoding video...';
+        job.message = `Encoding video (${speed})...`;
         job.progress = 5;
 
         const ffmpegArgs = ['-y', '-i', inputPath, '-threads', '0'];
@@ -3177,7 +3163,7 @@ async function handleCompressAsync(req, jobId) {
         if (codec === 'vp9') {
           ffmpegArgs.push('-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-pix_fmt', 'yuv420p', '-row-mt', '1', '-c:a', 'libopus', '-b:a', `${audioBitrateK}k`);
         } else {
-          ffmpegArgs.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-crf', String(crf), '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart');
+          ffmpegArgs.push('-c:v', 'libx264', '-preset', presetOption, '-tune', tuneOption, '-crf', String(crf), '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart');
         }
         ffmpegArgs.push(outputPath);
 
@@ -3234,12 +3220,12 @@ async function handleCompressAsync(req, jobId) {
           ffmpeg.on('error', reject);
         });
       } else {
-        job.message = 'Pass 1/2 - Analyzing...';
+        job.message = `Pass 1/2 - Analyzing (${speed})...`;
         job.progress = 5;
 
         const pass1Args = ['-y', '-i', inputPath, '-threads', '0'];
         if (vfArg) pass1Args.push('-vf', vfArg);
-        pass1Args.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '1', '-passlogfile', passLogFile, '-an', '-f', 'null', process.platform === 'win32' ? 'NUL' : '/dev/null');
+        pass1Args.push('-c:v', 'libx264', '-preset', presetOption, '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '1', '-passlogfile', passLogFile, '-an', '-f', 'null', process.platform === 'win32' ? 'NUL' : '/dev/null');
 
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', pass1Args);
@@ -3266,12 +3252,12 @@ async function handleCompressAsync(req, jobId) {
 
         if (processInfo.cancelled) throw new Error('Cancelled');
 
-        job.message = 'Pass 2/2 - Encoding...';
+        job.message = `Pass 2/2 - Encoding (${speed})...`;
         job.progress = 50;
 
         const pass2Args = ['-y', '-i', inputPath, '-threads', '0'];
         if (vfArg) pass2Args.push('-vf', vfArg);
-        pass2Args.push('-c:v', 'libx264', '-preset', 'slow', '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '2', '-passlogfile', passLogFile, '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart', outputPath);
+        pass2Args.push('-c:v', 'libx264', '-preset', presetOption, '-tune', tuneOption, '-b:v', `${videoBitrateK}k`, '-maxrate', `${maxrateK}k`, '-bufsize', `${bufsizeK}k`, '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level:v', '4.2', '-pass', '2', '-passlogfile', passLogFile, '-c:a', 'aac', '-b:a', `${audioBitrateK}k`, '-movflags', '+faststart', outputPath);
 
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', pass2Args);

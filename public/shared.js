@@ -43,10 +43,6 @@ function startHeartbeat() {
   }
 }
 
-function getClientId() {
-  return clientId;
-}
-
 function getTrackingId() {
   let trackingId = localStorage.getItem('yoink_trackingId');
   if (!trackingId) {

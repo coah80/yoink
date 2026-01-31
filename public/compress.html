@@ -838,6 +838,21 @@
         </div>
       </div>
 
+      <div class="size-section">
+        <div class="size-label">encoding speed</div>
+        <div class="size-description">slow = smaller file, better quality | fast = quicker encoding</div>
+        <div class="size-grid" id="speedGrid" style="grid-template-columns: repeat(2, 1fr);">
+          <div class="size-option active" data-speed="slow">
+            <div class="size-option-value">🐢</div>
+            <div class="size-option-label">slow (best)</div>
+          </div>
+          <div class="size-option" data-speed="fast">
+            <div class="size-option-value">⚡</div>
+            <div class="size-option-label">fast</div>
+          </div>
+        </div>
+      </div>
+
       <button class="compress-btn" id="compressBtn" disabled>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="4 14 10 14 10 20"></polyline>
@@ -972,6 +987,7 @@
     let actualSize = 47;
     let videoDuration = 0;
     let isCustomSize = false;
+    let selectedSpeed = 'slow';
 
     function formatBytes(bytes) {
       if (bytes === 0) return '0 B';
@@ -1291,7 +1307,8 @@
               fileName,
               targetSize: actualSize.toString(),
               duration: videoDuration.toString(),
-              progressId
+              progressId,
+              speed: selectedSpeed
             })
           });
           
@@ -1340,6 +1357,7 @@
           formData.append('targetSize', actualSize.toString());
           formData.append('duration', videoDuration.toString());
           formData.append('progressId', progressId);
+          formData.append('speed', selectedSpeed);
 
           response = await fetch(`${API_BASE}/api/compress`, {
             method: 'POST',
@@ -1426,6 +1444,16 @@
       isCustomSize = false;
       customSizeInput.value = '';
       updateEstimate();
+    });
+
+    const speedGrid = document.getElementById('speedGrid');
+    speedGrid.addEventListener('click', (e) => {
+      const option = e.target.closest('.size-option');
+      if (!option || !option.dataset.speed) return;
+
+      speedGrid.querySelectorAll('.size-option').forEach(o => o.classList.remove('active'));
+      option.classList.add('active');
+      selectedSpeed = option.dataset.speed;
     });
 
     customSizeInput.addEventListener('input', () => {
