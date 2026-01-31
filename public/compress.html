@@ -840,15 +840,27 @@
 
       <div class="size-section">
         <div class="size-label">encoding speed</div>
-        <div class="size-description">slow = smaller file, better quality | fast = quicker encoding</div>
-        <div class="size-grid" id="speedGrid" style="grid-template-columns: repeat(2, 1fr);">
-          <div class="size-option active" data-speed="slow">
-            <div class="size-option-value">slow</div>
+        <div class="size-description">slower = smaller file, better quality | faster = quicker encoding</div>
+        <div class="size-grid" id="speedGrid" style="grid-template-columns: repeat(5, 1fr);">
+          <div class="size-option" data-speed="slowest">
+            <div class="size-option-value">slowest</div>
             <div class="size-option-label">best quality</div>
+          </div>
+          <div class="size-option" data-speed="slow">
+            <div class="size-option-value">slow</div>
+            <div class="size-option-label">great quality</div>
+          </div>
+          <div class="size-option active" data-speed="balanced">
+            <div class="size-option-value">balanced</div>
+            <div class="size-option-label">recommended</div>
           </div>
           <div class="size-option" data-speed="fast">
             <div class="size-option-value">fast</div>
             <div class="size-option-label">quicker</div>
+          </div>
+          <div class="size-option" data-speed="fastest">
+            <div class="size-option-value">fastest</div>
+            <div class="size-option-label">lowest quality</div>
           </div>
         </div>
       </div>
@@ -987,7 +999,7 @@
     let actualSize = 47;
     let videoDuration = 0;
     let isCustomSize = false;
-    let selectedSpeed = 'slow';
+    let selectedSpeed = 'balanced';
 
     function formatBytes(bytes) {
       if (bytes === 0) return '0 B';

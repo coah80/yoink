@@ -338,7 +338,7 @@ const ALLOWED_MODES = ['size', 'quality'];
 const ALLOWED_QUALITIES = ['high', 'medium', 'low'];
 const ALLOWED_CODECS = ['h264', 'vp9'];
 const ALLOWED_DENOISE = ['auto', 'none', 'light', 'heavy'];
-const ALLOWED_SPEEDS = ['fast', 'slow'];
+const ALLOWED_SPEEDS = ['fastest', 'fast', 'balanced', 'slow', 'slowest'];
 
 function detectContentTune(probeResult) {
   if (probeResult.fps && probeResult.fps < 15) return 'stillimage';
@@ -2675,13 +2675,14 @@ async function handleCompress(req, res) {
 
       console.log(`[${compressId}] Duration: ${actualDuration.toFixed(1)}s, Target: ${videoBitrateK}k video / ${audioBitrateK}k audio, Codec: ${codec}, Mode: ${mode}, Speed: ${speed}`);
 
-      const presetOption = speed === 'fast' ? 'veryfast' : 'slow';
+      const presetOption = { fastest: 'ultrafast', fast: 'veryfast', balanced: 'medium', slow: 'slow', slowest: 'veryslow' }[speed] || 'slow';
+      const isFastMode = speed === 'fast' || speed === 'fastest' || speed === 'balanced';
 
       if (mode === 'quality') {
-        const crfValues = speed === 'fast' 
+        const crfValues = isFastMode 
           ? { high: 22, medium: 26, low: 30 }
           : { high: 18, medium: 23, low: 26 };
-        const crf = crfValues[quality] || (speed === 'fast' ? 26 : 23);
+        const crf = crfValues[quality] || (isFastMode ? 26 : 23);
         
         sendProgress(compressId, 'compressing', `Encoding video (${speed})...`, 5);
 
@@ -3146,13 +3147,14 @@ async function handleCompressAsync(req, jobId) {
 
       const maxrateK = Math.floor(videoBitrateK * 1.5);
       const bufsizeK = Math.floor(videoBitrateK * 2);
-      const presetOption = speed === 'fast' ? 'veryfast' : 'slow';
+      const presetOption = { fastest: 'ultrafast', fast: 'veryfast', balanced: 'medium', slow: 'slow', slowest: 'veryslow' }[speed] || 'slow';
+      const isFastMode = speed === 'fast' || speed === 'fastest' || speed === 'balanced';
 
       if (mode === 'quality') {
-        const crfValues = speed === 'fast' 
+        const crfValues = isFastMode 
           ? { high: 22, medium: 26, low: 30 }
           : { high: 18, medium: 23, low: 26 };
-        const crf = crfValues[quality] || (speed === 'fast' ? 26 : 23);
+        const crf = crfValues[quality] || (isFastMode ? 26 : 23);
         
         job.message = `Encoding video (${speed})...`;
         job.progress = 5;
