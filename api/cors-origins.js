@@ -12,5 +12,6 @@
 
 module.exports = [
   "https://yoink.tools",
-  "https://www.yoink.tools"
+  "https://www.yoink.tools",
+  "https://yoink.coah80.com"
 ];

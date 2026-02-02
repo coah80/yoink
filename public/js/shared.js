@@ -2,7 +2,7 @@ const API_BASE = (() => {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:3001';
   }
-  return window.location.origin;
+  return 'https://yoink.coah80.com';
 })();
 
 let clientId = sessionStorage.getItem('yoink_clientId');
