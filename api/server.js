@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const { spawn, execSync, spawnSync } = require('child_process');
 const net = require('net');
 const path = require('path');
@@ -62,6 +63,17 @@ function getDefaultAnalytics() {
   };
 }
 
+const seenCountryUsers = new Map();
+
+setInterval(() => {
+  const today = new Date().toISOString().split('T')[0];
+  for (const key of seenCountryUsers.keys()) {
+    if (!key.startsWith(today)) {
+      seenCountryUsers.delete(key);
+    }
+  }
+}, 60 * 60 * 1000);
+
 function loadAnalytics() {
   try {
     if (fs.existsSync(ANALYTICS_FILE)) {
@@ -93,9 +105,6 @@ function trackDownload(format, site, country, trackingId) {
   analytics.formats[format] = (analytics.formats[format] || 0) + 1;
   if (site) {
     analytics.sites[site] = (analytics.sites[site] || 0) + 1;
-  }
-  if (country) {
-    analytics.countries[country] = (analytics.countries[country] || 0) + 1;
   }
   if (trackingId) {
     if (!analytics.userData[trackingId]) {
@@ -140,9 +149,6 @@ function trackPageView(page, country, trackingId) {
     analytics.pageViews[today] = {};
   }
   analytics.pageViews[today][page] = (analytics.pageViews[today][page] || 0) + 1;
-  if (country) {
-    analytics.countries[country] = (analytics.countries[country] || 0) + 1;
-  }
   if (trackingId) {
     if (!analytics.userData[trackingId]) {
       analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {}, pageViews: 0 };
@@ -162,9 +168,15 @@ function trackDailyUser(clientId, country, trackingId) {
     analytics.dailyUsers[today] = new Set(analytics.dailyUsers[today]);
   }
   analytics.dailyUsers[today].add(clientId);
-  if (country) {
-    analytics.countries[country] = (analytics.countries[country] || 0) + 1;
+  
+  if (country && clientId) {
+    const countryKey = `${today}:${clientId}`;
+    if (!seenCountryUsers.has(countryKey)) {
+      seenCountryUsers.set(countryKey, true);
+      analytics.countries[country] = (analytics.countries[country] || 0) + 1;
+    }
   }
+  
   if (trackingId) {
     if (!analytics.userData[trackingId]) {
       analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {}, pageViews: 0 };
@@ -282,7 +294,7 @@ const JOB_LIMITS = {
 const MAX_QUEUE_SIZE = 50;
 const FILE_SIZE_LIMIT = 15 * 1024 * 1024 * 1024;
 const FILE_RETENTION_MS = 20 * 60 * 1000;
-const HEARTBEAT_TIMEOUT_MS = 45 * 1000;
+const HEARTBEAT_TIMEOUT_MS = 30 * 1000;
 
 const SAFETY_LIMITS = {
   playlistChunkSize: 50,
@@ -443,6 +455,7 @@ const activeJobsByType = {
 
 const jobQueue = [];
 const HEAVY_JOB_TYPES = ['playlist', 'convert', 'compress'];
+const SESSION_IDLE_TIMEOUT_MS = 60 * 1000;
 
 const clientSessions = new Map();
 const jobToClient = new Map();
@@ -450,7 +463,8 @@ const jobToClient = new Map();
 function registerClient(clientId) {
   if (!clientSessions.has(clientId)) {
     clientSessions.set(clientId, { 
-      lastHeartbeat: Date.now(), 
+      lastHeartbeat: Date.now(),
+      lastActivity: Date.now(),
       activeJobs: new Set() 
     });
     console.log(`[Session] Client ${clientId.slice(0, 8)}... connected`);
@@ -465,6 +479,8 @@ function registerClient(clientId) {
       analytics.peakUsers = { count: currentCount, timestamp: now };
       saveAnalytics(analytics);
     }
+  } else {
+    clientSessions.get(clientId).lastActivity = Date.now();
   }
 }
 
@@ -481,6 +497,7 @@ function linkJobToClient(jobId, clientId) {
   if (clientId && clientSessions.has(clientId)) {
     const session = clientSessions.get(clientId);
     session.activeJobs.add(jobId);
+    session.lastActivity = Date.now();
     jobToClient.set(jobId, clientId);
   }
 }
@@ -491,6 +508,7 @@ function unlinkJobFromClient(jobId) {
     const session = clientSessions.get(clientId);
     if (session) {
       session.activeJobs.delete(jobId);
+      session.lastActivity = Date.now();
     }
     jobToClient.delete(jobId);
   }
@@ -499,8 +517,10 @@ function unlinkJobFromClient(jobId) {
 setInterval(() => {
   const now = Date.now();
   for (const [clientId, session] of clientSessions.entries()) {
-    if (now - session.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
-      console.log(`[Session] Client ${clientId.slice(0, 8)}... timed out, cancelling ${session.activeJobs.size} jobs`);
+    const hasActiveJobs = session.activeJobs.size > 0;
+    
+    if (hasActiveJobs && now - session.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+      console.log(`[Session] Client ${clientId.slice(0, 8)}... heartbeat timeout, cancelling ${session.activeJobs.size} jobs`);
       
       for (const jobId of session.activeJobs) {
         const processInfo = activeProcesses.get(jobId);
@@ -510,9 +530,14 @@ setInterval(() => {
             processInfo.process.kill('SIGTERM');
           }
           sendProgress(jobId, 'cancelled', 'Connection lost - task cancelled');
+          activeProcesses.delete(jobId);
         }
+        cleanupJobFiles(jobId);
       }
       
+      clientSessions.delete(clientId);
+    } else if (!hasActiveJobs && now - session.lastActivity > SESSION_IDLE_TIMEOUT_MS) {
+      console.log(`[Session] Client ${clientId.slice(0, 8)}... idle timeout`);
       clientSessions.delete(clientId);
     }
   }
@@ -701,25 +726,24 @@ setInterval(() => {
   }
 }, 60000);
 
-const ALLOWED_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
-  'https://yoink.tools',
-  'https://www.yoink.tools',
-  'https://yoink.pages.dev',
-  'https://yoink-tools.pages.dev',
-  /\.pages\.dev$/,
-  /\.yoink\.tools$/,
-];
+let corsOrigins = null;
+try {
+  corsOrigins = require('./cors-origins.js');
+  console.log(`✓ Loaded ${corsOrigins.length} CORS origins from cors-origins.js`);
+} catch (e) {
+  console.log('[CORS] No cors-origins.js found, allowing all origins (credentials disabled)');
+}
 
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+const corsConfig = corsOrigins && corsOrigins.length > 0
+  ? { origin: corsOrigins, credentials: true }
+  : { origin: true, credentials: false };
+
+app.use(cors(corsConfig));
+app.use(cookieParser());
 
 app.use(express.json({ limit: '500mb' }));
+
+app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api/download', rateLimitMiddleware);
 app.use('/api/download-playlist', rateLimitMiddleware);
@@ -727,36 +751,79 @@ app.use('/api/convert', rateLimitMiddleware);
 app.use('/api/compress', rateLimitMiddleware);
 
 const TEMP_DIR = path.join(os.tmpdir(), 'yoink-downloads');
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
+
+function clearTempDir() {
+  try {
+    if (fs.existsSync(TEMP_DIR)) {
+      fs.rmSync(TEMP_DIR, { recursive: true });
+      console.log('✓ Cleared temp directory');
+    }
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  } catch (err) {
+    console.error('Failed to clear temp directory:', err);
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
 }
+
+clearTempDir();
 
 function cleanupTempFiles() {
   try {
-    const files = fs.readdirSync(TEMP_DIR);
+    const items = fs.readdirSync(TEMP_DIR);
     const now = Date.now();
-    files.forEach(file => {
-      const filePath = path.join(TEMP_DIR, file);
-      const stat = fs.statSync(filePath);
-      if (now - stat.mtimeMs > 60 * 60 * 1000) {
-        fs.unlinkSync(filePath);
-        console.log(`Cleaned up old temp file: ${file}`);
-      }
+    items.forEach(item => {
+      const itemPath = path.join(TEMP_DIR, item);
+      try {
+        const stat = fs.statSync(itemPath);
+        if (now - stat.mtimeMs > FILE_RETENTION_MS) {
+          if (stat.isDirectory()) {
+            fs.rmSync(itemPath, { recursive: true });
+          } else {
+            fs.unlinkSync(itemPath);
+          }
+          console.log(`Cleaned up old temp: ${item}`);
+        }
+      } catch {}
     });
   } catch (err) {
     console.error('Cleanup error:', err);
   }
 }
 
-setInterval(cleanupTempFiles, 15 * 60 * 1000);
-cleanupTempFiles();
+function cleanupJobFiles(jobId) {
+  try {
+    const items = fs.readdirSync(TEMP_DIR);
+    items.forEach(item => {
+      if (item.includes(jobId)) {
+        const itemPath = path.join(TEMP_DIR, item);
+        try {
+          const stat = fs.statSync(itemPath);
+          if (stat.isDirectory()) {
+            fs.rmSync(itemPath, { recursive: true });
+          } else {
+            fs.unlinkSync(itemPath);
+          }
+          console.log(`Cleaned up job files: ${item}`);
+        } catch (innerErr) {
+          console.debug(`[Cleanup] Failed to remove ${item} for job ${jobId}: ${innerErr.message}`);
+        }
+      }
+    });
+  } catch (outerErr) {
+    console.debug(`[Cleanup] Failed to read ${TEMP_DIR} for job ${jobId}: ${outerErr.message}`);
+  }
+}
+
+setInterval(cleanupTempFiles, 5 * 60 * 1000);
+
+let galleryDlAvailable = false;
 
 function checkDependencies() {
   try {
     execSync('which yt-dlp', { stdio: 'ignore' });
     console.log('✓ yt-dlp found');
   } catch {
-    console.error('✗ yt-dlp not found. Please install: brew install yt-dlp');
+    console.error('✗ yt-dlp not found. Please install: pip install yt-dlp');
     process.exit(1);
   }
   
@@ -764,8 +831,16 @@ function checkDependencies() {
     execSync('which ffmpeg', { stdio: 'ignore' });
     console.log('✓ ffmpeg found');
   } catch {
-    console.error('✗ ffmpeg not found. Please install: brew install ffmpeg');
+    console.error('✗ ffmpeg not found. Please install: apt install ffmpeg');
     process.exit(1);
+  }
+
+  try {
+    execSync('which gallery-dl', { stdio: 'ignore' });
+    galleryDlAvailable = true;
+    console.log('✓ gallery-dl found');
+  } catch {
+    console.log('⚠ gallery-dl not found - image downloads disabled. Install: pip install gallery-dl');
   }
 
   if (hasCookiesFile()) {
@@ -991,19 +1066,11 @@ app.post('/api/cancel/:id', (req, res) => {
       }
     }
     
-    if (processInfo.tempDir) {
-      setTimeout(() => {
-        try { fs.rmSync(processInfo.tempDir, { recursive: true }); } catch {}
-      }, 1000);
-    }
-    if (processInfo.tempFile) {
-      setTimeout(() => {
-        try { fs.unlinkSync(processInfo.tempFile); } catch {}
-      }, 1000);
-    }
-    
     activeProcesses.delete(id);
     sendProgress(id, 'cancelled', 'Download cancelled');
+    
+    setTimeout(() => cleanupJobFiles(id), 1000);
+    
     res.json({ success: true, message: 'Download cancelled' });
   } else {
     res.json({ success: false, message: 'Download not found or already completed' });
@@ -1318,9 +1385,7 @@ app.get('/api/download', async (req, res) => {
       } catch (e) {}
       
       console.log(`[Queue] Download finished. Active: ${JSON.stringify(activeJobsByType)}`);
-      setTimeout(() => {
-        try { fs.unlinkSync(actualFinalFile); } catch {}
-      }, 5000);
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
     stream.on('error', (err) => {
@@ -1332,7 +1397,7 @@ app.get('/api/download', async (req, res) => {
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download failed. Active: ${JSON.stringify(activeJobsByType)}`);
-      try { fs.unlinkSync(actualFinalFile); } catch {}
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
     res.on('finish', () => {
@@ -1344,9 +1409,7 @@ app.get('/api/download', async (req, res) => {
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download finished (res). Active: ${JSON.stringify(activeJobsByType)}`);
-      setTimeout(() => {
-        try { fs.unlinkSync(actualFinalFile); } catch {}
-      }, 5000);
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
     req.on('close', () => {
@@ -1755,10 +1818,7 @@ app.get('/api/download-playlist', async (req, res) => {
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Playlist finished. Active: ${JSON.stringify(activeJobsByType)}`);
       
-      setTimeout(() => {
-        try { fs.unlinkSync(zipPath); } catch {}
-        try { fs.rmSync(playlistDir, { recursive: true }); } catch {}
-      }, 5000);
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
     stream.on('error', (err) => {
@@ -1768,6 +1828,7 @@ app.get('/api/download-playlist', async (req, res) => {
       activeJobsByType.playlist--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Playlist failed. Active: ${JSON.stringify(activeJobsByType)}`);
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
   } catch (err) {
@@ -1782,13 +1843,355 @@ app.get('/api/download-playlist', async (req, res) => {
     unlinkJobFromClient(downloadId);
     console.log(`[Queue] Playlist error. Active: ${JSON.stringify(activeJobsByType)}`);
     
-    try { fs.rmSync(playlistDir, { recursive: true }); } catch {}
+    setTimeout(() => cleanupJobFiles(downloadId), 2000);
     
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Playlist download failed' });
     }
   }
 });
+
+
+app.use('/api/gallery', rateLimitMiddleware);
+
+app.get('/api/gallery/status', (req, res) => {
+  res.json({ available: galleryDlAvailable });
+});
+
+app.get('/api/gallery/metadata', async (req, res) => {
+  const { url } = req.query;
+  
+  if (!galleryDlAvailable) {
+    return res.status(503).json({ error: 'gallery-dl not installed on server' });
+  }
+
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    return res.status(400).json({ error: urlCheck.error });
+  }
+
+  try {
+    const { stdout, stderr, exitCode } = await new Promise((resolve, reject) => {
+      const proc = spawn('gallery-dl', ['--dump-json', '--range', '1-10', url]);
+      let stdoutData = '';
+      let stderrData = '';
+      
+      const timeout = setTimeout(() => {
+        proc.kill('SIGTERM');
+        reject(new Error('gallery-dl metadata timeout (30s)'));
+      }, 30000);
+      
+      proc.stdout.on('data', (data) => {
+        stdoutData += data.toString();
+        if (stdoutData.length > 10 * 1024 * 1024) {
+          proc.kill('SIGTERM');
+          reject(new Error('Output too large'));
+        }
+      });
+      
+      proc.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+      
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        resolve({ stdout: stdoutData, stderr: stderrData, exitCode: code });
+      });
+      
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+
+    if (exitCode !== 0 && !stdout.trim()) {
+      console.error('[gallery-dl] metadata error:', stderr);
+      return res.status(500).json({ 
+        error: 'Could not fetch gallery info',
+        details: stderr.substring(0, 200)
+      });
+    }
+
+    const lines = stdout.trim().split('\n').filter(l => l.trim());
+    let imageCount = 0;
+    let title = 'Gallery';
+    let images = [];
+
+    for (const line of lines) {
+      try {
+        const item = JSON.parse(line);
+        imageCount++;
+        if (item.filename) {
+          images.push({
+            filename: item.filename,
+            extension: item.extension || 'jpg',
+            url: item.url
+          });
+        }
+        if (!title || title === 'Gallery') {
+          title = item.subcategory || item.category || item.gallery || 'Gallery';
+        }
+      } catch {}
+    }
+
+    const hostname = new URL(url).hostname.replace('www.', '');
+
+    res.json({
+      title,
+      imageCount: imageCount || images.length,
+      images: images.slice(0, 10),
+      site: hostname,
+      isGallery: true
+    });
+  } catch (err) {
+    console.error('[gallery-dl] metadata error:', err);
+    res.status(500).json({ error: 'Failed to get gallery info' });
+  }
+});
+
+app.get('/api/gallery/download', async (req, res) => {
+  const { 
+    url,
+    progressId,
+    clientId,
+    filename
+  } = req.query;
+
+  if (!galleryDlAvailable) {
+    return res.status(503).json({ error: 'gallery-dl not installed on server' });
+  }
+
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    return res.status(400).json({ error: urlCheck.error });
+  }
+
+  if (clientId) {
+    const clientJobs = getClientJobCount(clientId);
+    if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
+      return res.status(429).json({ 
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      });
+    }
+  }
+
+  const downloadId = progressId || uuidv4();
+  const galleryDir = path.join(TEMP_DIR, `gallery-${downloadId}`);
+
+  if (!fs.existsSync(galleryDir)) {
+    fs.mkdirSync(galleryDir, { recursive: true });
+  }
+
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(downloadId, clientId);
+  }
+
+  const processInfo = { cancelled: false, process: null, tempDir: galleryDir };
+  activeProcesses.set(downloadId, processInfo);
+
+  activeJobsByType.download++;
+  console.log(`[Queue] Gallery download started. Active: ${JSON.stringify(activeJobsByType)}`);
+
+  sendProgress(downloadId, 'starting', 'Starting gallery download...');
+
+  try {
+    const galleryArgs = [
+      '-d', galleryDir,
+      '--filename', '{num:03d}_{filename}.{extension}',
+      '--write-metadata',
+      url
+    ];
+
+    if (hasCookiesFile()) {
+      galleryArgs.unshift('--cookies', COOKIES_FILE);
+    }
+
+    console.log(`[${downloadId}] gallery-dl command: gallery-dl ${galleryArgs.join(' ')}`);
+
+    await new Promise((resolve, reject) => {
+      const galleryDl = spawn('gallery-dl', galleryArgs);
+      processInfo.process = galleryDl;
+
+      let downloadedCount = 0;
+      let lastUpdate = Date.now();
+
+      galleryDl.stdout.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('/') || msg.includes('.jpg') || msg.includes('.png') || msg.includes('.gif') || msg.includes('.webp')) {
+          downloadedCount++;
+          const now = Date.now();
+          if (now - lastUpdate > 500) {
+            lastUpdate = now;
+            sendProgress(downloadId, 'downloading', `Downloaded ${downloadedCount} images...`, null, { downloadedCount });
+          }
+        }
+      });
+
+      let galleryStderr = '';
+      galleryDl.stderr.on('data', (data) => {
+        const msg = data.toString();
+        galleryStderr += msg;
+        if (msg.includes('ERROR')) {
+          console.error(`[${downloadId}] gallery-dl error: ${msg.trim()}`);
+        }
+      });
+
+      galleryDl.on('close', (code) => {
+        if (processInfo.cancelled) {
+          reject(new Error('Download cancelled'));
+        } else if (code === 0) {
+          resolve();
+        } else {
+          console.error(`[${downloadId}] gallery-dl exited with code ${code}: ${galleryStderr.trim()}`);
+          reject(new Error(`gallery-dl failed with exit code ${code}: ${galleryStderr.trim().slice(0, 200)}`));
+        }
+      });
+
+      galleryDl.on('error', reject);
+
+      req.on('close', () => {
+        processInfo.cancelled = true;
+        galleryDl.kill('SIGTERM');
+      });
+    });
+
+    const allFiles = [];
+    function walkDir(dir) {
+      const items = fs.readdirSync(dir);
+      for (const item of items) {
+        const fullPath = path.join(dir, item);
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          walkDir(fullPath);
+        } else if (!item.endsWith('.json')) {
+          allFiles.push(fullPath);
+        }
+      }
+    }
+    walkDir(galleryDir);
+
+    if (allFiles.length === 0) {
+      throw new Error('No images were downloaded');
+    }
+
+    if (allFiles.length === 1) {
+      const singleFile = allFiles[0];
+      const ext = path.extname(singleFile).toLowerCase();
+      const mimeTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm'
+      };
+      const mimeType = mimeTypes[ext] || 'application/octet-stream';
+      const stat = fs.statSync(singleFile);
+      const safeFilename = sanitizeFilename(filename || path.basename(singleFile, ext)) + ext;
+
+      sendProgress(downloadId, 'sending', 'Sending file...');
+
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`);
+
+      const stream = fs.createReadStream(singleFile);
+      stream.pipe(res);
+
+      stream.on('close', () => {
+        sendProgress(downloadId, 'complete', 'Download complete!');
+        cleanup();
+      });
+
+      stream.on('error', () => {
+        sendProgress(downloadId, 'error', 'Failed to send file');
+        cleanup();
+      });
+
+    } else {
+      sendProgress(downloadId, 'zipping', `Creating zip with ${allFiles.length} images...`, 90);
+
+      const zipPath = path.join(TEMP_DIR, `${downloadId}.zip`);
+      const hostname = new URL(url).hostname.replace('www.', '');
+      const safeZipName = sanitizeFilename(filename || hostname || 'gallery');
+
+      await new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 5 } });
+
+        output.on('close', resolve);
+        archive.on('error', reject);
+
+        archive.pipe(output);
+
+        allFiles.forEach((filePath) => {
+          const baseName = path.basename(filePath);
+          archive.file(filePath, { name: baseName });
+        });
+
+        archive.finalize();
+      });
+
+      sendProgress(downloadId, 'sending', 'Sending zip file...');
+
+      const stat = fs.statSync(zipPath);
+      const zipFilename = `${safeZipName}.zip`;
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"; filename*=UTF-8''${encodeURIComponent(zipFilename)}`);
+
+      const stream = fs.createReadStream(zipPath);
+      stream.pipe(res);
+
+      stream.on('close', () => {
+        sendProgress(downloadId, 'complete', `Downloaded ${allFiles.length} images!`);
+        cleanup();
+      });
+
+      stream.on('error', () => {
+        sendProgress(downloadId, 'error', 'Failed to send zip');
+        cleanup();
+      });
+    }
+
+    function cleanup() {
+      activeDownloads.delete(downloadId);
+      activeProcesses.delete(downloadId);
+      activeJobsByType.download--;
+      unlinkJobFromClient(downloadId);
+      console.log(`[Queue] Gallery finished. Active: ${JSON.stringify(activeJobsByType)}`);
+
+      try {
+        const site = new URL(url).hostname.replace('www.', '');
+        trackDownload('images', site, getCountryFromIP(getClientIp(req)));
+      } catch {}
+
+      setTimeout(() => cleanupJobFiles(downloadId), 2000);
+    }
+
+  } catch (err) {
+    console.error(`[${downloadId}] Gallery error:`, err.message);
+
+    if (!processInfo.cancelled) {
+      sendProgress(downloadId, 'error', err.message || 'Gallery download failed');
+    }
+
+    activeProcesses.delete(downloadId);
+    activeJobsByType.download--;
+    unlinkJobFromClient(downloadId);
+    console.log(`[Queue] Gallery error. Active: ${JSON.stringify(activeJobsByType)}`);
+
+    setTimeout(() => cleanupJobFiles(downloadId), 2000);
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Gallery download failed' });
+    }
+  }
+});
+
 
 const upload = multer({ 
   dest: TEMP_DIR,
@@ -1974,24 +2377,22 @@ async function handleConvert(req, res) {
       trackConvert(fromExt, format);
       
       console.log(`[Queue] Convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
-      setTimeout(() => {
-        try { fs.unlinkSync(outputPath); } catch {}
-      }, FILE_RETENTION_MS);
+      setTimeout(() => cleanupJobFiles(convertId), 2000);
     });
 
     stream.on('error', () => {
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
       console.log(`[Queue] Convert failed. Active: ${JSON.stringify(activeJobsByType)}`);
+      setTimeout(() => cleanupJobFiles(convertId), 2000);
     });
 
   } catch (err) {
     console.error(`[${convertId}] Error:`, err);
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(outputPath); } catch {}
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
     console.log(`[Queue] Convert error. Active: ${JSON.stringify(activeJobsByType)}`);
+    setTimeout(() => cleanupJobFiles(convertId), 2000);
     
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Conversion failed' });
@@ -2756,12 +3157,13 @@ async function handleCompress(req, res) {
       unlinkJobFromClient(compressId);
       trackCompress();
       console.log(`[Queue] Compress finished. Active: ${JSON.stringify(activeJobsByType)}`);
-      setTimeout(() => { try { fs.unlinkSync(outputPath); } catch {} }, FILE_RETENTION_MS);
+      setTimeout(() => cleanupJobFiles(compressId), 2000);
     });
 
     stream.on('error', () => {
       activeJobsByType.compress--;
       unlinkJobFromClient(compressId);
+      setTimeout(() => cleanupJobFiles(compressId), 2000);
     });
 
   } catch (err) {
@@ -2770,10 +3172,7 @@ async function handleCompress(req, res) {
     activeJobsByType.compress--;
     unlinkJobFromClient(compressId);
     
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(outputPath); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
+    setTimeout(() => cleanupJobFiles(compressId), 2000);
     
     if (!processInfo.cancelled) {
       sendProgress(compressId, 'error', err.message || 'Compression failed');
@@ -3315,14 +3714,34 @@ app.post('/api/admin/login', (req, res) => {
   
   if (password === adminConfig.ADMIN_PASSWORD) {
     const token = generateAdminToken();
-    res.json({ success: true, token });
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.cookie('yoink_admin_token', token, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/'
+    });
+    res.json({ success: true });
   } else {
     res.status(401).json({ error: 'Invalid password' });
   }
 });
 
+app.post('/api/admin/logout', (req, res) => {
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.cookie('yoink_admin_token', '', {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: 'strict',
+    expires: new Date(0),
+    path: '/'
+  });
+  res.json({ success: true });
+});
+
 app.get('/api/admin/analytics', (req, res) => {
-  const token = req.headers['authorization']?.replace('Bearer ', '');
+  const token = req.cookies?.yoink_admin_token || req.headers['authorization']?.replace('Bearer ', '');
   
   if (!validateAdminToken(token)) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -3358,13 +3777,57 @@ app.get('/api/admin/analytics', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🎯 yoink API server running at http://localhost:${PORT}`);
+const PAGE_ROUTES = {
+  '/convert': '/pages/convert.html',
+  '/compress': '/pages/compress.html',
+  '/settings': '/pages/settings.html',
+  '/privacy': '/pages/privacy.html',
+  '/share': '/pages/share.html',
+  '/admin': '/pages/admin.html'
+};
+
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api/')) {
+    if (PAGE_ROUTES[req.path]) {
+      return res.sendFile(path.join(__dirname, '../public', PAGE_ROUTES[req.path]));
+    }
+    
+    const publicDir = path.resolve(__dirname, '../public');
+    let decodedPath = '';
+    try {
+      decodedPath = decodeURIComponent(req.path || '');
+    } catch (e) {
+      console.debug('[Route] Malformed URI:', req.path);
+      return res.sendFile(path.join(publicDir, 'index.html'));
+    }
+    
+    if (decodedPath.includes('\0') || decodedPath.includes('..')) {
+      return res.sendFile(path.join(publicDir, 'index.html'));
+    }
+    
+    const resolvedPath = path.resolve(publicDir, '.' + decodedPath);
+    const relativePath = path.relative(publicDir, resolvedPath);
+    
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      return res.sendFile(path.join(publicDir, 'index.html'));
+    }
+    
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      return res.sendFile(resolvedPath);
+    }
+    return res.sendFile(path.join(publicDir, 'index.html'));
+  }
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🎯 yoink server running at http://localhost:${PORT}`);
   console.log(`   Job limits: downloads=${JOB_LIMITS.download}, playlists=${JOB_LIMITS.playlist}, convert=${JOB_LIMITS.convert}, compress=${JOB_LIMITS.compress}`);
   console.log(`   Max queue size: ${MAX_QUEUE_SIZE}`);
   console.log(`   Max file upload: ${(FILE_SIZE_LIMIT / 1024 / 1024 / 1024).toFixed(0)}GB`);
   console.log(`   File retention: ${FILE_RETENTION_MS / 60000} minutes`);
   console.log(`   Heartbeat timeout: ${HEARTBEAT_TIMEOUT_MS / 1000}s`);
+  console.log(`   gallery-dl: ${galleryDlAvailable ? 'enabled' : 'disabled'}`);
   console.log(`\nEndpoints:`);
   console.log(`  GET  /health               - Health check + queue status`);
   console.log(`  POST /api/connect          - Get client ID`);
@@ -3373,6 +3836,7 @@ app.listen(PORT, () => {
   console.log(`  GET  /api/metadata         - Get video metadata`);
   console.log(`  GET  /api/download         - Download video/audio`);
   console.log(`  GET  /api/download-playlist - Download playlist as zip`);
+  console.log(`  GET  /api/gallery/download - Download images from galleries`);
   console.log(`  POST /api/convert          - Convert uploaded file`);
   console.log(`  POST /api/compress         - Compress video to target size\n`);
 });

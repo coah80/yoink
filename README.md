@@ -1,23 +1,42 @@
-# yoink.tools
+<div align="center">
+    <br/>
+    <p>
+        <img src="public/icons/icon-512.png" title="yoink" alt="yoink logo" width="100" />
+    </p>
+    <p>
+        just paste the link and <i>yoink</i> it
+        <br/>
+        <a href="https://yoink.tools">
+            yoink.tools
+        </a>
+    </p>
+    <p>
+        <a href="https://github.com/coah80/yoink">
+            github
+        </a>
+        &nbsp;&bull;&nbsp;
+        <a href="https://coah80.com">
+            coah80.com
+        </a>
+    </p>
+    <br/>
+</div>
 
-A simple, open-source media downloader powered by yt-dlp.
+yoink is an all-in-one media tool. download videos from 1000+ sites, convert between formats, and compress for Discord. no ads, no trackers, free and fast, forever.
 
-**Live:** [yoink.tools](https://yoink.tools)
+## features
 
-## Features
+- **download** videos and audio from 1000+ sites (powered by yt-dlp)
+- **playlists** download entire playlists as a zip
+- **images** download image galleries from supported sites
+- **convert** between formats with different codecs
+- **compress** videos to a target file size
+- **gifs** download as gif from supported sites
+- **pwa (mobile only)** install as an app, share links directly from your phone.
 
-- Download videos and audio from 1000+ sites
-- Convert between formats
-- Compress videos to a target file size
+## self-hosting
 
-## Self-Hosting
-
-### Requirements
-- Node.js 18+
-- yt-dlp
-- FFmpeg
-
-### Setup
+see [docs/self-hosting.md](docs/self-hosting.md) for full setup guide
 
 ```bash
 git clone https://github.com/coah80/yoink.git
@@ -26,27 +45,20 @@ npm install
 node server.js
 ```
 
-In another terminal:
-```bash
-cd yoink/public
-npx serve -p 3000
-```
+access at `http://localhost:3001`
 
-API runs on `:3001`, frontend on `:3000`.
+## credits
 
-## Credits
-
-**Powered by:**
+**powered by:**
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - media downloading
-- [FFmpeg](https://ffmpeg.org) - video processing
+- [gallery-dl](https://github.com/mikf/gallery-dl) - image downloading  
+- [ffmpeg](https://ffmpeg.org) - video processing
 
-**Inspired by:**
+**inspired by:**
 - [cobalt.tools](https://cobalt.tools)
 - [vert.sh](https://vert.sh)
 - [8mb.video](https://8mb.video)
 
-## Links
+## license
 
-- [GitHub](https://github.com/coah80/yoink)
-- [yoink.tools](https://yoink.tools)
-- [coah80.com](https://coah80.com)
+[MIT](LICENSE)

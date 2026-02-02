@@ -25,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     main {
       justify-content: flex-start;
@@ -742,7 +742,7 @@
 </head>
 <body>
   <header>
-    <div class="header-right">
+    <div class="header-center">
       <a href="/" class="logo-link">
         <span class="logo-text">yoink</span>
         <span class="logo-tld">.tools</span>
@@ -750,9 +750,9 @@
     </div>
     <nav class="header-right">
       <a href="/" class="nav-link">Download</a>
-      <a href="/convert.html" class="nav-link">Convert</a>
-      <a href="/compress.html" class="nav-link active">Compress</a>
-      <a href="/settings.html" class="nav-link">Settings</a>
+      <a href="/convert" class="nav-link">Convert</a>
+      <a href="/compress" class="nav-link active">Compress</a>
+      <a href="/settings" class="nav-link">Settings</a>
     </nav>
   </header>
 
@@ -956,7 +956,7 @@
 
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="/shared.js"></script>
+  <script src="/js/shared.js"></script>
   <script>
 
     const dropZone = document.getElementById('dropZone');
@@ -996,25 +996,6 @@
     let videoDuration = 0;
     let isCustomSize = false;
     let selectedPreset = 'balanced';
-
-    function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    function showToast(message, type = 'info') {
-      const toast = document.createElement('div');
-      toast.className = `toast ${type}`;
-      toast.textContent = message;
-      toastContainer.appendChild(toast);
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
-    }
 
     function getVideoMetadata(file) {
       return new Promise((resolve) => {
@@ -1189,8 +1170,9 @@
       });
       
       if (!initRes.ok) {
-        const err = await initRes.json();
-        throw new Error(err.error || 'Failed to initialize upload');
+        let errMsg = 'Failed to initialize upload';
+        try { const err = await initRes.json(); errMsg = err.error || errMsg; } catch { errMsg = await initRes.text().catch(() => errMsg); }
+        throw new Error(errMsg);
       }
       
       const { uploadId } = await initRes.json();
@@ -1209,8 +1191,9 @@
         });
         
         if (!chunkRes.ok) {
-          const err = await chunkRes.json();
-          throw new Error(err.error || `Failed to upload chunk ${i + 1}`);
+          let errMsg = `Failed to upload chunk ${i + 1}`;
+          try { const err = await chunkRes.json(); errMsg = err.error || errMsg; } catch { errMsg = await chunkRes.text().catch(() => errMsg); }
+          throw new Error(errMsg);
         }
         
         const progress = ((i + 1) / totalChunks) * 100;
@@ -1224,8 +1207,9 @@
       });
       
       if (!completeRes.ok) {
-        const err = await completeRes.json();
-        throw new Error(err.error || 'Failed to complete upload');
+        let errMsg = 'Failed to complete upload';
+        try { const err = await completeRes.json(); errMsg = err.error || errMsg; } catch { errMsg = await completeRes.text().catch(() => errMsg); }
+        throw new Error(errMsg);
       }
       
       return await completeRes.json();
@@ -1252,8 +1236,10 @@
 
       const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       const useChunked = selectedFile.size > 90 * 1024 * 1024;
+      let heartbeatJobId = null;
 
       try {
+        heartbeatJobId = startHeartbeat();
         const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
         
         eventSource.onmessage = (event) => {
@@ -1330,33 +1316,60 @@
           
           const pollStartTime = Date.now();
           const maxPollDuration = 30 * 60 * 1000;
+          const POLL_TIMEOUT_MS = 10000;
+          const MAX_CONSECUTIVE_ERRORS = 3;
+          let consecutiveErrors = 0;
           
-          while (true) {
+          while (Date.now() - pollStartTime <= maxPollDuration) {
             await new Promise(r => setTimeout(r, 2000));
             
-            if (Date.now() - pollStartTime > maxPollDuration) {
-              throw new Error('Job timed out after 30 minutes. Please try again with a smaller file.');
-            }
+            let statusRes;
+            let status;
             
-            const statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`);
-            if (!statusRes.ok) {
-              throw new Error('Failed to check job status');
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
+              
+              try {
+                statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`, { signal: controller.signal });
+              } finally {
+                clearTimeout(timeoutId);
+              }
+              
+              if (!statusRes.ok) {
+                throw new Error(`Server returned ${statusRes.status}`);
+              }
+              
+              status = await statusRes.json();
+              consecutiveErrors = 0;
+            } catch (fetchErr) {
+              consecutiveErrors++;
+              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                throw new Error(`Failed to check job status after ${MAX_CONSECUTIVE_ERRORS} attempts: ${fetchErr.message}`);
+              }
+              continue;
             }
-            
-            const status = await statusRes.json();
             
             if (status.status === 'error') {
               throw new Error(status.error || 'Compression failed');
             }
             
-            const roundedProgress = Math.round(status.progress || 0);
-            progressFill.style.width = `${roundedProgress}%`;
-            progressPercent.textContent = `${roundedProgress}%`;
-            progressDetails.textContent = status.message || 'Processing...';
+            if (status.progress !== undefined) {
+              const roundedProgress = Math.round(status.progress);
+              progressFill.style.width = `${roundedProgress}%`;
+              progressPercent.textContent = `${roundedProgress}%`;
+            }
+            if (status.message) {
+              progressDetails.textContent = status.message;
+            }
             
             if (status.status === 'complete') {
               break;
             }
+          }
+          
+          if (Date.now() - pollStartTime > maxPollDuration) {
+            throw new Error('Job timed out after 30 minutes. Please try again with a smaller file.');
           }
           
           response = await fetch(`${API_BASE}/api/job/${jobId}/download`);
@@ -1399,18 +1412,21 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        const ext = selectedFile.name.split('.').pop();
-        a.download = selectedFile.name.replace(`.${ext}`, `_compressed.mp4`);
+        const lastDot = selectedFile.name.lastIndexOf('.');
+        const baseName = lastDot > 0 ? selectedFile.name.slice(0, lastDot) : selectedFile.name;
+        a.download = `${baseName}_compressed.mp4`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
         showToast('Compression complete!', 'success');
+        if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
 
       } catch (err) {
         showToast(err.message || 'Compression failed', 'error');
         progressContainer.classList.remove('show');
+        if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
       } finally {
         compressBtn.disabled = false;
       }

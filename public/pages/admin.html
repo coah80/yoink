@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     main {
       justify-content: flex-start;
@@ -300,7 +300,7 @@
     </div>
   </main>
 
-  <script src="/shared.js"></script>
+  <script src="/js/shared.js"></script>
   <script>
     const loginCard = document.getElementById('loginCard');
     const dashboard = document.getElementById('dashboard');
@@ -310,40 +310,27 @@
     const refreshBtn = document.getElementById('refreshBtn');
     const logoutBtn = document.getElementById('logoutBtn');
 
-    function getCookie(name) {
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return parts.pop().split(';').shift();
-      return null;
-    }
-
-    function setCookie(name, value, days) {
-      const expires = new Date(Date.now() + days * 864e5).toUTCString();
-      document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Strict`;
-    }
-
-    function deleteCookie(name) {
-      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-    }
-
-    let adminToken = getCookie('yoink_admin_token');
+    let isAuthenticated = false;
 
     async function login() {
       const password = passwordInput.value;
       if (!password) return;
 
+      loginError.textContent = 'invalid password';
+      loginError.style.display = 'none';
+
       try {
         const res = await fetch(`${API_BASE}/api/admin/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ password })
         });
 
         const data = await res.json();
         
-        if (data.success && data.token) {
-          adminToken = data.token;
-          setCookie('yoink_admin_token', adminToken, 7);
+        if (data.success) {
+          isAuthenticated = true;
           showDashboard();
           loadAnalytics();
         } else {
@@ -356,9 +343,14 @@
       }
     }
 
-    function logout() {
-      adminToken = null;
-      deleteCookie('yoink_admin_token');
+    async function logout() {
+      try {
+        await fetch(`${API_BASE}/api/admin/logout`, {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch {}
+      isAuthenticated = false;
       showLogin();
     }
 
@@ -375,11 +367,9 @@
     }
 
     async function loadAnalytics() {
-      if (!adminToken) return;
-
       try {
         const res = await fetch(`${API_BASE}/api/admin/analytics`, {
-          headers: { 'Authorization': `Bearer ${adminToken}` }
+          credentials: 'include'
         });
 
         if (res.status === 401) {
@@ -387,11 +377,23 @@
           return;
         }
 
+        if (!res.ok) {
+          const text = await res.text().catch(() => 'Unknown error');
+          console.error(`Failed to load analytics: ${res.status} ${text}`);
+          return;
+        }
+
         const data = await res.json();
+        isAuthenticated = true;
         renderAnalytics(data);
       } catch (err) {
         console.error('Failed to load analytics:', err);
       }
+    }
+
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return str;
+      return str.replace(/[&<>"'`]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c]));
     }
 
     function renderAnalytics(data) {
@@ -407,7 +409,7 @@
 
       renderList('formatsList', data.formats || {});
       renderList('sitesList', data.sites || {});
-      renderList('countriesList', data.countries || {});
+      renderCountries('countriesList', data.countries || {});
       renderDailyUsers(data.dailyUsers || {});
 
       if (data.lastUpdated) {
@@ -435,10 +437,53 @@
 
       list.innerHTML = sorted.map(([key, value]) => `
         <li>
-          <span class="label">${key}</span>
+          <span class="label">${escapeHtml(key)}</span>
           <span class="value">${formatNumber(value)}</span>
         </li>
       `).join('');
+    }
+
+    function countryCodeToFlag(code) {
+      if (!code || code.length !== 2) return '';
+      const offset = 127397;
+      return String.fromCodePoint(...[...code.toUpperCase()].map(c => c.charCodeAt(0) + offset));
+    }
+
+    const COUNTRY_NAMES = {
+      US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
+      DE: 'Germany', FR: 'France', IT: 'Italy', ES: 'Spain', NL: 'Netherlands',
+      BR: 'Brazil', MX: 'Mexico', AR: 'Argentina', CL: 'Chile', CO: 'Colombia',
+      IN: 'India', JP: 'Japan', KR: 'South Korea', CN: 'China', TW: 'Taiwan',
+      RU: 'Russia', UA: 'Ukraine', PL: 'Poland', SE: 'Sweden', NO: 'Norway',
+      FI: 'Finland', DK: 'Denmark', AT: 'Austria', CH: 'Switzerland', BE: 'Belgium',
+      PT: 'Portugal', GR: 'Greece', TR: 'Turkey', IL: 'Israel', SA: 'Saudi Arabia',
+      AE: 'UAE', EG: 'Egypt', ZA: 'South Africa', NG: 'Nigeria', KE: 'Kenya',
+      TH: 'Thailand', VN: 'Vietnam', ID: 'Indonesia', MY: 'Malaysia', SG: 'Singapore',
+      PH: 'Philippines', NZ: 'New Zealand', IE: 'Ireland', CZ: 'Czechia', RO: 'Romania',
+      HU: 'Hungary', SK: 'Slovakia', BG: 'Bulgaria', HR: 'Croatia', RS: 'Serbia'
+    };
+
+    function renderCountries(id, obj) {
+      const list = document.getElementById(id);
+      const sorted = Object.entries(obj)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      if (sorted.length === 0) {
+        list.innerHTML = '<li><span class="label">no data yet</span></li>';
+        return;
+      }
+
+      list.innerHTML = sorted.map(([code, value]) => {
+        const flag = countryCodeToFlag(code);
+        const name = COUNTRY_NAMES[code] || code;
+        return `
+          <li>
+            <span class="label">${escapeHtml(flag)} ${escapeHtml(name)}</span>
+            <span class="value">${formatNumber(value)}</span>
+          </li>
+        `;
+      }).join('');
     }
 
     function renderDailyUsers(obj) {
@@ -452,8 +497,8 @@
 
       list.innerHTML = dates.map(date => `
         <li>
-          <span class="label">${date}</span>
-          <span class="value">${obj[date]}</span>
+          <span class="label">${escapeHtml(date)}</span>
+          <span class="value">${escapeHtml(String(obj[date]))}</span>
         </li>
       `).join('');
     }
@@ -465,10 +510,17 @@
     refreshBtn.addEventListener('click', loadAnalytics);
     logoutBtn.addEventListener('click', logout);
 
-    if (adminToken) {
-      showDashboard();
-      loadAnalytics();
-    }
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/analytics`, { credentials: 'include' });
+        if (res.ok) {
+          isAuthenticated = true;
+          showDashboard();
+          const data = await res.json();
+          renderAnalytics(data);
+        }
+      } catch {}
+    })();
   </script>
 </body>
 </html>

@@ -25,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     main {
       justify-content: flex-start;
@@ -321,9 +321,9 @@
     </div>
     <nav class="header-right">
       <a href="/" class="nav-link">Download</a>
-      <a href="/convert.html" class="nav-link active">Convert</a>
-      <a href="/compress.html" class="nav-link">Compress</a>
-      <a href="/settings.html" class="nav-link">Settings</a>
+      <a href="/convert" class="nav-link active">Convert</a>
+      <a href="/compress" class="nav-link">Compress</a>
+      <a href="/settings" class="nav-link">Settings</a>
     </nav>
   </header>
 
@@ -398,7 +398,7 @@
     </div>
   </main>
 
-  <script src="/shared.js"></script>
+  <script src="/js/shared.js"></script>
   <script>
     let selectedFile = null;
     let targetFormat = 'mp4';
@@ -416,12 +416,6 @@
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
     const status = document.getElementById('status');
-
-    function formatSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    }
 
     function isAudioFile(file) {
       return file.type.startsWith('audio/') || 
@@ -442,7 +436,7 @@
 
       selectedFile = file;
       fileName.textContent = file.name;
-      fileSize.textContent = formatSize(file.size);
+      fileSize.textContent = formatBytes(file.size);
       
       const isAudio = isAudioFile(file);
       fileIcon.innerHTML = isAudio 
@@ -464,7 +458,13 @@
     const CHUNK_SIZE = 50 * 1024 * 1024;
 
     async function safeParseError(res) {
-      const text = await res.text().catch(() => '');
+      let text = '';
+      try {
+        const body = await res.blob();
+        text = await body.text();
+      } catch {
+        text = await res.text().catch(() => '');
+      }
       try {
         const data = JSON.parse(text);
         return data.error || `Request failed with status ${res.status}`;
@@ -538,8 +538,10 @@
       status.className = 'status';
 
       const useChunked = selectedFile.size > 90 * 1024 * 1024;
+      let heartbeatJobId = null;
 
       try {
+        heartbeatJobId = startHeartbeat();
         let response;
 
         if (useChunked) {
@@ -567,11 +569,26 @@
           }
           
           const { jobId } = await initResponse.json();
+          const MAX_POLL_ATTEMPTS = 300;
+          const POLL_TIMEOUT_MS = 10000;
+          let pollAttempts = 0;
           
           while (true) {
+            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+              throw new Error('Conversion timed out after 10 minutes');
+            }
+            pollAttempts++;
+            
             await new Promise(r => setTimeout(r, 2000));
             
-            const statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
+            let statusRes;
+            try {
+              statusRes = await fetch(`${API_BASE}/api/job/${jobId}/status`, { signal: controller.signal });
+            } finally {
+              clearTimeout(timeoutId);
+            }
             if (!statusRes.ok) {
               if (statusRes.status === 404) {
                 throw new Error(`Job not found or expired (id: ${jobId})`);
@@ -599,21 +616,32 @@
           formData.append('file', selectedFile);
           formData.append('format', targetFormat);
 
-          let progress = 0;
-          const uploadInterval = setInterval(() => {
-            progress += Math.random() * 15;
-            if (progress > 90) progress = 90;
-            progressFill.style.width = progress + '%';
-          }, 200);
-
-          try {
-            response = await fetch(`${API_BASE}/api/convert`, {
-              method: 'POST',
-              body: formData
-            });
-          } finally {
-            clearInterval(uploadInterval);
-          }
+          response = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${API_BASE}/api/convert`);
+            
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 90);
+                progressFill.style.width = percent + '%';
+                progressText.textContent = `Uploading... ${percent}%`;
+              }
+            };
+            
+            xhr.onload = () => {
+              progressFill.style.width = '95%';
+              progressText.textContent = 'Processing...';
+              resolve(new Response(xhr.response, {
+                status: xhr.status,
+                statusText: xhr.statusText,
+                headers: { 'Content-Disposition': xhr.getResponseHeader('Content-Disposition') || '' }
+              }));
+            };
+            
+            xhr.onerror = () => reject(new Error('Network error during upload'));
+            xhr.responseType = 'blob';
+            xhr.send(formData);
+          });
         }
 
         if (!response.ok) {
@@ -643,11 +671,13 @@
 
         status.className = 'status success';
         status.textContent = 'Conversion complete! Download started.';
+        if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
 
       } catch (err) {
         status.className = 'status error';
         status.textContent = err.message || 'Conversion failed';
         progressContainer.classList.remove('visible');
+        if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
       } finally {
         convertBtn.disabled = false;
       }

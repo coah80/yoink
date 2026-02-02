@@ -239,6 +239,12 @@ main {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
 @media (max-width: 640px) {
   header {
     flex-direction: column;

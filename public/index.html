@@ -27,7 +27,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&family=Pacifico&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     :root {
       --bg: #0a0a0f;
@@ -1220,9 +1220,9 @@
       </div>
       <nav class="nav-links">
         <a href="/" class="nav-link active">Download</a>
-        <a href="/convert.html" class="nav-link">Convert</a>
-        <a href="/compress.html" class="nav-link">Compress</a>
-        <a href="/settings.html" class="nav-link">Settings</a>
+        <a href="/convert" class="nav-link">Convert</a>
+        <a href="/compress" class="nav-link">Compress</a>
+        <a href="/settings" class="nav-link">Settings</a>
       </nav>
     </div>
   </header>
@@ -1284,6 +1284,14 @@
             </svg>
             <span>audio</span>
           </button>
+          <button class="segment" data-format="images">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <span>images</span>
+          </button>
         </div>
 
         <div class="yoink-btn-wrapper" id="yoinkWrapper">
@@ -1331,14 +1339,14 @@
     <div class="footer-left">
       <div>this is a <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> wrapper</div>
       <div>inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt</a>, love u wukko</div>
-      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a href="/privacy.html">privacy policy</a></div>
+      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a href="/privacy">privacy policy</a></div>
     </div>
     <div class="footer-right">
       <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>
       <span>·</span>
       <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a>
       <span>·</span>
-      <a href="/privacy.html">privacy</a>
+      <a href="/privacy">privacy</a>
     </div>
   </footer>
 
@@ -1399,6 +1407,7 @@ https://youtube.com/watch?v=..."></textarea>
     </div>
   </div>
 
+  <script src="/js/shared.js"></script>
   <script>
     const splashTexts = [
       { text: "yoink it, go on..." },
@@ -1459,6 +1468,26 @@ https://youtube.com/watch?v=..."></textarea>
       splashEl.className = 'splash';
     }
 // porn ends here
+
+    const downloadIframes = [];
+    const MAX_IFRAMES = 5;
+
+    function cleanupIframe(iframe) {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+      const idx = downloadIframes.indexOf(iframe);
+      if (idx > -1) downloadIframes.splice(idx, 1);
+    }
+
+    function enforceIframeCap() {
+      while (downloadIframes.length > MAX_IFRAMES) {
+        const oldest = downloadIframes.shift();
+        if (oldest && oldest.parentNode) {
+          oldest.parentNode.removeChild(oldest);
+        }
+      }
+    }
     let currentFormat = 'auto';
     let queue = [];
     let settings = loadSettings();
@@ -1570,7 +1599,7 @@ https://youtube.com/watch?v=..."></textarea>
       });
       
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(err => {
+        navigator.serviceWorker.register('/js/sw.js').catch(err => {
           console.log('SW registration failed:', err);
         });
       }
@@ -1872,7 +1901,7 @@ https://youtube.com/watch?v=..."></textarea>
       const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       
       let downloadPlaylist = false;
-      if (hasPlaylistParam(url)) {
+      if (format !== 'images' && hasPlaylistParam(url)) {
         if (settings.playlistPreference === 'video') {
           downloadPlaylist = false;
         } else if (settings.playlistPreference === 'playlist') {
@@ -1886,12 +1915,27 @@ https://youtube.com/watch?v=..."></textarea>
 
       let title = 'Loading...';
       try {
-        const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
-        if (metaRes.ok) {
-          const metadata = await metaRes.json();
-          title = metadata.title || 'Unknown';
-          if (metadata.usingCookies) {
-            showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
+        if (format === 'images') {
+          const metaRes = await fetch(`${API_BASE}/api/gallery/metadata?url=${encodeURIComponent(url)}`);
+          if (metaRes.ok) {
+            const metadata = await metaRes.json();
+            title = metadata.title || 'Gallery';
+          } else {
+            const err = await metaRes.json();
+            if (err.error && err.error.includes('not installed')) {
+              showToast('Image downloads not available on this server', 'error');
+              return null;
+            }
+            title = url.substring(0, 50);
+          }
+        } else {
+          const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
+          if (metaRes.ok) {
+            const metadata = await metaRes.json();
+            title = metadata.title || 'Unknown';
+            if (metadata.usingCookies) {
+              showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
+            }
           }
         }
       } catch (e) {
@@ -1907,7 +1951,7 @@ https://youtube.com/watch?v=..."></textarea>
         status: startImmediately ? 'Initializing...' : 'In queue',
         progress: 0,
         isPlaylist: downloadPlaylist,
-        formatDisplay: format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`
+        formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
       };
       
       addToQueue(queueItem);
@@ -2026,6 +2070,7 @@ https://youtube.com/watch?v=..."></textarea>
     }
 
     async function startDownload(item) {
+      const heartbeatJobId = startHeartbeat();
       const eventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
       
       eventSource.onmessage = (event) => {
@@ -2040,17 +2085,22 @@ https://youtube.com/watch?v=..."></textarea>
             if (data.currentVideo !== undefined) queueItem.currentVideo = data.currentVideo;
             if (data.currentVideoTitle !== undefined) queueItem.currentVideoTitle = data.currentVideoTitle;
             if (data.format !== undefined) queueItem.formatDisplay = data.format;
+            if (data.downloadedCount !== undefined) queueItem.downloadedCount = data.downloadedCount;
             renderQueue();
 
             if (data.stage === 'complete') {
-              showToast(queueItem.isPlaylist ? 'Playlist download complete!' : 'Download complete!', 'success');
+              const msg = queueItem.format === 'images' ? 'Gallery download complete!' : (queueItem.isPlaylist ? 'Playlist download complete!' : 'Download complete!');
+              showToast(msg, 'success');
               eventSource.close();
+              stopHeartbeat(heartbeatJobId);
               setTimeout(() => removeFromQueue(item.id), 5000);
             } else if (data.stage === 'error') {
               showToast(data.message, 'error');
               eventSource.close();
+              stopHeartbeat(heartbeatJobId);
             } else if (data.stage === 'cancelled') {
               eventSource.close();
+              stopHeartbeat(heartbeatJobId);
             }
           }
         } catch (e) {
@@ -2074,17 +2124,28 @@ https://youtube.com/watch?v=..."></textarea>
         twitterGifs: settings.twitterGifs !== false ? 'true' : 'false'
       });
 
-      const endpoint = item.isPlaylist ? '/api/download-playlist' : '/api/download';
+      let endpoint;
+      if (item.format === 'images') {
+        endpoint = '/api/gallery/download';
+      } else if (item.isPlaylist) {
+        endpoint = '/api/download-playlist';
+      } else {
+        endpoint = '/api/download';
+      }
       const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
       
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.src = downloadUrl;
       document.body.appendChild(iframe);
+      downloadIframes.push(iframe);
+      enforceIframeCap();
       
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 60000);
+      iframe.onload = () => {
+        setTimeout(() => cleanupIframe(iframe), 5000);
+      };
+      
+      setTimeout(() => cleanupIframe(iframe), 2 * 60 * 1000);
     }
 
     document.addEventListener('click', (e) => {
@@ -2121,7 +2182,9 @@ https://youtube.com/watch?v=..."></textarea>
       }
 
       let downloadPlaylist = false;
-      if (hasPlaylistParam(url)) {
+      const format = currentFormat === 'auto' ? 'video' : currentFormat;
+      
+      if (format !== 'images' && hasPlaylistParam(url)) {
         if (settings.playlistPreference === 'video') {
           downloadPlaylist = false;
         } else if (settings.playlistPreference === 'playlist') {
@@ -2135,26 +2198,36 @@ https://youtube.com/watch?v=..."></textarea>
         }
       }
 
-      const format = currentFormat === 'auto' ? 'video' : currentFormat;
       yoinkBtn.disabled = true;
       yoinkBtn.classList.add('loading');
 
       const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
 
       try {
-        setStatus('loading', 'Fetching video info...');
+        setStatus('loading', format === 'images' ? 'Fetching gallery info...' : 'Fetching video info...');
 
-        const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
-
-        if (!metaRes.ok) {
-          const err = await metaRes.json();
-          throw new Error(err.error || 'Failed to fetch metadata');
+        let metadata;
+        if (format === 'images') {
+          const metaRes = await fetch(`${API_BASE}/api/gallery/metadata?url=${encodeURIComponent(url)}`);
+          if (!metaRes.ok) {
+            const err = await metaRes.json();
+            throw new Error(err.error || 'Failed to fetch gallery info');
+          }
+          metadata = await metaRes.json();
+          metadata.title = metadata.title || 'Gallery';
+        } else {
+          const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
+          if (!metaRes.ok) {
+            const err = await metaRes.json();
+            throw new Error(err.error || 'Failed to fetch metadata');
+          }
+          metadata = await metaRes.json();
         }
 
-        const metadata = await metaRes.json();
         const title = metadata.title;
         const isPlaylist = metadata.isPlaylist && downloadPlaylist;
-        const videoCount = metadata.videoCount || 0;
+        const isGallery = format === 'images';
+        const videoCount = metadata.videoCount || metadata.imageCount || 0;
 
         if (metadata.usingCookies) {
           showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
@@ -2162,22 +2235,24 @@ https://youtube.com/watch?v=..."></textarea>
 
         const queueItem = {
           id: progressId,
-          title: isPlaylist ? `📁 ${title}` : title,
+          title: isPlaylist ? `${title}` : title,
           url,
           format,
           stage: 'starting',
           status: 'Initializing...',
           progress: 0,
           isPlaylist,
+          isGallery,
           videoCount,
           currentVideo: 0,
           currentVideoTitle: '',
-          formatDisplay: format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`
+          formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
         };
         addToQueue(queueItem);
         
         queueDropdown.classList.add('show');
 
+        const heartbeatJobId2 = startHeartbeat();
         const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
         
         eventSource.onmessage = (event) => {
@@ -2211,12 +2286,19 @@ https://youtube.com/watch?v=..."></textarea>
               renderQueue();
 
               if (data.stage === 'complete') {
-                const completeMsg = item.isPlaylist 
-                  ? `Downloaded ${data.downloadedCount || item.videoCount} videos!` 
-                  : `Downloaded: ${title}`;
+                let completeMsg;
+                if (item.isGallery || format === 'images') {
+                  completeMsg = `Downloaded ${data.downloadedCount || 1} images!`;
+                } else if (item.isPlaylist) {
+                  completeMsg = `Downloaded ${data.downloadedCount || item.videoCount} videos!`;
+                } else {
+                  completeMsg = `Downloaded: ${title}`;
+                }
                 setStatus('success', completeMsg);
-                showToast(item.isPlaylist ? 'Playlist download complete!' : 'Download complete!', 'success');
+                const toastMsg = item.isGallery ? 'Gallery download complete!' : (item.isPlaylist ? 'Playlist download complete!' : 'Download complete!');
+                showToast(toastMsg, 'success');
                 eventSource.close();
+                stopHeartbeat(heartbeatJobId2);
                 
                 setTimeout(() => {
                   removeFromQueue(progressId);
@@ -2225,9 +2307,11 @@ https://youtube.com/watch?v=..."></textarea>
                 setStatus('error', data.message);
                 showToast(data.message, 'error');
                 eventSource.close();
+                stopHeartbeat(heartbeatJobId2);
               } else if (data.stage === 'cancelled') {
                 clearStatus();
                 eventSource.close();
+                stopHeartbeat(heartbeatJobId2);
               } else {
                 setStatus('loading', data.message);
               }
@@ -2252,7 +2336,14 @@ https://youtube.com/watch?v=..."></textarea>
           progressId
         });
 
-        const endpoint = isPlaylist ? '/api/download-playlist' : '/api/download';
+        let endpoint;
+        if (format === 'images') {
+          endpoint = '/api/gallery/download';
+        } else if (isPlaylist) {
+          endpoint = '/api/download-playlist';
+        } else {
+          endpoint = '/api/download';
+        }
         const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
         
         const iframe = document.createElement('iframe');
@@ -2289,6 +2380,5 @@ https://youtube.com/watch?v=..."></textarea>
 
     init();
   </script>
-  <script src="/shared.js"></script>
 </body>
 </html>

@@ -1,12 +1,12 @@
-const CACHE_NAME = 'yoink-v1';
+const CACHE_NAME = 'yoink-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/convert.html',
-  '/compress.html',
-  '/settings.html',
-  '/shared.css',
-  '/shared.js',
+  '/pages/convert.html',
+  '/pages/compress.html',
+  '/pages/settings.html',
+  '/css/shared.css',
+  '/js/shared.js',
   '/manifest.json'
 ];
 
@@ -14,9 +14,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
-    })
+    }).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -27,9 +26,8 @@ self.addEventListener('activate', (event) => {
           .filter((name) => name !== CACHE_NAME)
           .map((name) => caches.delete(name))
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -42,7 +40,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request).then(resp => resp || caches.match('/index.html')))
     );
     return;
   }
@@ -52,11 +50,12 @@ self.addEventListener('fetch', (event) => {
       if (cachedResponse) {
         fetch(event.request).then((response) => {
           if (response.ok) {
+            const clonedResponse = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, response);
+              cache.put(event.request, clonedResponse);
             });
           }
-        });
+        }).catch(() => {});
         return cachedResponse;
       }
       return fetch(event.request);

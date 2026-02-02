@@ -25,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/css/shared.css">
   <style>
     main {
       max-width: 700px;
@@ -384,7 +384,7 @@
 </head>
 <body>
   <header>
-    <div class="header-right">
+    <div class="header-center">
       <a href="/" class="logo-link">
         <span class="logo-text">yoink</span>
         <span class="logo-tld">.tools</span>
@@ -392,9 +392,9 @@
     </div>
     <nav class="header-right">
       <a href="/" class="nav-link">Download</a>
-      <a href="/convert.html" class="nav-link">Convert</a>
-      <a href="/compress.html" class="nav-link">Compress</a>
-      <a href="/settings.html" class="nav-link active">Settings</a>
+      <a href="/convert" class="nav-link">Convert</a>
+      <a href="/compress" class="nav-link">Compress</a>
+      <a href="/settings" class="nav-link active">Settings</a>
     </nav>
   </header>
 
@@ -665,18 +665,19 @@
           honestly, just for fun! it's cool to see how people use the tool. if you'd rather not participate, flip the toggle above - no hard feelings. 💜
         </p>
         <p class="setting-description" style="margin-top: 12px;">
-          <a href="/privacy.html" style="color: var(--purple-400);">read the full privacy policy →</a>
+          <a href="/privacy" style="color: var(--purple-400);">read the full privacy policy →</a>
         </p>
       </div>
     </section>
   </main>
 
   <footer>
-    <a href="/">yoink.tools</a> - powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> · <a href="/privacy.html">privacy</a>
+    <a href="/">yoink.tools</a> - powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> · <a href="/privacy">privacy</a>
   </footer>
 
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="/js/shared.js"></script>
   <script>
     const defaultSettings = {
       quality: '1080p',
@@ -718,11 +719,11 @@
       updateFilenamePreview();
       const playlistValue = settings.playlistPreference === null ? 'ask' : settings.playlistPreference;
       setActiveOption('playlistControl', playlistValue);
-      if (settings.subtitles) document.getElementById('subtitlesToggle').classList.add('active');
+      document.getElementById('subtitlesToggle').classList.toggle('active', settings.subtitles);
       if (settings.twitterGifs !== false) document.getElementById('twitterGifsToggle').classList.add('active');
       else document.getElementById('twitterGifsToggle').classList.remove('active');
-      if (settings.h265) document.getElementById('h265Toggle').classList.add('active');
-      if (settings.metadata) document.getElementById('metadataToggle').classList.add('active');
+      document.getElementById('h265Toggle').classList.toggle('active', settings.h265);
+      document.getElementById('metadataToggle').classList.toggle('active', settings.metadata);
       if (settings.analytics) document.getElementById('analyticsToggle').classList.add('active');
       else document.getElementById('analyticsToggle').classList.remove('active');
     }
@@ -748,17 +749,6 @@
 
     function saveSettings() {
       localStorage.setItem('yoink_settings', JSON.stringify(settings));
-    }
-
-    function showToast(message) {
-      const toast = document.createElement('div');
-      toast.className = 'toast success';
-      toast.textContent = message;
-      toastContainer.appendChild(toast);
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => toast.remove(), 300);
-      }, 2000);
     }
 
     document.querySelectorAll('.settings-nav-item').forEach(btn => {
@@ -910,6 +900,5 @@
 
     initUI();
   </script>
-  <script src="/shared.js"></script>
 </body>
 </html>
