@@ -66,7 +66,7 @@ access at `http://localhost:3001`
 
 [MIT](LICENSE)
 
-## fun stuff
+# fun stuff
 
 ## Star History
 
