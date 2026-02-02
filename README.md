@@ -24,6 +24,9 @@
 
 yoink is an all-in-one media tool. download videos from 1000+ sites, convert between formats, and compress for Discord. no ads, no trackers, free and fast, forever.
 
+
+<img width="4064" height="2354" alt="image" src="https://github.com/user-attachments/assets/3dd1dadc-618c-498d-9d81-37058d305ffa" />
+
 ## features
 
 - **download** videos and audio from 1000+ sites (powered by yt-dlp)
