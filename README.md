@@ -35,7 +35,7 @@ yoink is an all-in-one media tool. download videos from 1000+ sites, convert bet
 - **convert** between formats with different codecs
 - **compress** videos to a target file size
 - **gifs** download as gif from supported sites
-- **pwa (mobile only)** install as an app, share links directly from your phone.
+- **web app on mobile** install as an app, share links directly from your phone.
 
 ## self-hosting
 
