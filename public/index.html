@@ -1975,25 +1975,56 @@ https://youtube.com/watch?v=..."></textarea>
       try {
         if (format === 'images') {
           const metaRes = await fetch(`${API_BASE}/api/gallery/metadata?url=${encodeURIComponent(url)}`);
-          if (metaRes.ok) {
+          const contentType = metaRes.headers.get('content-type');
+
+          if (metaRes.ok && contentType && contentType.includes('application/json')) {
             const metadata = await metaRes.json();
             title = metadata.title || 'Gallery';
           } else {
-            const err = await metaRes.json();
-            if (err.error && err.error.includes('not installed')) {
+            let errorMsg = 'Failed to fetch gallery info';
+            if (contentType && contentType.includes('application/json')) {
+              const err = await metaRes.json();
+              errorMsg = err.error || errorMsg;
+            } else {
+              const text = await metaRes.text();
+              if (text.includes('Cloudflare') || text.includes('403')) {
+                errorMsg = 'Access denied (VPN blocked?)';
+              } else {
+                errorMsg = `Server error: ${metaRes.status}`;
+              }
+            }
+
+            if (errorMsg.includes('not installed')) {
               showToast('Image downloads not available on this server', 'error');
               return null;
             }
+            // Fallback to URL if we can't get metadata but it wasn't a critical error? 
+            // Actually if it failed, we probably shoudn't proceed, but original code did fallback
             title = url.substring(0, 50);
           }
         } else {
           const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
-          if (metaRes.ok) {
+          const contentType = metaRes.headers.get('content-type');
+
+          if (metaRes.ok && contentType && contentType.includes('application/json')) {
             const metadata = await metaRes.json();
             title = metadata.title || 'Unknown';
             if (metadata.usingCookies) {
               showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
             }
+          } else {
+            // If metadata fetch fails, we can still try to queue it, letting the backend handle it later
+            // or we can fail here.Original code fell back to url title.
+            // But we should warn if it looks like a block.
+            if (!metaRes.ok) {
+              if (!contentType || !contentType.includes('application/json')) {
+                const text = await metaRes.text();
+                if (text.includes('Cloudflare') || text.includes('403')) {
+                  throw new Error('Access denied (VPN blocked?)');
+                }
+              }
+            }
+            title = url.substring(0, 50);
           }
         }
       } catch (e) {
@@ -2265,19 +2296,41 @@ https://youtube.com/watch?v=..."></textarea>
         setStatus('loading', format === 'images' ? 'Fetching gallery info...' : 'Fetching video info...');
 
         let metadata;
+
         if (format === 'images') {
           const metaRes = await fetch(`${API_BASE}/api/gallery/metadata?url=${encodeURIComponent(url)}`);
+          const contentType = metaRes.headers.get('content-type');
+
           if (!metaRes.ok) {
-            const err = await metaRes.json();
-            throw new Error(err.error || 'Failed to fetch gallery info');
+            let errorMsg = 'Failed to fetch gallery info';
+            if (contentType && contentType.includes('application/json')) {
+              const err = await metaRes.json();
+              errorMsg = err.error || errorMsg;
+            } else {
+              // If it's HTML/Text, it's likely a firewall or proxy error
+              const text = await metaRes.text();
+              console.error('Metadata fetch failed with non-JSON response:', text.substring(0, 500));
+              errorMsg = 'Server return invalid response (VPN blocked?)';
+            }
+            throw new Error(errorMsg);
           }
           metadata = await metaRes.json();
           metadata.title = metadata.title || 'Gallery';
         } else {
           const metaRes = await fetch(`${API_BASE}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
+          const contentType = metaRes.headers.get('content-type');
+
           if (!metaRes.ok) {
-            const err = await metaRes.json();
-            throw new Error(err.error || 'Failed to fetch metadata');
+            let errorMsg = 'Failed to fetch metadata';
+            if (contentType && contentType.includes('application/json')) {
+              const err = await metaRes.json();
+              errorMsg = err.error || errorMsg;
+            } else {
+              const text = await metaRes.text();
+              console.error('Metadata fetch failed with non-JSON response:', text.substring(0, 500));
+              errorMsg = `Server error ${metaRes.status} (likely VPN blocked)`;
+            }
+            throw new Error(errorMsg);
           }
           metadata = await metaRes.json();
         }

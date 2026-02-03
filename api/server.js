@@ -972,6 +972,15 @@ app.get('/api/metadata', (req, res) => {
   }
 
   const ytdlp = spawn('yt-dlp', ytdlpArgs);
+  
+  // Add timeout to prevent hanging processes
+  const timeoutMs = 30000;
+  const timeoutId = setTimeout(() => {
+    if (ytdlp.exitCode === null) {
+      console.log(`[Metadata] Timeout reached (${timeoutMs}ms), killing yt-dlp process`);
+      ytdlp.kill('SIGKILL');
+    }
+  }, timeoutMs);
 
   let output = '';
   let errorOutput = '';
@@ -985,7 +994,17 @@ app.get('/api/metadata', (req, res) => {
   });
 
   ytdlp.on('close', (code) => {
+    clearTimeout(timeoutId);
+    
     if (code !== 0) {
+      // Check if it was killed by us (signal would be SIGKILL or similar, but code might be null or signal dependent)
+      // Since we cleared timeout, if code is not 0, it's a genuine error or our kill.
+      // If we killed it, errorOutput might be empty or partial.
+      
+      if (ytdlp.killed) {
+         return res.status(504).json({ error: 'Metadata fetch timed out (30s)' });
+      }
+
       console.error('yt-dlp metadata error:', errorOutput);
       
       if (needsCookiesRetry(errorOutput) && !usingCookies) {
