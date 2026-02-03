@@ -1,23 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>yoink.tools</title>
-  <meta name="description" content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
-  
+  <meta name="description"
+    content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
+
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://yoink.tools/">
   <meta property="og:title" content="yoink.tools">
-  <meta property="og:description" content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
+  <meta property="og:description"
+    content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
   <meta property="og:image" content="https://yoink.tools/icons/og-image.png">
-  
+
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://yoink.tools/">
   <meta name="twitter:title" content="yoink.tools">
-  <meta name="twitter:description" content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
+  <meta name="twitter:description"
+    content="Download, convert, and compress videos from YouTube and other sites. Free, fast, no ads.">
   <meta name="twitter:image" content="https://yoink.tools/icons/og-image.png">
-  
+
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#8b5cf6">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -26,7 +30,9 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&family=Pacifico&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&family=Pacifico&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/css/shared.css">
   <style>
     :root {
@@ -35,7 +41,7 @@
       --surface-elevated: #1a1a24;
       --border: #2a2a3a;
       --border-active: #8b5cf6;
-      
+
       --purple-50: #f5f3ff;
       --purple-100: #ede9fe;
       --purple-300: #c4b5fd;
@@ -43,18 +49,18 @@
       --purple-500: #8b5cf6;
       --purple-600: #7c3aed;
       --purple-900: #1e1b4b;
-      
+
       --text: #fafafa;
       --text-secondary: #a1a1aa;
       --text-muted: #52525b;
-      
+
       --success: #4ade80;
       --error: #f87171;
       --warning: #fbbf24;
-      
+
       --font-heading: 'Montserrat', sans-serif;
       --font-body: 'Poppins', sans-serif;
-      
+
       --radius-sm: 8px;
       --radius-md: 12px;
       --radius-lg: 16px;
@@ -163,8 +169,15 @@
     }
 
     @keyframes dropdown-in {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .queue-dropdown-header {
@@ -337,8 +350,13 @@
     }
 
     @keyframes rainbow-shift {
-      0% { background-position: 0% center; }
-      100% { background-position: 200% center; }
+      0% {
+        background-position: 0% center;
+      }
+
+      100% {
+        background-position: 200% center;
+      }
     }
 
     .splash.shake {
@@ -346,9 +364,19 @@
     }
 
     @keyframes shake {
-      0%, 100% { transform: translateX(0); }
-      25% { transform: translateX(-5px); }
-      75% { transform: translateX(5px); }
+
+      0%,
+      100% {
+        transform: translateX(0);
+      }
+
+      25% {
+        transform: translateX(-5px);
+      }
+
+      75% {
+        transform: translateX(5px);
+      }
     }
 
     .input-container {
@@ -371,7 +399,7 @@
       border-color: var(--purple-500);
     }
 
-    .url-input-wrapper > svg {
+    .url-input-wrapper>svg {
       width: 20px;
       height: 20px;
       color: var(--text-muted);
@@ -643,7 +671,9 @@
     }
 
     @keyframes spin {
-      to { transform: rotate(360deg); }
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     .queue-item {
@@ -688,8 +718,13 @@
     }
 
     @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     .queue-item-info {
@@ -863,6 +898,7 @@
         opacity: 0;
         transform: translateY(20px);
       }
+
       to {
         opacity: 1;
         transform: translateY(0);
@@ -1002,11 +1038,11 @@
       transition: transform 0.2s ease-out;
     }
 
-    .modal-toggle input:checked + .modal-toggle-switch {
+    .modal-toggle input:checked+.modal-toggle-switch {
       background: var(--purple-500);
     }
 
-    .modal-toggle input:checked + .modal-toggle-switch::after {
+    .modal-toggle input:checked+.modal-toggle-switch::after {
       transform: translateX(18px);
     }
 
@@ -1179,6 +1215,7 @@
     }
   </style>
 </head>
+
 <body>
   <header>
     <div class="header-center">
@@ -1190,7 +1227,8 @@
     <div class="header-right">
       <div class="queue-menu" id="queueMenu">
         <button class="queue-toggle" id="queueToggle">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <line x1="8" y1="6" x2="21" y2="6"></line>
             <line x1="8" y1="12" x2="21" y2="12"></line>
             <line x1="8" y1="18" x2="21" y2="18"></line>
@@ -1206,7 +1244,8 @@
             <span class="queue-dropdown-title">Downloads</span>
             <div class="queue-header-actions">
               <button class="queue-start-all" id="queueStartAll" title="Start all queued">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
               </button>
@@ -1235,20 +1274,16 @@
 
     <div class="input-container">
       <div class="url-input-wrapper">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
         </svg>
-        <input 
-          type="text" 
-          class="url-input" 
-          id="url" 
-          placeholder="paste the link here..."
-          autocomplete="off"
-          spellcheck="false"
-        />
+        <input type="text" class="url-input" id="url" placeholder="paste the link here..." autocomplete="off"
+          spellcheck="false" />
         <button class="paste-btn" id="pasteBtn" type="button" title="Paste from clipboard">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
@@ -1258,13 +1293,15 @@
       <div class="format-section">
         <div class="segmented-control" id="formatControl">
           <button class="segment active" data-format="auto">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
             <span>auto</span>
           </button>
           <button class="segment" data-format="video">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
               <line x1="7" y1="2" x2="7" y2="22"></line>
               <line x1="17" y1="2" x2="17" y2="22"></line>
@@ -1277,7 +1314,8 @@
             <span>video</span>
           </button>
           <button class="segment" data-format="audio">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 18V5l12-2v13"></path>
               <circle cx="6" cy="18" r="3"></circle>
               <circle cx="18" cy="16" r="3"></circle>
@@ -1285,7 +1323,8 @@
             <span>audio</span>
           </button>
           <button class="segment" data-format="images">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <circle cx="8.5" cy="8.5" r="1.5"></circle>
               <polyline points="21 15 16 10 5 21"></polyline>
@@ -1296,7 +1335,8 @@
 
         <div class="yoink-btn-wrapper" id="yoinkWrapper">
           <button class="yoink-btn" id="yoinkBtn" type="button">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -1304,20 +1344,23 @@
             yoink
           </button>
           <button class="yoink-dropdown-toggle" id="yoinkDropdownToggle" type="button">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </button>
           <div class="yoink-dropdown" id="yoinkDropdown">
             <button class="yoink-dropdown-item" id="addToQueueBtn" type="button">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
               add to queue
             </button>
             <button class="yoink-dropdown-item" id="batchAddBtn" type="button">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="8" y1="6" x2="21" y2="6"></line>
                 <line x1="8" y1="12" x2="21" y2="12"></line>
                 <line x1="8" y1="18" x2="21" y2="18"></line>
@@ -1339,7 +1382,8 @@
     <div class="footer-left">
       <div>this is a <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> wrapper</div>
       <div>inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt</a>, love u wukko</div>
-      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a href="/privacy">privacy policy</a></div>
+      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a
+          href="/privacy">privacy policy</a></div>
     </div>
     <div class="footer-right">
       <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>
@@ -1358,13 +1402,15 @@
       <div class="modal-subtitle">do you want to download just this video, or the whole playlist?</div>
       <div class="modal-buttons">
         <button class="modal-btn" id="modalVideoBtn">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
           </svg>
           video
         </button>
         <button class="modal-btn primary" id="modalPlaylistBtn">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <line x1="8" y1="6" x2="21" y2="6"></line>
             <line x1="8" y1="12" x2="21" y2="12"></line>
             <line x1="8" y1="18" x2="21" y2="18"></line>
@@ -1397,7 +1443,8 @@ https://youtube.com/watch?v=..."></textarea>
       <div class="modal-buttons">
         <button class="modal-btn" id="batchCancelBtn">cancel</button>
         <button class="modal-btn primary" id="batchConfirmBtn">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
@@ -1441,7 +1488,7 @@ https://youtube.com/watch?v=..."></textarea>
       { text: "1000+ sites!", link: "https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md", classes: ["clickable"] },
       { text: "yes, that site works. even the one you're thinking of." }
     ];
-// this is the stupidest fucking thing i have ever done for a website bro
+    // this is the stupidest fucking thing i have ever done for a website bro
     const pornSites = [
       '4tube', 'alphaporno', 'beeg', 'behindkink', 'bongacams', 'cam4', 'cammodels', 'camsoda',
       'chaturbate', 'drtuber', 'empflix', 'eporner', 'erocast', 'eroprofile', 'fux', 'hellporno',
@@ -1467,7 +1514,7 @@ https://youtube.com/watch?v=..."></textarea>
       splashEl.textContent = "okay dude are you just gonna download porn";
       splashEl.className = 'splash';
     }
-// porn ends here
+    // porn ends here
 
     const downloadIframes = [];
     const MAX_IFRAMES = 5;
@@ -1547,17 +1594,28 @@ https://youtube.com/watch?v=..."></textarea>
       const splash = splashTexts[Math.floor(Math.random() * splashTexts.length)];
       splashEl.textContent = splash.text;
       splashEl.className = 'splash';
-      
+
       if (splash.classes) {
         splash.classes.forEach(cls => splashEl.classList.add(cls));
       }
-      
+
       if (splash.link) {
         splashEl.style.cursor = 'pointer';
         splashEl.onclick = () => window.open(splash.link, '_blank');
       } else {
         splashEl.style.cursor = 'default';
         splashEl.onclick = null;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('shared')) {
+        const sharedUrl = sessionStorage.getItem('yoink_shared_url');
+        if (sharedUrl) {
+          urlInput.value = sharedUrl;
+          sessionStorage.removeItem('yoink_shared_url');
+          window.history.replaceState({}, document.title, '/');
+          handleYoink();
+        }
       }
 
       const savedQueue = localStorage.getItem('yoink_queue');
@@ -1580,30 +1638,30 @@ https://youtube.com/watch?v=..."></textarea>
       queueToggle.addEventListener('click', toggleQueueDropdown);
       queueClear.addEventListener('click', clearQueue);
       queueStartAll.addEventListener('click', startAllQueued);
-      
+
       yoinkDropdownToggle.addEventListener('click', toggleYoinkDropdown);
       addToQueueBtn.addEventListener('click', handleAddToQueue);
       batchAddBtn.addEventListener('click', showBatchModal);
-      
+
       batchTextarea.addEventListener('input', updateBatchCount);
       batchCancelBtn.addEventListener('click', hideBatchModal);
       batchConfirmBtn.addEventListener('click', handleBatchAdd);
       batchModal.addEventListener('click', (e) => {
         if (e.target === batchModal) hideBatchModal();
       });
-      
+
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.yoink-btn-wrapper')) {
           yoinkWrapper.classList.remove('open');
         }
       });
-      
+
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/js/sw.js').catch(err => {
           console.log('SW registration failed:', err);
         });
       }
-      
+
       const sharedUrl = sessionStorage.getItem('yoink_shared_url');
       if (sharedUrl) {
         sessionStorage.removeItem('yoink_shared_url');
@@ -1759,7 +1817,7 @@ https://youtube.com/watch?v=..."></textarea>
           }
         }
       }
-      
+
       queue = queue.filter(item => item.id !== id);
       saveQueue();
       renderQueue();
@@ -1785,33 +1843,33 @@ https://youtube.com/watch?v=..."></textarea>
           const isError = item.stage === 'error';
           const statusClass = isActive ? 'active' : (isComplete ? 'success' : (isError ? 'error' : ''));
           const showProgress = isActive && item.progress !== undefined;
-          
+
           let statusText = item.status || 'Waiting...';
           if (item.isPlaylist && item.currentVideo && item.videoCount) {
             statusText = `${item.currentVideo}/${item.videoCount} - ${item.currentVideoTitle || item.status}`;
           }
-          
-          const formatBadge = item.isPlaylist && item.formatDisplay 
-            ? `<span class="queue-item-format">${item.formatDisplay}</span>` 
+
+          const formatBadge = item.isPlaylist && item.formatDisplay
+            ? `<span class="queue-item-format">${item.formatDisplay}</span>`
             : '';
-          
+
           return `
             <div class="queue-item" data-id="${item.id}">
               <div class="queue-item-header">
                 <div class="queue-item-icon ${isActive ? 'spinning' : ''}">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    ${isComplete ? 
-                      '<polyline points="20 6 9 17 4 12"></polyline>' :
-                      isError ?
-                      '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' :
-                      item.isPlaylist ?
-                      '<line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>' :
-                      item.format === 'audio' ? 
-                      '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>' :
-                      isActive ?
+                    ${isComplete ?
+              '<polyline points="20 6 9 17 4 12"></polyline>' :
+              isError ?
+                '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' :
+                item.isPlaylist ?
+                  '<line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>' :
+                  item.format === 'audio' ?
+                    '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>' :
+                    isActive ?
                       '<path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path d="M9 12l2 2 4-4"></path>' :
                       '<polygon points="5 3 19 12 5 21 5 3"></polygon>'
-                    }
+            }
                   </svg>
                 </div>
                 <div class="queue-item-info">
@@ -1899,7 +1957,7 @@ https://youtube.com/watch?v=..."></textarea>
       const url = normalizeUrl(rawUrl);
       const format = currentFormat === 'auto' ? 'video' : currentFormat;
       const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-      
+
       let downloadPlaylist = false;
       if (format !== 'images' && hasPlaylistParam(url)) {
         if (settings.playlistPreference === 'video') {
@@ -1953,13 +2011,13 @@ https://youtube.com/watch?v=..."></textarea>
         isPlaylist: downloadPlaylist,
         formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
       };
-      
+
       addToQueue(queueItem);
-      
+
       if (startImmediately) {
         startDownload(queueItem);
       }
-      
+
       return queueItem;
     }
 
@@ -2008,11 +2066,11 @@ https://youtube.com/watch?v=..."></textarea>
 
       hideBatchModal();
       showToast(`Adding ${urls.length} URLs to queue...`, 'info');
-      
+
       for (const url of urls) {
         await addUrlToQueue(url, false);
       }
-      
+
       showToast(`${urls.length} items added to queue`, 'success');
       queueDropdown.classList.add('show');
     }
@@ -2023,9 +2081,9 @@ https://youtube.com/watch?v=..."></textarea>
         showToast('No queued items to start', 'info');
         return;
       }
-      
+
       showToast(`Starting ${queuedItems.length} downloads...`, 'info');
-      
+
       for (const item of queuedItems) {
         await startQueuedItem(item.id);
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -2035,25 +2093,25 @@ https://youtube.com/watch?v=..."></textarea>
     async function startQueuedItem(id) {
       const item = queue.find(q => q.id === id);
       if (!item || item.stage !== 'queued') return;
-      
+
       item.stage = 'starting';
       item.status = 'Initializing...';
       renderQueue();
-      
+
       await startDownload(item);
     }
 
     async function retryDownload(id) {
       const item = queue.find(q => q.id === id);
       if (!item || !item.url) return;
-      
+
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       item.id = newId;
       item.stage = 'starting';
       item.status = 'Retrying...';
       item.progress = 0;
       renderQueue();
-      
+
       await startDownload(item);
     }
 
@@ -2072,7 +2130,7 @@ https://youtube.com/watch?v=..."></textarea>
     async function startDownload(item) {
       const heartbeatJobId = startHeartbeat();
       const eventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
-      
+
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -2133,18 +2191,18 @@ https://youtube.com/watch?v=..."></textarea>
         endpoint = '/api/download';
       }
       const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
-      
+
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.src = downloadUrl;
       document.body.appendChild(iframe);
       downloadIframes.push(iframe);
       enforceIframeCap();
-      
+
       iframe.onload = () => {
         setTimeout(() => cleanupIframe(iframe), 5000);
       };
-      
+
       setTimeout(() => cleanupIframe(iframe), 2 * 60 * 1000);
     }
 
@@ -2176,14 +2234,14 @@ https://youtube.com/watch?v=..."></textarea>
         showToast('Please enter a valid URL', 'error');
         return;
       }
-// more porn
+      // more porn
       if (isPornSite(url)) {
         showPornSplash();
       }
 
       let downloadPlaylist = false;
       const format = currentFormat === 'auto' ? 'video' : currentFormat;
-      
+
       if (format !== 'images' && hasPlaylistParam(url)) {
         if (settings.playlistPreference === 'video') {
           downloadPlaylist = false;
@@ -2249,12 +2307,12 @@ https://youtube.com/watch?v=..."></textarea>
           formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
         };
         addToQueue(queueItem);
-        
+
         queueDropdown.classList.add('show');
 
         const heartbeatJobId2 = startHeartbeat();
         const eventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
-        
+
         eventSource.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
@@ -2299,7 +2357,7 @@ https://youtube.com/watch?v=..."></textarea>
                 showToast(toastMsg, 'success');
                 eventSource.close();
                 stopHeartbeat(heartbeatJobId2);
-                
+
                 setTimeout(() => {
                   removeFromQueue(progressId);
                 }, 5000);
@@ -2345,12 +2403,12 @@ https://youtube.com/watch?v=..."></textarea>
           endpoint = '/api/download';
         }
         const downloadUrl = `${API_BASE}${endpoint}?${params.toString()}`;
-        
+
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         iframe.src = downloadUrl;
         document.body.appendChild(iframe);
-        
+
         setTimeout(() => {
           document.body.removeChild(iframe);
         }, 60000);
@@ -2381,4 +2439,5 @@ https://youtube.com/watch?v=..."></textarea>
     init();
   </script>
 </body>
+
 </html>
