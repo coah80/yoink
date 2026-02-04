@@ -1,0 +1,44 @@
+name: Bug Report
+description: Report something that's broken
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug
+      placeholder: When I try to download a video...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Go to yoink.tools
+        2. Paste this URL: ...
+        3. Click download
+        4. See error
+    validations:
+      required: false
+  - type: input
+    id: url
+    attributes:
+      label: URL that failed (if applicable)
+      placeholder: https://youtube.com/watch?v=...
+    validations:
+      required: false
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Firefox
+        - Safari
+        - Edge
+        - Other
+    validations:
+      required: false

@@ -1,0 +1,21 @@
+name: Suggestion
+description: Suggest a feature or improvement
+title: "[Suggestion] "
+labels: ["suggestion"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What would you like?
+      description: Describe your idea
+      placeholder: It would be cool if...
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would this be useful?
+      description: Help us understand the use case
+      placeholder: This would help because...
+    validations:
+      required: false
