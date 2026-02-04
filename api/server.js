@@ -752,7 +752,16 @@ app.use('/api/download-playlist', rateLimitMiddleware);
 app.use('/api/convert', rateLimitMiddleware);
 app.use('/api/compress', rateLimitMiddleware);
 
-const TEMP_DIR = path.join(os.tmpdir(), 'yoink-downloads');
+const TEMP_DIR = path.join(os.tmpdir(), 'yoink');
+const TEMP_DIRS = {
+  download: path.join(TEMP_DIR, 'downloads'),
+  convert: path.join(TEMP_DIR, 'convert'),
+  compress: path.join(TEMP_DIR, 'compress'),
+  playlist: path.join(TEMP_DIR, 'playlists'),
+  gallery: path.join(TEMP_DIR, 'galleries'),
+  upload: path.join(TEMP_DIR, 'uploads'),
+  bot: path.join(TEMP_DIR, 'bot')
+};
 
 function clearTempDir() {
   try {
@@ -760,10 +769,14 @@ function clearTempDir() {
       fs.rmSync(TEMP_DIR, { recursive: true });
       console.log('✓ Cleared temp directory');
     }
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
+    Object.values(TEMP_DIRS).forEach(dir => {
+      fs.mkdirSync(dir, { recursive: true });
+    });
   } catch (err) {
     console.error('Failed to clear temp directory:', err);
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
+    Object.values(TEMP_DIRS).forEach(dir => {
+      fs.mkdirSync(dir, { recursive: true });
+    });
   }
 }
 
@@ -771,21 +784,24 @@ clearTempDir();
 
 function cleanupTempFiles() {
   try {
-    const items = fs.readdirSync(TEMP_DIR);
     const now = Date.now();
-    items.forEach(item => {
-      const itemPath = path.join(TEMP_DIR, item);
-      try {
-        const stat = fs.statSync(itemPath);
-        if (now - stat.mtimeMs > FILE_RETENTION_MS) {
-          if (stat.isDirectory()) {
-            fs.rmSync(itemPath, { recursive: true });
-          } else {
-            fs.unlinkSync(itemPath);
+    Object.values(TEMP_DIRS).forEach(dir => {
+      if (!fs.existsSync(dir)) return;
+      const items = fs.readdirSync(dir);
+      items.forEach(item => {
+        const itemPath = path.join(dir, item);
+        try {
+          const stat = fs.statSync(itemPath);
+          if (now - stat.mtimeMs > FILE_RETENTION_MS) {
+            if (stat.isDirectory()) {
+              fs.rmSync(itemPath, { recursive: true });
+            } else {
+              fs.unlinkSync(itemPath);
+            }
+            console.log(`Cleaned up old temp: ${item}`);
           }
-          console.log(`Cleaned up old temp: ${item}`);
-        }
-      } catch { }
+        } catch { }
+      });
     });
   } catch (err) {
     console.error('Cleanup error:', err);
@@ -794,29 +810,125 @@ function cleanupTempFiles() {
 
 function cleanupJobFiles(jobId) {
   try {
-    const items = fs.readdirSync(TEMP_DIR);
-    items.forEach(item => {
-      if (item.includes(jobId)) {
-        const itemPath = path.join(TEMP_DIR, item);
-        try {
-          const stat = fs.statSync(itemPath);
-          if (stat.isDirectory()) {
-            fs.rmSync(itemPath, { recursive: true });
-          } else {
-            fs.unlinkSync(itemPath);
+    let cleaned = 0;
+    Object.values(TEMP_DIRS).forEach(dir => {
+      if (!fs.existsSync(dir)) return;
+      const items = fs.readdirSync(dir);
+      items.forEach(item => {
+        if (item.includes(jobId)) {
+          const itemPath = path.join(dir, item);
+          try {
+            const stat = fs.statSync(itemPath);
+            if (stat.isDirectory()) {
+              fs.rmSync(itemPath, { recursive: true });
+            } else {
+              fs.unlinkSync(itemPath);
+            }
+            console.log(`[Cleanup] Removed: ${item}`);
+            cleaned++;
+          } catch (innerErr) {
+            console.debug(`[Cleanup] Failed to remove ${item} for job ${jobId}: ${innerErr.message}`);
           }
-          console.log(`Cleaned up job files: ${item}`);
-        } catch (innerErr) {
-          console.debug(`[Cleanup] Failed to remove ${item} for job ${jobId}: ${innerErr.message}`);
         }
-      }
+      });
     });
+    if (cleaned === 0) {
+      console.debug(`[Cleanup] No files found for job ${jobId.slice(0, 12)}`);
+    }
   } catch (outerErr) {
-    console.debug(`[Cleanup] Failed to read ${TEMP_DIR} for job ${jobId}: ${outerErr.message}`);
+    console.debug(`[Cleanup] Failed to cleanup job ${jobId}: ${outerErr.message}`);
   }
 }
 
 setInterval(cleanupTempFiles, 5 * 60 * 1000);
+
+const JOB_STATE_FILE = path.join(TEMP_DIR, 'job-state.json');
+const pendingJobs = new Map();
+let isShuttingDown = false;
+
+function saveJobState() {
+  try {
+    const jobs = [];
+    for (const [jobId, job] of pendingJobs) {
+      if (job.resumable && job.status !== 'complete' && job.status !== 'error') {
+        jobs.push({
+          jobId,
+          type: job.type,
+          url: job.url,
+          options: job.options,
+          clientId: job.clientId,
+          progress: job.progress || 0,
+          tempFiles: job.tempFiles || [],
+          createdAt: job.createdAt,
+          savedAt: Date.now()
+        });
+      }
+    }
+    fs.writeFileSync(JOB_STATE_FILE, JSON.stringify(jobs, null, 2));
+    console.log(`[Persist] Saved ${jobs.length} resumable jobs`);
+  } catch (err) {
+    console.error('[Persist] Failed to save job state:', err.message);
+  }
+}
+
+function loadJobState() {
+  try {
+    if (!fs.existsSync(JOB_STATE_FILE)) return [];
+    const data = fs.readFileSync(JOB_STATE_FILE, 'utf8');
+    const jobs = JSON.parse(data);
+    fs.unlinkSync(JOB_STATE_FILE);
+    console.log(`[Persist] Loaded ${jobs.length} saved jobs`);
+    return jobs;
+  } catch (err) {
+    console.error('[Persist] Failed to load job state:', err.message);
+    return [];
+  }
+}
+
+function registerPendingJob(jobId, jobData) {
+  pendingJobs.set(jobId, {
+    ...jobData,
+    createdAt: Date.now(),
+    resumable: true
+  });
+}
+
+function updatePendingJob(jobId, updates) {
+  const job = pendingJobs.get(jobId);
+  if (job) {
+    Object.assign(job, updates);
+  }
+}
+
+function removePendingJob(jobId) {
+  pendingJobs.delete(jobId);
+}
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  console.log(`\n[Shutdown] Received ${signal}, gracefully stopping...`);
+  
+  for (const [jobId, processInfo] of activeProcesses) {
+    if (processInfo.process && !processInfo.process.killed) {
+      console.log(`[Shutdown] Pausing job ${jobId.slice(0, 8)}...`);
+      try {
+        processInfo.process.kill('SIGTERM');
+      } catch {}
+    }
+  }
+  
+  await new Promise(r => setTimeout(r, 500));
+  
+  saveJobState();
+  
+  console.log('[Shutdown] Cleanup complete, exiting...');
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 let galleryDlAvailable = false;
 
@@ -1059,6 +1171,7 @@ app.get('/api/metadata', async (req, res) => {
 const activeDownloads = new Map();
 
 const activeProcesses = new Map();
+const resumedJobs = new Map();
 
 app.get('/api/progress/:id', (req, res) => {
   const { id } = req.params;
@@ -1069,7 +1182,19 @@ app.get('/api/progress/:id', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
 
-  res.write(`data: ${JSON.stringify({ stage: 'connected', message: 'Connected to progress stream' })}\n\n`);
+  const resumedJob = resumedJobs.get(id);
+  if (resumedJob) {
+    res.write(`data: ${JSON.stringify({ 
+      stage: 'resuming', 
+      message: 'Reconnected! Resuming download...',
+      progress: resumedJob.progress || 0
+    })}\n\n`);
+    
+    resumedJob.clientReconnected = true;
+    resumedJob.response = res;
+  } else {
+    res.write(`data: ${JSON.stringify({ stage: 'connected', message: 'Connected to progress stream' })}\n\n`);
+  }
 
   activeDownloads.set(id, res);
 
@@ -1085,6 +1210,10 @@ app.post('/api/cancel/:id', (req, res) => {
   if (processInfo) {
     console.log(`[${id}] Cancelling download...`);
     processInfo.cancelled = true;
+
+    if (processInfo.abortController) {
+      processInfo.abortController.abort();
+    }
 
     if (processInfo.process) {
       try {
@@ -1191,11 +1320,21 @@ app.get('/api/download', async (req, res) => {
 
   const isAudio = format === 'audio';
   const outputExt = isAudio ? audioFormat : container;
-  const tempFile = path.join(TEMP_DIR, `${downloadId}.%(ext)s`);
-  const finalFile = path.join(TEMP_DIR, `${downloadId}-final.${outputExt}`);
+  const tempFile = path.join(TEMP_DIRS.download, `${downloadId}.%(ext)s`);
+  const finalFile = path.join(TEMP_DIRS.download, `${downloadId}-final.${outputExt}`);
 
-  const processInfo = { cancelled: false, process: null, tempFile: finalFile };
+  const abortController = new AbortController();
+  const processInfo = { cancelled: false, process: null, tempFile: finalFile, abortController };
   activeProcesses.set(downloadId, processInfo);
+  
+  registerPendingJob(downloadId, {
+    type: 'download',
+    url,
+    options: { format, quality, container, audioFormat, audioBitrate, twitterGifs, downloadPlaylist },
+    clientId,
+    status: 'starting',
+    tempFiles: [tempFile, finalFile]
+  });
 
   activeJobsByType.download++;
   console.log(`[Queue] Download started. Active: ${JSON.stringify(activeJobsByType)}`);
@@ -1212,12 +1351,21 @@ app.get('/api/download', async (req, res) => {
 
     if (isYouTube && !downloadPlaylist) {
       console.log(`[${downloadId}] YouTube detected, using Cobalt...`);
-      sendProgress(downloadId, 'downloading', 'Downloading via Cobalt...', 10);
+      sendProgress(downloadId, 'downloading', 'Downloading via Cobalt...', 0);
       
       try {
-        const cobaltResult = await downloadViaCobalt(url, downloadId, isAudio);
+        const cobaltResult = await downloadViaCobalt(url, downloadId, isAudio, (progress, downloaded, total) => {
+          sendProgress(downloadId, 'downloading', `Downloading... ${progress}%`, progress);
+          updatePendingJob(downloadId, { progress, status: 'downloading' });
+        }, processInfo.abortController.signal);
         downloadedPath = cobaltResult.filePath;
         downloadedExt = cobaltResult.ext;
+        
+        updatePendingJob(downloadId, { 
+          cobaltUrl: cobaltResult.downloadUrl,
+          tempFiles: [cobaltResult.filePath, cobaltResult.filePath + '.part']
+        });
+        
         sendProgress(downloadId, 'downloading', 'Download complete', 100);
       } catch (cobaltErr) {
         console.error(`[${downloadId}] Cobalt failed:`, cobaltErr.message);
@@ -1226,6 +1374,7 @@ app.get('/api/download', async (req, res) => {
     } else {
       const ytdlpArgs = [
         ...getCookiesArgs(),
+        '--continue',
         '-t', 'sleep',
         downloadPlaylist ? '--yes-playlist' : '--no-playlist',
         '--newline',
@@ -1265,6 +1414,7 @@ app.get('/api/download', async (req, res) => {
           if (progress > lastProgress + 5 || progress >= 100) {
             lastProgress = progress;
             sendProgress(downloadId, 'downloading', `Downloading... ${progress.toFixed(0)}%`, progress);
+            updatePendingJob(downloadId, { progress, status: 'downloading' });
           }
         }
       });
@@ -1281,6 +1431,7 @@ app.get('/api/download', async (req, res) => {
             if (progress > lastProgress + 5 || progress >= 100) {
               lastProgress = progress;
               sendProgress(downloadId, 'downloading', `Downloading... ${progress.toFixed(0)}%`, progress);
+              updatePendingJob(downloadId, { progress, status: 'downloading' });
             }
           }
         }
@@ -1302,14 +1453,14 @@ app.get('/api/download', async (req, res) => {
       });
     });
 
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = fs.readdirSync(TEMP_DIRS.download);
     const downloadedFile = files.find(f => f.startsWith(downloadId) && !f.includes('-final') && !f.includes('-cobalt'));
 
     if (!downloadedFile) {
       throw new Error('Downloaded file not found');
     }
 
-    downloadedPath = path.join(TEMP_DIR, downloadedFile);
+    downloadedPath = path.join(TEMP_DIRS.download, downloadedFile);
     downloadedExt = path.extname(downloadedFile).slice(1);
     }
 
@@ -1336,7 +1487,7 @@ app.get('/api/download', async (req, res) => {
     }
 
     const actualOutputExt = isGif ? 'gif' : outputExt;
-    const actualFinalFile = isGif ? path.join(TEMP_DIR, `${downloadId}-final.gif`) : finalFile;
+    const actualFinalFile = isGif ? path.join(TEMP_DIRS.download, `${downloadId}-final.gif`) : finalFile;
 
     sendProgress(downloadId, 'processing', isGif ? 'Converting to GIF...' : 'Processing video...', 100);
 
@@ -1426,6 +1577,7 @@ app.get('/api/download', async (req, res) => {
       sendProgress(downloadId, 'complete', 'Download complete!');
       activeDownloads.delete(downloadId);
       activeProcesses.delete(downloadId);
+      removePendingJob(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
 
@@ -1445,6 +1597,7 @@ app.get('/api/download', async (req, res) => {
       discordAlerts.fileSendFailed('File Stream Error', 'Failed to send file to client.', { jobId: downloadId, url, error: err.message });
       sendProgress(downloadId, 'error', 'Failed to send file');
       activeProcesses.delete(downloadId);
+      removePendingJob(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download failed. Active: ${JSON.stringify(activeJobsByType)}`);
@@ -1457,6 +1610,7 @@ app.get('/api/download', async (req, res) => {
       sendProgress(downloadId, 'complete', 'Download complete!');
       activeDownloads.delete(downloadId);
       activeProcesses.delete(downloadId);
+      removePendingJob(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download finished (res). Active: ${JSON.stringify(activeJobsByType)}`);
@@ -1468,6 +1622,7 @@ app.get('/api/download', async (req, res) => {
       finished = true;
       stream.destroy();
       activeProcesses.delete(downloadId);
+      removePendingJob(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download cancelled. Active: ${JSON.stringify(activeJobsByType)}`);
@@ -1483,13 +1638,14 @@ app.get('/api/download', async (req, res) => {
     sendProgress(downloadId, 'error', err.message || 'Download failed');
 
     activeProcesses.delete(downloadId);
+    removePendingJob(downloadId);
     activeJobsByType.download--;
     unlinkJobFromClient(downloadId);
     console.log(`[Queue] Download error. Active: ${JSON.stringify(activeJobsByType)}`);
 
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = fs.readdirSync(TEMP_DIRS.download);
     files.filter(f => f.startsWith(downloadId)).forEach(f => {
-      try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch { }
+      try { fs.unlinkSync(path.join(TEMP_DIRS.download, f)); } catch { }
     });
 
     if (!res.headersSent) {
@@ -1537,7 +1693,7 @@ app.get('/api/download-playlist', async (req, res) => {
 
   const isAudio = format === 'audio';
   const outputExt = isAudio ? audioFormat : container;
-  const playlistDir = path.join(TEMP_DIR, downloadId);
+  const playlistDir = path.join(TEMP_DIRS.playlist, downloadId);
 
   if (!fs.existsSync(playlistDir)) {
     fs.mkdirSync(playlistDir, { recursive: true });
@@ -1826,7 +1982,7 @@ app.get('/api/download-playlist', async (req, res) => {
       format: isAudio ? audioFormat : `${quality} ${container}`
     });
 
-    const zipPath = path.join(TEMP_DIR, `${downloadId}.zip`);
+    const zipPath = path.join(TEMP_DIRS.playlist, `${downloadId}.zip`);
     const safePlaylistName = sanitizeFilename(playlistTitle || filename || 'playlist');
 
     await new Promise((resolve, reject) => {
@@ -2030,7 +2186,7 @@ app.get('/api/gallery/download', async (req, res) => {
   }
 
   const downloadId = progressId || uuidv4();
-  const galleryDir = path.join(TEMP_DIR, `gallery-${downloadId}`);
+  const galleryDir = path.join(TEMP_DIRS.gallery, `gallery-${downloadId}`);
 
   if (!fs.existsSync(galleryDir)) {
     fs.mkdirSync(galleryDir, { recursive: true });
@@ -2167,7 +2323,7 @@ app.get('/api/gallery/download', async (req, res) => {
     } else {
       sendProgress(downloadId, 'zipping', `Creating zip with ${allFiles.length} images...`, 90);
 
-      const zipPath = path.join(TEMP_DIR, `${downloadId}.zip`);
+      const zipPath = path.join(TEMP_DIRS.gallery, `${downloadId}.zip`);
       const hostname = new URL(url).hostname.replace('www.', '');
       const safeZipName = sanitizeFilename(filename || hostname || 'gallery');
 
@@ -2249,7 +2405,7 @@ app.get('/api/gallery/download', async (req, res) => {
 
 
 const upload = multer({
-  dest: TEMP_DIR,
+  dest: TEMP_DIRS.upload,
   limits: { fileSize: FILE_SIZE_LIMIT }
 });
 
@@ -2282,7 +2438,7 @@ async function handleConvert(req, res) {
 
   const convertId = uuidv4();
   const inputPath = req.file.path;
-  const outputPath = path.join(TEMP_DIR, `${convertId}-converted.${format}`);
+  const outputPath = path.join(TEMP_DIRS.convert, `${convertId}-converted.${format}`);
 
   if (clientId) {
     registerClient(clientId);
@@ -2467,7 +2623,7 @@ async function handleConvertAsync(req, jobId) {
 
   const convertId = jobId;
   const inputPath = req.file.path;
-  const outputPath = path.join(TEMP_DIR, `${convertId}-converted.${format}`);
+  const outputPath = path.join(TEMP_DIRS.convert, `${convertId}-converted.${format}`);
 
   if (clientId) {
     registerClient(clientId);
@@ -2657,9 +2813,9 @@ setInterval(() => {
     if (now - data.lastActivity > CHUNK_TIMEOUT) {
       console.log(`[Chunk] Upload ${uploadId} timed out, cleaning up`);
       try {
-        const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(`chunk-${uploadId}-`));
+        const files = fs.readdirSync(TEMP_DIRS.upload).filter(f => f.startsWith(`chunk-${uploadId}-`));
         for (const f of files) {
-          fs.unlinkSync(path.join(TEMP_DIR, f));
+          fs.unlinkSync(path.join(TEMP_DIRS.upload, f));
         }
       } catch { }
       chunkedUploads.delete(uploadId);
@@ -2718,7 +2874,7 @@ app.post('/api/upload/chunk/:uploadId/:chunkIndex', upload.single('chunk'), (req
     return res.status(400).json({ error: 'Invalid chunk index' });
   }
 
-  const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(index).padStart(4, '0')}`);
+  const chunkPath = path.join(TEMP_DIRS.upload, `chunk-${uploadId}-${String(index).padStart(4, '0')}`);
 
   try {
     fs.renameSync(req.file.path, chunkPath);
@@ -2756,13 +2912,13 @@ app.post('/api/upload/complete/:uploadId', express.json(), async (req, res) => {
     });
   }
 
-  const assembledPath = path.join(TEMP_DIR, `assembled-${uploadId}-${sanitizeFilename(uploadData.fileName)}`);
+  const assembledPath = path.join(TEMP_DIRS.upload, `assembled-${uploadId}-${sanitizeFilename(uploadData.fileName)}`);
 
   try {
     const writeStream = fs.createWriteStream(assembledPath);
 
     for (let i = 0; i < uploadData.totalChunks; i++) {
-      const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(i).padStart(4, '0')}`);
+      const chunkPath = path.join(TEMP_DIRS.upload, `chunk-${uploadId}-${String(i).padStart(4, '0')}`);
 
       await new Promise((resolve, reject) => {
         const readStream = fs.createReadStream(chunkPath);
@@ -2933,12 +3089,16 @@ async function fetchMetadataViaCobalt(videoUrl) {
   throw lastError || new Error('All Cobalt instances failed');
 }
 
-async function downloadViaCobalt(videoUrl, jobId, isAudio = false) {
+async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallback = null, abortSignal = null) {
   let lastError = null;
 
   for (const apiUrl of COBALT_APIS) {
     try {
-      console.log(`[Bot] Trying Cobalt: ${apiUrl}`);
+      if (abortSignal?.aborted) {
+        throw new Error('Cancelled');
+      }
+      
+      console.log(`[Cobalt] Trying: ${apiUrl}`);
       
       const headers = {
         'Accept': 'application/json',
@@ -2956,7 +3116,8 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false) {
           downloadMode: isAudio ? 'audio' : 'auto',
           filenameStyle: 'basic',
           videoQuality: '1080'
-        })
+        }),
+        signal: abortSignal
       });
 
       if (!response.ok) {
@@ -2981,21 +3142,74 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false) {
       }
 
       const ext = isAudio ? 'mp3' : 'mp4';
-      const outputPath = path.join(TEMP_DIR, `bot-${jobId}-cobalt.${ext}`);
-
-      const fileResponse = await fetch(downloadUrl);
-      if (!fileResponse.ok) {
-        throw new Error('Failed to download from Cobalt');
+      const outputPath = path.join(TEMP_DIRS.download, `${jobId}-cobalt.${ext}`);
+      const partPath = outputPath + '.part';
+      
+      let startByte = 0;
+      if (fs.existsSync(partPath)) {
+        const stats = fs.statSync(partPath);
+        startByte = stats.size;
+        console.log(`[Cobalt] Resuming from byte ${startByte}`);
       }
+      
+      const downloadHeaders = {};
+      if (startByte > 0) {
+        downloadHeaders['Range'] = `bytes=${startByte}-`;
+      }
+      
+      const fileResponse = await fetch(downloadUrl, { headers: downloadHeaders, signal: abortSignal });
+      
+      if (!fileResponse.ok && fileResponse.status !== 206) {
+        if (fileResponse.status === 416 && startByte > 0) {
+          fs.renameSync(partPath, outputPath);
+          console.log(`[Cobalt] File already complete`);
+          return { filePath: outputPath, ext, downloadUrl };
+        }
+        throw new Error(`Failed to download: HTTP ${fileResponse.status}`);
+      }
+      
+      const contentLength = parseInt(fileResponse.headers.get('content-length') || '0');
+      const totalSize = startByte + contentLength;
+      
+      const writeStream = fs.createWriteStream(partPath, { flags: startByte > 0 ? 'a' : 'w' });
+      const reader = fileResponse.body.getReader();
+      
+      let downloadedBytes = startByte;
+      
+      try {
+        while (true) {
+          if (abortSignal?.aborted) {
+            reader.cancel();
+            writeStream.destroy();
+            throw new Error('Cancelled');
+          }
+          
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          writeStream.write(Buffer.from(value));
+          downloadedBytes += value.length;
+          
+          if (progressCallback && totalSize > 0) {
+            const progress = Math.round((downloadedBytes / totalSize) * 100);
+            progressCallback(progress, downloadedBytes, totalSize);
+          }
+        }
+      } catch (readErr) {
+        writeStream.destroy();
+        throw readErr;
+      }
+      
+      writeStream.end();
+      await new Promise(resolve => writeStream.on('finish', resolve));
+      
+      fs.renameSync(partPath, outputPath);
 
-      const fileBuffer = await fileResponse.arrayBuffer();
-      fs.writeFileSync(outputPath, Buffer.from(fileBuffer));
-
-      console.log(`[Bot] Cobalt success via ${apiUrl}`);
-      return { filePath: outputPath, ext };
+      console.log(`[Cobalt] Success via ${apiUrl}`);
+      return { filePath: outputPath, ext, downloadUrl };
 
     } catch (err) {
-      console.log(`[Bot] Cobalt ${apiUrl} failed: ${err.message}`);
+      console.log(`[Cobalt] ${apiUrl} failed: ${err.message}`);
       lastError = err;
     }
   }
@@ -3036,8 +3250,8 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
   const jobId = uuidv4();
   const isAudio = format === 'audio';
   const outputExt = isAudio ? audioFormat : container;
-  const tempFile = path.join(TEMP_DIR, `bot-${jobId}.%(ext)s`);
-  const finalFile = path.join(TEMP_DIR, `bot-${jobId}-final.${outputExt}`);
+  const tempFile = path.join(TEMP_DIRS.bot, `bot-${jobId}.%(ext)s`);
+  const finalFile = path.join(TEMP_DIRS.bot, `bot-${jobId}-final.${outputExt}`);
 
   const job = {
     status: 'starting',
@@ -3147,14 +3361,14 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
           ytdlp.on('error', reject);
         });
 
-        const files = fs.readdirSync(TEMP_DIR);
+        const files = fs.readdirSync(TEMP_DIRS.bot);
         const downloadedFile = files.find(f => f.startsWith(`bot-${jobId}`) && !f.includes('-final') && !f.includes('-cobalt'));
 
         if (!downloadedFile) {
           throw new Error('Downloaded file not found');
         }
 
-        downloadedPath = path.join(TEMP_DIR, downloadedFile);
+        downloadedPath = path.join(TEMP_DIRS.bot, downloadedFile);
         downloadedExt = path.extname(downloadedFile).slice(1);
       }
 
@@ -3224,9 +3438,9 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
       job.status = 'error';
       job.message = err.message || 'Download failed';
 
-      const files = fs.readdirSync(TEMP_DIR);
+      const files = fs.readdirSync(TEMP_DIRS.bot);
       files.filter(f => f.includes(jobId)).forEach(f => {
-        try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch {}
+        try { fs.unlinkSync(path.join(TEMP_DIRS.bot, f)); } catch {}
       });
     }
   })();
@@ -3293,7 +3507,7 @@ app.get('/api/bot/status/:jobId', (req, res) => {
 function validateChunkedFilePath(filePath) {
   if (!filePath) return null;
   const resolved = path.resolve(filePath);
-  const relative = path.relative(TEMP_DIR, resolved);
+  const relative = path.relative(TEMP_DIRS.upload, resolved);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     return null;
   }
@@ -3509,8 +3723,8 @@ async function handleCompress(req, res) {
 
   const compressId = progressId || uuidv4();
   const inputPath = req.file.path;
-  const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.mp4`);
-  const passLogFile = path.join(TEMP_DIR, `${compressId}-pass`);
+  const outputPath = path.join(TEMP_DIRS.compress, `${compressId}-compressed.mp4`);
+  const passLogFile = path.join(TEMP_DIRS.compress, `${compressId}-pass`);
 
   if (clientId) {
     registerClient(clientId);
@@ -3881,8 +4095,8 @@ async function handleCompressAsync(req, jobId) {
 
   const compressId = jobId;
   const inputPath = req.file.path;
-  const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.mp4`);
-  const passLogFile = path.join(TEMP_DIR, `${compressId}-pass`);
+  const outputPath = path.join(TEMP_DIRS.compress, `${compressId}-compressed.mp4`);
+  const passLogFile = path.join(TEMP_DIRS.compress, `${compressId}-pass`);
 
   if (isNaN(targetMB) || targetMB <= 0) {
     try { fs.unlinkSync(inputPath); } catch { }
@@ -4344,4 +4558,191 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  GET  /api/gallery/download - Download images from galleries`);
   console.log(`  POST /api/convert          - Convert uploaded file`);
   console.log(`  POST /api/compress         - Compress video to target size\n`);
+  
+  resumeSavedJobs();
 });
+
+const CLIENT_RECONNECT_TIMEOUT = 30000;
+
+async function resumeSavedJobs() {
+  const savedJobs = loadJobState();
+  if (savedJobs.length === 0) return;
+  
+  console.log(`[Resume] Found ${savedJobs.length} jobs to resume, waiting for clients...`);
+  
+  for (const job of savedJobs) {
+    const hasPartialFile = job.tempFiles?.some(f => fs.existsSync(f) || fs.existsSync(f + '.part'));
+    
+    if (!hasPartialFile && job.progress < 100) {
+      console.log(`[Resume] Job ${job.jobId.slice(0, 8)} has no partial files, skipping`);
+      cleanupJobFiles(job.jobId);
+      continue;
+    }
+    
+    resumedJobs.set(job.jobId, {
+      ...job,
+      clientReconnected: false,
+      waitStarted: Date.now()
+    });
+    
+    console.log(`[Resume] Job ${job.jobId.slice(0, 8)} queued for resume (${job.progress}% complete)`);
+  }
+  
+  if (resumedJobs.size > 0) {
+    setTimeout(checkResumedJobsForClients, 2000);
+  }
+}
+
+function checkResumedJobsForClients() {
+  const now = Date.now();
+  
+  for (const [jobId, job] of resumedJobs) {
+    if (job.clientReconnected) {
+      console.log(`[Resume] Client reconnected for ${jobId.slice(0, 8)}, resuming download...`);
+      resumeDownload(jobId, job);
+      resumedJobs.delete(jobId);
+    } else if (now - job.waitStarted > CLIENT_RECONNECT_TIMEOUT) {
+      console.log(`[Resume] No client reconnected for ${jobId.slice(0, 8)} within timeout, cleaning up`);
+      cleanupJobFiles(jobId);
+      resumedJobs.delete(jobId);
+    }
+  }
+  
+  if (resumedJobs.size > 0) {
+    setTimeout(checkResumedJobsForClients, 2000);
+  }
+}
+
+async function resumeDownload(jobId, job) {
+  const { url, options, clientId, cobaltUrl } = job;
+  
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(jobId, clientId);
+  }
+  
+  const isAudio = options.format === 'audio';
+  const outputExt = isAudio ? options.audioFormat : options.container;
+  const tempFile = path.join(TEMP_DIRS.download, `${jobId}.%(ext)s`);
+  const finalFile = path.join(TEMP_DIRS.download, `${jobId}-final.${outputExt}`);
+  
+  const processInfo = { cancelled: false, process: null, tempFile: finalFile };
+  activeProcesses.set(jobId, processInfo);
+  
+  registerPendingJob(jobId, {
+    type: 'download',
+    url,
+    options,
+    clientId,
+    status: 'downloading',
+    tempFiles: [tempFile, finalFile]
+  });
+  
+  activeJobsByType.download++;
+  console.log(`[Resume] Resuming download ${jobId.slice(0, 8)}`);
+  
+  sendProgress(jobId, 'downloading', 'Resuming download...', job.progress || 0);
+  
+  const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+  
+  try {
+    let downloadedPath = null;
+    let downloadedExt = null;
+    
+    if (isYouTube) {
+      console.log(`[Resume] YouTube download, using Cobalt...`);
+      
+      const cobaltResult = await downloadViaCobalt(url, jobId, isAudio, (progress, downloaded, total) => {
+        sendProgress(jobId, 'downloading', `Downloading... ${progress}%`, progress);
+        updatePendingJob(jobId, { progress });
+      });
+      
+      downloadedPath = cobaltResult.filePath;
+      downloadedExt = cobaltResult.ext;
+    } else {
+      const ytdlpArgs = [
+        '--continue',
+        '-f', isAudio ? 'bestaudio' : `bestvideo[height<=${options.quality || 1080}]+bestaudio/best[height<=${options.quality || 1080}]`,
+        '--merge-output-format', isAudio ? options.audioFormat : options.container,
+        '-o', tempFile,
+        '--newline',
+        '--progress',
+        url
+      ];
+      
+      const ytdlp = spawn('yt-dlp', ytdlpArgs);
+      processInfo.process = ytdlp;
+      
+      ytdlp.stdout.on('data', (data) => {
+        const output = data.toString();
+        const progressMatch = output.match(/(\d+\.?\d*)%/);
+        if (progressMatch) {
+          const progress = parseFloat(progressMatch[1]);
+          sendProgress(jobId, 'downloading', `Downloading... ${progress.toFixed(0)}%`, progress);
+          updatePendingJob(jobId, { progress });
+        }
+      });
+      
+      ytdlp.stderr.on('data', (data) => {
+        console.log(`[${jobId}] yt-dlp: ${data.toString().trim()}`);
+      });
+      
+      await new Promise((resolve, reject) => {
+        ytdlp.on('close', (code) => {
+          if (processInfo.cancelled) {
+            reject(new Error('Cancelled'));
+          } else if (code !== 0) {
+            reject(new Error('Download failed'));
+          } else {
+            resolve();
+          }
+        });
+        ytdlp.on('error', reject);
+      });
+      
+      const files = fs.readdirSync(TEMP_DIRS.download);
+      const downloadedFile = files.find(f => f.startsWith(jobId) && !f.includes('-final') && !f.includes('-cobalt'));
+      
+      if (!downloadedFile) {
+        throw new Error('Downloaded file not found');
+      }
+      
+      downloadedPath = path.join(TEMP_DIRS.download, downloadedFile);
+      downloadedExt = path.extname(downloadedFile).slice(1);
+    }
+    
+    if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+      throw new Error('Downloaded file not found');
+    }
+    
+    sendProgress(jobId, 'processing', 'Processing file...');
+    
+    const needsRemux = downloadedExt !== outputExt;
+    const actualFinalFile = needsRemux ? finalFile : downloadedPath;
+    
+    if (needsRemux) {
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', ['-y', '-i', downloadedPath, '-c', 'copy', finalFile]);
+        ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Remux failed')));
+        ffmpeg.on('error', reject);
+      });
+      try { fs.unlinkSync(downloadedPath); } catch {}
+    }
+    
+    sendProgress(jobId, 'complete', 'Download complete!');
+    
+    activeProcesses.delete(jobId);
+    removePendingJob(jobId);
+    activeJobsByType.download--;
+    
+    setTimeout(() => cleanupJobFiles(jobId), 60000);
+    
+  } catch (err) {
+    console.error(`[Resume] Job ${jobId} failed:`, err.message);
+    sendProgress(jobId, 'error', err.message || 'Resume failed');
+    activeProcesses.delete(jobId);
+    removePendingJob(jobId);
+    activeJobsByType.download--;
+    cleanupJobFiles(jobId);
+  }
+}

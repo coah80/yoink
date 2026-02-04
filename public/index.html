@@ -2198,8 +2198,41 @@ https://youtube.com/watch?v=..."></textarea>
         }
       };
 
+      let reconnectAttempts = 0;
+      const maxReconnectAttempts = 10;
+      
       eventSource.onerror = () => {
         eventSource.close();
+        
+        const queueItem = queue.find(q => q.id === item.id);
+        if (!queueItem || queueItem.stage === 'complete' || queueItem.stage === 'error' || queueItem.stage === 'cancelled') {
+          return;
+        }
+        
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * reconnectAttempts, 5000);
+          console.log(`[SSE] Connection lost, reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+          
+          if (queueItem) {
+            queueItem.status = `Reconnecting... (${reconnectAttempts}/${maxReconnectAttempts})`;
+            renderQueue();
+          }
+          
+          setTimeout(() => {
+            const newEventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
+            newEventSource.onmessage = eventSource.onmessage;
+            newEventSource.onerror = eventSource.onerror;
+          }, delay);
+        } else {
+          console.error(`[SSE] Failed to reconnect after ${maxReconnectAttempts} attempts`);
+          if (queueItem) {
+            queueItem.stage = 'error';
+            queueItem.status = 'Connection lost - refresh page to retry';
+            renderQueue();
+          }
+          stopHeartbeat(heartbeatJobId);
+        }
       };
 
       const params = new URLSearchParams({
@@ -2435,6 +2468,46 @@ https://youtube.com/watch?v=..."></textarea>
 
         eventSource.onerror = () => {
           eventSource.close();
+          
+          const queueItem = queue.find(q => q.id === progressId);
+          if (!queueItem || queueItem.stage === 'complete' || queueItem.stage === 'error' || queueItem.stage === 'cancelled') {
+            return;
+          }
+          
+          let reconnectAttempts2 = 0;
+          const maxReconnectAttempts2 = 10;
+          
+          const tryReconnect = () => {
+            if (reconnectAttempts2 < maxReconnectAttempts2) {
+              reconnectAttempts2++;
+              const delay = Math.min(1000 * reconnectAttempts2, 5000);
+              console.log(`[SSE] Connection lost, reconnecting in ${delay}ms (attempt ${reconnectAttempts2}/${maxReconnectAttempts2})`);
+              
+              if (queueItem) {
+                queueItem.status = `Reconnecting... (${reconnectAttempts2}/${maxReconnectAttempts2})`;
+                renderQueue();
+              }
+              
+              setTimeout(() => {
+                const newEventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
+                newEventSource.onmessage = eventSource.onmessage;
+                newEventSource.onerror = () => {
+                  newEventSource.close();
+                  tryReconnect();
+                };
+              }, delay);
+            } else {
+              console.error(`[SSE] Failed to reconnect after ${maxReconnectAttempts2} attempts`);
+              if (queueItem) {
+                queueItem.stage = 'error';
+                queueItem.status = 'Connection lost - refresh page to retry';
+                renderQueue();
+              }
+              stopHeartbeat(heartbeatJobId2);
+            }
+          };
+          
+          tryReconnect();
         };
 
         const params = new URLSearchParams({

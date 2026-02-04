@@ -1,0 +1,19 @@
+[Unit]
+Description=Yoink API Server
+After=network.target
+
+[Service]
+Type=simple
+User=cole
+WorkingDirectory=/home/cole/yoink/api
+ExecStart=/usr/bin/node server.js
+Restart=always
+Environment=PATH=/home/cole/.deno/bin:/usr/local/bin:/usr/bin:/bin
+
+# Graceful shutdown - give server 10 seconds to save state before force kill
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
