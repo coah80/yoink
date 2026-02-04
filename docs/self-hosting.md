@@ -1,5 +1,7 @@
 # self-hosting
 
+the yoink API is fully self-hostable. the discord bot is private and not included.
+
 ## requirements
 
 - node.js 18+
@@ -13,6 +15,11 @@
 git clone https://github.com/coah80/yoink.git
 cd yoink/api
 npm install
+
+cp ../docs/cors-origins.example.js cors-origins.js
+cp ../docs/admin-config.example.js admin-config.js
+cp ../docs/discord-config.example.js discord-config.js
+
 node server.js
 ```
 
@@ -20,14 +27,17 @@ access at `http://localhost:3001`
 
 ## configuration
 
-all config files go in the `api/` folder:
+all config files go in the `api/` folder. example files are in `docs/`.
 
 ### cookies.txt (optional)
 for authenticated downloads (youtube login, age-restricted content, etc.)
 
-export from your browser using a cookie extension, save as `cookies.txt`
+1. install a browser extension like "Get cookies.txt LOCALLY"
+2. go to youtube.com and log in
+3. export cookies using the extension
+4. save as `api/cookies.txt`
 
-otherwise, youtube may block you from downloads. so will other sites.
+without this, youtube will probably block you
 
 ### cors-origins.js (optional)
 restrict which domains can make requests to your api
@@ -40,6 +50,11 @@ module.exports = [
 
 if this file doesn't exist, all origins are allowed (fine for local use)
 
+to set up:
+1. copy `docs/cors-origins.example.js` to `api/cors-origins.js`
+2. replace the example domain with your actual domain
+3. add multiple domains if needed (array format)
+
 ### admin-config.js (optional)
 enable the admin dashboard for analytics
 
@@ -50,15 +65,35 @@ module.exports = {
 };
 ```
 
-**security:** generate strong random values for production:
+to set up:
+1. copy `docs/admin-config.example.js` to `api/admin-config.js`
+2. set `ADMIN_PASSWORD` to something you'll remember
+3. set `ADMIN_TOKEN_SECRET` to a random string (used for session tokens)
+
+generate strong random values:
 ```bash
-openssl rand -hex 32  # use output for ADMIN_TOKEN_SECRET
-openssl rand -base64 24  # use output for ADMIN_PASSWORD
+openssl rand -base64 24
 ```
 
-do not commit these values to source control. consider using environment variables or a secrets manager instead.
-
 access at `/admin`
+
+### discord-config.js (optional)
+get alerts when downloads fail or errors occur
+
+```js
+module.exports = {
+  WEBHOOK_URL: 'https://discord.com/api/webhooks/your-webhook-url',
+  PING_USER_ID: 'your-discord-user-id',
+  ENABLED: true
+};
+```
+
+to set up:
+1. copy `docs/discord-config.example.js` to `api/discord-config.js`
+2. create a webhook in your discord server (server settings > integrations > webhooks)
+3. paste the webhook URL
+4. get your user ID (enable developer mode in discord, right-click yourself, copy ID)
+5. set `ENABLED` to `true`
 
 ## production
 

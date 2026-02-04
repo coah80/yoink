@@ -2,10 +2,12 @@ node_modules/
 .DS_Store
 *.log
 downloads/
-
-## make ur own admin panel config :)
+api/.env
 api/admin-config.js
+api/discord-config.js
+api/cors-origins.js
 api/analytics.json
+api/cookies.txt
 Thumbs.db
 .Spotlight-V100
 .Trashes

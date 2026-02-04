@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -11,10 +12,11 @@ const multer = require('multer');
 const archiver = require('archiver');
 const crypto = require('crypto');
 const geoip = require('geoip-lite');
+const discordAlerts = require('./discord-alerts.js');
 
 const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
 const BOT_DETECTION_ERRORS = [
-  'Sign in to confirm you\'re not a bot',
+  'Sign in to confirm you',
   'confirm your age',
   'Sign in to confirm your age',
   'This video is unavailable',
@@ -168,7 +170,7 @@ function trackDailyUser(clientId, country, trackingId) {
     analytics.dailyUsers[today] = new Set(analytics.dailyUsers[today]);
   }
   analytics.dailyUsers[today].add(clientId);
-  
+
   if (country && clientId) {
     const countryKey = `${today}:${clientId}`;
     if (!seenCountryUsers.has(countryKey)) {
@@ -176,7 +178,7 @@ function trackDailyUser(clientId, country, trackingId) {
       analytics.countries[country] = (analytics.countries[country] || 0) + 1;
     }
   }
-  
+
   if (trackingId) {
     if (!analytics.userData[trackingId]) {
       analytics.userData[trackingId] = { downloads: 0, converts: 0, compresses: 0, countries: {}, formats: {}, sites: {}, pageViews: 0 };
@@ -189,36 +191,36 @@ function deleteUserData(trackingId) {
   if (!trackingId || !analytics.userData[trackingId]) {
     return { deleted: false, reason: 'No data found for this tracking ID' };
   }
-  
+
   const userData = analytics.userData[trackingId];
-  
+
   analytics.totalDownloads = Math.max(0, analytics.totalDownloads - (userData.downloads || 0));
   analytics.totalConverts = Math.max(0, analytics.totalConverts - (userData.converts || 0));
   analytics.totalCompresses = Math.max(0, analytics.totalCompresses - (userData.compresses || 0));
-  
+
   for (const [format, count] of Object.entries(userData.formats || {})) {
     if (analytics.formats[format]) {
       analytics.formats[format] = Math.max(0, analytics.formats[format] - count);
       if (analytics.formats[format] === 0) delete analytics.formats[format];
     }
   }
-  
+
   for (const [site, count] of Object.entries(userData.sites || {})) {
     if (analytics.sites[site]) {
       analytics.sites[site] = Math.max(0, analytics.sites[site] - count);
       if (analytics.sites[site] === 0) delete analytics.sites[site];
     }
   }
-  
+
   for (const [country, count] of Object.entries(userData.countries || {})) {
     if (analytics.countries[country]) {
       analytics.countries[country] = Math.max(0, analytics.countries[country] - count);
       if (analytics.countries[country] === 0) delete analytics.countries[country];
     }
   }
-  
+
   delete analytics.userData[trackingId];
-  
+
   saveAnalytics(analytics);
   console.log(`[Analytics] Deleted all data for tracking ID: ${trackingId.slice(0, 8)}...`);
   return { deleted: true };
@@ -328,12 +330,12 @@ function validateTimeParam(value) {
   if (!value) return null;
   const str = String(value).trim();
   if (!str) return null;
-  
+
   if (/^\d+(\.\d+)?$/.test(str)) {
     const num = parseFloat(str);
     return isFinite(num) && num >= 0 ? str : null;
   }
-  
+
   const hhmmss = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(str);
   if (hhmmss) {
     const h = hhmmss[1] ? parseInt(hhmmss[1], 10) : 0;
@@ -378,20 +380,20 @@ function selectResolution(width, height, availableBitrateK) {
     { w: 854, h: 480, minBitrate: COMPRESSION_CONFIG.bitrateThresholds[480] },
     { w: 640, h: 360, minBitrate: COMPRESSION_CONFIG.bitrateThresholds[360] }
   ];
-  
+
   for (const res of resolutions) {
     if (width < res.w && height < res.h) continue;
     if (availableBitrateK >= res.minBitrate) {
       return { width: res.w, height: res.h, needsScale: width > res.w };
     }
   }
-  
+
   for (const res of resolutions) {
     if (availableBitrateK >= res.minBitrate) {
       return { width: res.w, height: res.h, needsScale: width > res.w };
     }
   }
-  
+
   return { width: 640, height: 360, needsScale: width > 640 };
 }
 
@@ -399,11 +401,11 @@ function getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps, presetDenois
   if (denoise === 'none' || presetDenoise === 'none') return null;
   if (denoise !== 'auto') return COMPRESSION_CONFIG.denoise[denoise];
   if (presetDenoise !== 'auto') return COMPRESSION_CONFIG.denoise[presetDenoise];
-  
+
   const expectedBitrate = { 360: 1, 480: 1.5, 720: 3, 1080: 6, 1440: 12, 2160: 25 };
   const heights = Object.keys(expectedBitrate).map(Number);
   const closest = heights.reduce((a, b) => Math.abs(b - sourceHeight) < Math.abs(a - sourceHeight) ? b : a);
-  
+
   if (sourceBitrateMbps > expectedBitrate[closest] * 2.5) {
     return COMPRESSION_CONFIG.denoise.heavy;
   } else if (sourceBitrateMbps > expectedBitrate[closest] * 1.5) {
@@ -462,13 +464,13 @@ const jobToClient = new Map();
 
 function registerClient(clientId) {
   if (!clientSessions.has(clientId)) {
-    clientSessions.set(clientId, { 
+    clientSessions.set(clientId, {
       lastHeartbeat: Date.now(),
       lastActivity: Date.now(),
-      activeJobs: new Set() 
+      activeJobs: new Set()
     });
     console.log(`[Session] Client ${clientId.slice(0, 8)}... connected`);
-    
+
     const currentCount = clientSessions.size;
     const now = Date.now();
     const dayAgo = now - 24 * 60 * 60 * 1000;
@@ -518,10 +520,10 @@ setInterval(() => {
   const now = Date.now();
   for (const [clientId, session] of clientSessions.entries()) {
     const hasActiveJobs = session.activeJobs.size > 0;
-    
+
     if (hasActiveJobs && now - session.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
       console.log(`[Session] Client ${clientId.slice(0, 8)}... heartbeat timeout, cancelling ${session.activeJobs.size} jobs`);
-      
+
       for (const jobId of session.activeJobs) {
         const processInfo = activeProcesses.get(jobId);
         if (processInfo) {
@@ -534,7 +536,7 @@ setInterval(() => {
         }
         cleanupJobFiles(jobId);
       }
-      
+
       clientSessions.delete(clientId);
     } else if (!hasActiveJobs && now - session.lastActivity > SESSION_IDLE_TIMEOUT_MS) {
       console.log(`[Session] Client ${clientId.slice(0, 8)}... idle timeout`);
@@ -548,29 +550,29 @@ function canStartJob(jobType) {
     const totalActive = Object.values(activeJobsByType).reduce((a, b) => a + b, 0);
     if (totalActive > 1) return false;
   }
-  
+
   return activeJobsByType[jobType] < JOB_LIMITS[jobType];
 }
 
 function addToJobQueue(jobFn, jobType, jobId, clientId) {
   return new Promise((resolve, reject) => {
-    const job = { 
-      fn: jobFn, 
-      resolve, 
-      reject, 
-      jobType, 
-      jobId, 
+    const job = {
+      fn: jobFn,
+      resolve,
+      reject,
+      jobType,
+      jobId,
       clientId,
-      addedAt: Date.now() 
+      addedAt: Date.now()
     };
-    
+
     if (jobQueue.length >= MAX_QUEUE_SIZE) {
       reject(new Error('Server is too busy. Please try again later.'));
       return;
     }
-    
+
     linkJobToClient(jobId, clientId);
-    
+
     jobQueue.push(job);
     console.log(`[Queue] ${jobType} job ${jobId.slice(0, 8)}... added. Queue: ${jobQueue.length}`);
     processQueue();
@@ -584,16 +586,16 @@ function processQueue() {
     if (aIsHeavy !== bIsHeavy) return aIsHeavy - bIsHeavy;
     return a.addedAt - b.addedAt;
   });
-  
+
   for (let i = 0; i < jobQueue.length; i++) {
     const job = jobQueue[i];
-    
+
     if (canStartJob(job.jobType)) {
       jobQueue.splice(i, 1);
       activeJobsByType[job.jobType]++;
-      
+
       console.log(`[Queue] Starting ${job.jobType} job ${job.jobId.slice(0, 8)}... Active: ${JSON.stringify(activeJobsByType)}`);
-      
+
       job.fn()
         .then(result => {
           activeJobsByType[job.jobType]--;
@@ -607,7 +609,7 @@ function processQueue() {
           job.reject(err);
           processQueue();
         });
-      
+
       i = -1;
     }
   }
@@ -622,27 +624,27 @@ function getQueueStatus() {
 }
 
 function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
-         req.headers['x-real-ip'] || 
-         req.socket?.remoteAddress || 
-         'unknown';
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.headers['x-real-ip'] ||
+    req.socket?.remoteAddress ||
+    'unknown';
 }
 
 function checkRateLimit(ip) {
   const now = Date.now();
   const windowStart = now - SAFETY_LIMITS.rateLimitWindowMs;
-  
+
   if (!rateLimitStore.has(ip)) {
     rateLimitStore.set(ip, []);
   }
-  
+
   const requests = rateLimitStore.get(ip).filter(t => t > windowStart);
   rateLimitStore.set(ip, requests);
-  
+
   if (requests.length >= SAFETY_LIMITS.rateLimitMaxRequests) {
     return { allowed: false, remaining: 0, resetIn: Math.ceil((requests[0] + SAFETY_LIMITS.rateLimitWindowMs - now) / 1000) };
   }
-  
+
   requests.push(now);
   return { allowed: true, remaining: SAFETY_LIMITS.rateLimitMaxRequests - requests.length };
 }
@@ -656,18 +658,18 @@ function validateUrl(url) {
   if (!url || typeof url !== 'string') {
     return { valid: false, error: 'URL is required' };
   }
-  
+
   if (url.length > SAFETY_LIMITS.maxUrlLength) {
     return { valid: false, error: 'URL is too long' };
   }
-  
+
   try {
     const parsed = new URL(url);
-    
+
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return { valid: false, error: 'Only HTTP/HTTPS URLs are allowed' };
     }
-    
+
     const hostname = parsed.hostname.toLowerCase();
     const privatePatterns = [
       /^localhost$/i,
@@ -682,13 +684,13 @@ function validateUrl(url) {
       /^\[fc00:/i,
       /^\[fd00:/i
     ];
-    
+
     for (const pattern of privatePatterns) {
       if (pattern.test(hostname)) {
         return { valid: false, error: 'Private/local URLs are not allowed' };
       }
     }
-    
+
     return { valid: true };
   } catch (e) {
     return { valid: false, error: 'Invalid URL format' };
@@ -698,18 +700,18 @@ function validateUrl(url) {
 function rateLimitMiddleware(req, res, next) {
   const ip = getClientIp(req);
   const result = checkRateLimit(ip);
-  
+
   res.setHeader('X-RateLimit-Limit', SAFETY_LIMITS.rateLimitMaxRequests);
   res.setHeader('X-RateLimit-Remaining', result.remaining);
-  
+
   if (!result.allowed) {
     res.setHeader('X-RateLimit-Reset', result.resetIn);
-    return res.status(429).json({ 
+    return res.status(429).json({
       error: 'Too many requests. Please slow down.',
       resetIn: result.resetIn
     });
   }
-  
+
   next();
 }
 
@@ -783,7 +785,7 @@ function cleanupTempFiles() {
           }
           console.log(`Cleaned up old temp: ${item}`);
         }
-      } catch {}
+      } catch { }
     });
   } catch (err) {
     console.error('Cleanup error:', err);
@@ -826,7 +828,7 @@ function checkDependencies() {
     console.error('✗ yt-dlp not found. Please install: pip install yt-dlp');
     process.exit(1);
   }
-  
+
   try {
     execSync('which ffmpeg', { stdio: 'ignore' });
     console.log('✓ ffmpeg found');
@@ -886,30 +888,26 @@ const AUDIO_MIMES = {
 };
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     version: '1.0.0',
     queue: getQueueStatus()
   });
 });
 
-
-// client & session management APIs
-
-
 app.post('/api/heartbeat/:clientId', (req, res) => {
   const { clientId } = req.params;
-  
+
   if (!clientId) {
     return res.status(400).json({ error: 'Client ID required' });
   }
-  
+
   registerClient(clientId);
   updateHeartbeat(clientId);
-  
+
   const session = clientSessions.get(clientId);
-  res.json({ 
-    ok: true, 
+  res.json({
+    ok: true,
     activeJobs: session ? session.activeJobs.size : 0,
     queue: getQueueStatus()
   });
@@ -937,7 +935,7 @@ app.get('/api/limits', (req, res) => {
   });
 });
 
-app.get('/api/metadata', (req, res) => {
+app.get('/api/metadata', async (req, res) => {
   const { url, playlist } = req.query;
   const downloadPlaylist = playlist === 'true';
 
@@ -946,9 +944,22 @@ app.get('/api/metadata', (req, res) => {
     return res.status(400).json({ error: urlCheck.error });
   }
 
+  const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+  
+  if (isYouTube && !downloadPlaylist) {
+    console.log('[Metadata] YouTube detected, using Cobalt directly...');
+    try {
+      const cobaltMeta = await fetchMetadataViaCobalt(url);
+      return res.json({ ...cobaltMeta, usingCookies: false });
+    } catch (cobaltErr) {
+      console.error('[Metadata] Cobalt failed for YouTube:', cobaltErr.message);
+      return res.status(500).json({ error: 'Failed to fetch YouTube metadata via Cobalt' });
+    }
+  }
+
   const usingCookies = hasCookiesFile();
   const ytdlpArgs = [...getCookiesArgs(), '-t', 'sleep'];
-  
+
   if (!downloadPlaylist) {
     ytdlpArgs.push('--no-playlist');
     ytdlpArgs.push(
@@ -972,8 +983,7 @@ app.get('/api/metadata', (req, res) => {
   }
 
   const ytdlp = spawn('yt-dlp', ytdlpArgs);
-  
-  // Add timeout to prevent hanging processes
+
   const timeoutMs = 30000;
   const timeoutId = setTimeout(() => {
     if (ytdlp.exitCode === null) {
@@ -993,37 +1003,36 @@ app.get('/api/metadata', (req, res) => {
     errorOutput += data.toString();
   });
 
-  ytdlp.on('close', (code) => {
+  ytdlp.on('close', async (code) => {
     clearTimeout(timeoutId);
-    
+
     if (code !== 0) {
-      // Check if it was killed by us (signal would be SIGKILL or similar, but code might be null or signal dependent)
-      // Since we cleared timeout, if code is not 0, it's a genuine error or our kill.
-      // If we killed it, errorOutput might be empty or partial.
-      
       if (ytdlp.killed) {
-         return res.status(504).json({ error: 'Metadata fetch timed out (30s)' });
+        return res.status(504).json({ error: 'Metadata fetch timed out (30s)' });
       }
 
       console.error('yt-dlp metadata error:', errorOutput);
-      
-      if (needsCookiesRetry(errorOutput) && !usingCookies) {
+
+      const isBotBlocked = needsCookiesRetry(errorOutput);
+
+      if (isBotBlocked && !usingCookies) {
         console.error('[Cookies] Hey, I can\'t find cookies.txt! YouTube is blocking requests.');
+        discordAlerts.cookieIssue('YouTube Bot Detection', 'YouTube is blocking requests - cookies.txt may be stale or missing.', { url, error: errorOutput.slice(0, 500) });
         return res.status(500).json({ error: 'YouTube requires authentication. Please add cookies.txt to the server.' });
       }
-      
+
       return res.status(500).json({ error: 'Failed to fetch metadata', details: errorOutput });
     }
 
     const lines = output.trim().split('\n');
-    
+
     if (downloadPlaylist) {
       const playlistTitle = lines[0] || 'Playlist';
       const videoCount = parseInt(lines[1]) || lines.length - 2;
       const videoTitles = lines.slice(2).filter(t => t.trim());
-      
-      res.json({ 
-        title: playlistTitle, 
+
+      res.json({
+        title: playlistTitle,
         isPlaylist: true,
         videoCount: videoCount || videoTitles.length,
         videoTitles: videoTitles.slice(0, 50),
@@ -1053,7 +1062,7 @@ const activeProcesses = new Map();
 
 app.get('/api/progress/:id', (req, res) => {
   const { id } = req.params;
-  
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -1071,12 +1080,12 @@ app.get('/api/progress/:id', (req, res) => {
 
 app.post('/api/cancel/:id', (req, res) => {
   const { id } = req.params;
-  
+
   const processInfo = activeProcesses.get(id);
   if (processInfo) {
     console.log(`[${id}] Cancelling download...`);
     processInfo.cancelled = true;
-    
+
     if (processInfo.process) {
       try {
         processInfo.process.kill('SIGTERM');
@@ -1084,12 +1093,12 @@ app.post('/api/cancel/:id', (req, res) => {
         console.error(`[${id}] Error killing process:`, e);
       }
     }
-    
+
     activeProcesses.delete(id);
     sendProgress(id, 'cancelled', 'Download cancelled');
-    
+
     setTimeout(() => cleanupJobFiles(id), 1000);
-    
+
     res.json({ success: true, message: 'Download cancelled' });
   } else {
     res.json({ success: false, message: 'Download not found or already completed' });
@@ -1098,12 +1107,12 @@ app.post('/api/cancel/:id', (req, res) => {
 
 app.post('/api/finish-early/:id', (req, res) => {
   const { id } = req.params;
-  
+
   const processInfo = activeProcesses.get(id);
   if (processInfo) {
     console.log(`[${id}] Finishing playlist early...`);
     processInfo.finishEarly = true;
-    
+
     if (processInfo.process) {
       try {
         processInfo.process.kill('SIGTERM');
@@ -1111,7 +1120,7 @@ app.post('/api/finish-early/:id', (req, res) => {
         console.error(`[${id}] Error stopping current download:`, e);
       }
     }
-    
+
     sendProgress(id, 'finishing-early', 'Finishing early, packaging downloaded videos...');
     res.json({ success: true, message: 'Finishing early' });
   } else {
@@ -1141,13 +1150,10 @@ function sendQueuePosition(progressId) {
   }
 }
 
-// download API
-
-
 app.get('/api/download', async (req, res) => {
-  const { 
-    url, 
-    format = 'video', 
+  const {
+    url,
+    format = 'video',
     filename,
     quality = '1080p',
     container = 'mp4',
@@ -1158,7 +1164,7 @@ app.get('/api/download', async (req, res) => {
     clientId,
     twitterGifs = 'true'
   } = req.query;
-  
+
   const convertTwitterGifs = twitterGifs === 'true';
   const downloadPlaylist = playlist === 'true';
 
@@ -1170,14 +1176,14 @@ app.get('/api/download', async (req, res) => {
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
-      return res.status(429).json({ 
-        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
   }
 
   const downloadId = progressId || uuidv4();
-  
+
   if (clientId) {
     registerClient(clientId);
     linkJobToClient(downloadId, clientId);
@@ -1196,15 +1202,34 @@ app.get('/api/download', async (req, res) => {
 
   sendProgress(downloadId, 'starting', 'Initializing download...');
 
+  const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+
   try {
     sendProgress(downloadId, 'downloading', 'Downloading from source...', 0);
-    
-    const ytdlpArgs = [
-      ...getCookiesArgs(),
-      '-t', 'sleep',
-      downloadPlaylist ? '--yes-playlist' : '--no-playlist',
-      '--newline',
-      '--progress-template', '%(progress._percent_str)s',
+
+    let downloadedPath = null;
+    let downloadedExt = null;
+
+    if (isYouTube && !downloadPlaylist) {
+      console.log(`[${downloadId}] YouTube detected, using Cobalt...`);
+      sendProgress(downloadId, 'downloading', 'Downloading via Cobalt...', 10);
+      
+      try {
+        const cobaltResult = await downloadViaCobalt(url, downloadId, isAudio);
+        downloadedPath = cobaltResult.filePath;
+        downloadedExt = cobaltResult.ext;
+        sendProgress(downloadId, 'downloading', 'Download complete', 100);
+      } catch (cobaltErr) {
+        console.error(`[${downloadId}] Cobalt failed:`, cobaltErr.message);
+        throw new Error('YouTube download failed - try again later');
+      }
+    } else {
+      const ytdlpArgs = [
+        ...getCookiesArgs(),
+        '-t', 'sleep',
+        downloadPlaylist ? '--yes-playlist' : '--no-playlist',
+        '--newline',
+        '--progress-template', '%(progress._percent_str)s',
       '-o', tempFile,
       '--ffmpeg-location', '/usr/bin/ffmpeg',
     ];
@@ -1222,16 +1247,16 @@ app.get('/api/download', async (req, res) => {
     }
 
     ytdlpArgs.push(url);
-    
+
     console.log(`[${downloadId}] yt-dlp command: yt-dlp ${ytdlpArgs.join(' ')}`);
 
     let lastProgress = 0;
     let stderrOutput = '';
     await new Promise((resolve, reject) => {
       const ytdlp = spawn('yt-dlp', ytdlpArgs);
-      
+
       processInfo.process = ytdlp;
-      
+
       ytdlp.stdout.on('data', (data) => {
         const msg = data.toString().trim();
         const match = msg.match(/([\d.]+)%/);
@@ -1278,17 +1303,23 @@ app.get('/api/download', async (req, res) => {
     });
 
     const files = fs.readdirSync(TEMP_DIR);
-    const downloadedFile = files.find(f => f.startsWith(downloadId) && !f.includes('-final'));
-    
+    const downloadedFile = files.find(f => f.startsWith(downloadId) && !f.includes('-final') && !f.includes('-cobalt'));
+
     if (!downloadedFile) {
       throw new Error('Downloaded file not found');
     }
 
-    const downloadedPath = path.join(TEMP_DIR, downloadedFile);
-    
+    downloadedPath = path.join(TEMP_DIR, downloadedFile);
+    downloadedExt = path.extname(downloadedFile).slice(1);
+    }
+
+    if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+      throw new Error('Downloaded file not found');
+    }
+
     const isTwitter = url.includes('twitter.com') || url.includes('x.com');
     let isGif = false;
-    
+
     if (isTwitter && !isAudio && convertTwitterGifs) {
       try {
         const probeResult = execSync(
@@ -1303,7 +1334,7 @@ app.get('/api/download', async (req, res) => {
         console.log(`[${downloadId}] Could not probe for GIF detection: ${e.message}`);
       }
     }
-    
+
     const actualOutputExt = isGif ? 'gif' : outputExt;
     const actualFinalFile = isGif ? path.join(TEMP_DIR, `${downloadId}-final.gif`) : finalFile;
 
@@ -1350,14 +1381,14 @@ app.get('/api/download', async (req, res) => {
 
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-      
+
       ffmpeg.stderr.on('data', (data) => {
         const msg = data.toString();
         if (msg.includes('Error') || msg.includes('error')) {
           console.error(`[${downloadId}] ffmpeg: ${msg.trim()}`);
         }
       });
-      
+
       ffmpeg.on('close', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`Encoding failed (code ${code})`));
@@ -1366,17 +1397,17 @@ app.get('/api/download', async (req, res) => {
       ffmpeg.on('error', reject);
     });
 
-    try { fs.unlinkSync(downloadedPath); } catch {}
+    try { fs.unlinkSync(downloadedPath); } catch { }
 
     sendProgress(downloadId, 'sending', 'Sending file to you...');
-    
+
     const stat = fs.statSync(actualFinalFile);
     const safeFilename = sanitizeFilename(filename || 'download');
     const fullFilename = `${safeFilename}.${actualOutputExt}`;
     const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, '_') + '.' + actualOutputExt;
-    const mimeType = isGif 
+    const mimeType = isGif
       ? 'image/gif'
-      : isAudio 
+      : isAudio
         ? (AUDIO_MIMES[audioFormat] || 'audio/mpeg')
         : (CONTAINER_MIMES[container] || 'video/mp4');
 
@@ -1386,7 +1417,7 @@ app.get('/api/download', async (req, res) => {
 
     const stream = fs.createReadStream(actualFinalFile);
     let finished = false;
-    
+
     stream.pipe(res);
 
     stream.on('close', () => {
@@ -1397,12 +1428,12 @@ app.get('/api/download', async (req, res) => {
       activeProcesses.delete(downloadId);
       activeJobsByType.download--;
       unlinkJobFromClient(downloadId);
-      
+
       try {
         const site = new URL(url).hostname.replace('www.', '');
         trackDownload(actualOutputExt, site, getCountryFromIP(getClientIp(req)));
-      } catch (e) {}
-      
+      } catch (e) { }
+
       console.log(`[Queue] Download finished. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
@@ -1411,6 +1442,7 @@ app.get('/api/download', async (req, res) => {
       if (finished) return;
       finished = true;
       console.error(`[${downloadId}] Stream error:`, err);
+      discordAlerts.fileSendFailed('File Stream Error', 'Failed to send file to client.', { jobId: downloadId, url, error: err.message });
       sendProgress(downloadId, 'error', 'Failed to send file');
       activeProcesses.delete(downloadId);
       activeJobsByType.download--;
@@ -1440,23 +1472,24 @@ app.get('/api/download', async (req, res) => {
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Download cancelled. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => {
-        try { fs.unlinkSync(actualFinalFile); } catch {}
+        try { fs.unlinkSync(actualFinalFile); } catch { }
       }, 1000);
     });
 
   } catch (err) {
     console.error(`[${downloadId}] Error:`, err.message);
-    
+    discordAlerts.downloadFailed('Download Error', 'Video download failed.', { jobId: downloadId, url, format: outputExt, error: err.message });
+
     sendProgress(downloadId, 'error', err.message || 'Download failed');
-    
+
     activeProcesses.delete(downloadId);
     activeJobsByType.download--;
     unlinkJobFromClient(downloadId);
     console.log(`[Queue] Download error. Active: ${JSON.stringify(activeJobsByType)}`);
-    
+
     const files = fs.readdirSync(TEMP_DIR);
     files.filter(f => f.startsWith(downloadId)).forEach(f => {
-      try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch {}
+      try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch { }
     });
 
     if (!res.headersSent) {
@@ -1466,9 +1499,9 @@ app.get('/api/download', async (req, res) => {
 });
 
 app.get('/api/download-playlist', async (req, res) => {
-  const { 
-    url, 
-    format = 'video', 
+  const {
+    url,
+    format = 'video',
     filename,
     quality = '1080p',
     container = 'mp4',
@@ -1486,14 +1519,14 @@ app.get('/api/download-playlist', async (req, res) => {
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
-      return res.status(429).json({ 
-        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
   }
 
   const downloadId = progressId || uuidv4();
-  
+
   if (clientId) {
     registerClient(clientId);
     linkJobToClient(downloadId, clientId);
@@ -1505,7 +1538,7 @@ app.get('/api/download-playlist', async (req, res) => {
   const isAudio = format === 'audio';
   const outputExt = isAudio ? audioFormat : container;
   const playlistDir = path.join(TEMP_DIR, downloadId);
-  
+
   if (!fs.existsSync(playlistDir)) {
     fs.mkdirSync(playlistDir, { recursive: true });
   }
@@ -1563,8 +1596,8 @@ app.get('/api/download-playlist', async (req, res) => {
       activeJobsByType.playlist--;
       unlinkJobFromClient(downloadId);
       activeProcesses.delete(downloadId);
-      return res.status(400).json({ 
-        error: `Playlist too large. Maximum ${SAFETY_LIMITS.maxPlaylistVideos} videos allowed. This playlist has ${playlistInfo.count} videos.` 
+      return res.status(400).json({
+        error: `Playlist too large. Maximum ${SAFETY_LIMITS.maxPlaylistVideos} videos allowed. This playlist has ${playlistInfo.count} videos.`
       });
     }
 
@@ -1572,7 +1605,7 @@ app.get('/api/download-playlist', async (req, res) => {
     const playlistTitle = playlistInfo.title;
     const isChunked = totalVideos > SAFETY_LIMITS.playlistChunkSize;
     const totalChunks = Math.ceil(totalVideos / SAFETY_LIMITS.playlistChunkSize);
-    
+
     sendProgress(downloadId, 'playlist-info', `Found ${totalVideos} videos in playlist${isChunked ? ` (processing in ${totalChunks} chunks of ${SAFETY_LIMITS.playlistChunkSize})` : ''}`, 0, {
       playlistTitle,
       totalVideos,
@@ -1585,18 +1618,18 @@ app.get('/api/download-playlist', async (req, res) => {
     });
 
     const downloadedFiles = [];
-    
+
     for (let i = 0; i < playlistInfo.entries.length; i++) {
       if (isChunked && i > 0 && i % SAFETY_LIMITS.playlistChunkSize === 0) {
         const currentChunk = Math.floor(i / SAFETY_LIMITS.playlistChunkSize) + 1;
-        sendProgress(downloadId, 'chunk-pause', `Chunk ${currentChunk - 1}/${totalChunks} complete. Starting chunk ${currentChunk}...`, 
+        sendProgress(downloadId, 'chunk-pause', `Chunk ${currentChunk - 1}/${totalChunks} complete. Starting chunk ${currentChunk}...`,
           (i / totalVideos) * 100, {
-            playlistTitle,
-            totalVideos,
-            currentVideo: i,
-            currentChunk,
-            totalChunks
-          });
+          playlistTitle,
+          totalVideos,
+          currentVideo: i,
+          currentChunk,
+          totalChunks
+        });
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
       if (processInfo.cancelled) {
@@ -1612,7 +1645,7 @@ app.get('/api/download-playlist', async (req, res) => {
       const videoNum = i + 1;
       const videoTitle = entry.title || `Video ${videoNum}`;
       const videoUrl = entry.url || entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : null;
-      
+
       if (!videoUrl && !entry.id) {
         console.log(`[${downloadId}] Skipping video ${videoNum}: no URL`);
         continue;
@@ -1624,18 +1657,18 @@ app.get('/api/download-playlist', async (req, res) => {
 
       const currentChunk = isChunked ? Math.floor(i / SAFETY_LIMITS.playlistChunkSize) + 1 : null;
       const chunkLabel = isChunked ? `[Chunk ${currentChunk}/${totalChunks}] ` : '';
-      
-      sendProgress(downloadId, 'downloading', `${chunkLabel}Downloading ${videoNum}/${totalVideos}: ${videoTitle}`, 
+
+      sendProgress(downloadId, 'downloading', `${chunkLabel}Downloading ${videoNum}/${totalVideos}: ${videoTitle}`,
         ((videoNum - 1) / totalVideos) * 100, {
-          playlistTitle,
-          totalVideos,
-          currentVideo: videoNum,
-          currentVideoTitle: videoTitle,
-          format: isAudio ? audioFormat : `${quality} ${container}`,
-          isChunked,
-          currentChunk,
-          totalChunks
-        });
+        playlistTitle,
+        totalVideos,
+        currentVideo: videoNum,
+        currentVideoTitle: videoTitle,
+        format: isAudio ? audioFormat : `${quality} ${container}`,
+        isChunked,
+        currentChunk,
+        totalChunks
+      });
 
       try {
         const ytdlpArgs = [
@@ -1664,27 +1697,27 @@ app.get('/api/download-playlist', async (req, res) => {
 
         await new Promise((resolve, reject) => {
           const ytdlp = spawn('yt-dlp', ytdlpArgs);
-          
+
           processInfo.process = ytdlp;
-          
+
           let stderrOutput = '';
-          
+
           ytdlp.stdout.on('data', (data) => {
             const msg = data.toString().trim();
             const match = msg.match(/([\d.]+)%/);
             if (match) {
               const videoProgress = parseFloat(match[1]);
               const overallProgress = ((videoNum - 1) / totalVideos * 100) + (videoProgress / totalVideos);
-              sendProgress(downloadId, 'downloading', 
-                `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`, 
+              sendProgress(downloadId, 'downloading',
+                `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`,
                 overallProgress, {
-                  playlistTitle,
-                  totalVideos,
-                  currentVideo: videoNum,
-                  currentVideoTitle: videoTitle,
-                  videoProgress,
-                  format: isAudio ? audioFormat : `${quality} ${container}`
-                });
+                playlistTitle,
+                totalVideos,
+                currentVideo: videoNum,
+                currentVideoTitle: videoTitle,
+                videoProgress,
+                format: isAudio ? audioFormat : `${quality} ${container}`
+              });
             }
           });
 
@@ -1696,16 +1729,16 @@ app.get('/api/download-playlist', async (req, res) => {
               if (match) {
                 const videoProgress = parseFloat(match[1]);
                 const overallProgress = ((videoNum - 1) / totalVideos * 100) + (videoProgress / totalVideos);
-                sendProgress(downloadId, 'downloading', 
-                  `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`, 
+                sendProgress(downloadId, 'downloading',
+                  `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`,
                   overallProgress, {
-                    playlistTitle,
-                    totalVideos,
-                    currentVideo: videoNum,
-                    currentVideoTitle: videoTitle,
-                    videoProgress,
-                    format: isAudio ? audioFormat : `${quality} ${container}`
-                  });
+                  playlistTitle,
+                  totalVideos,
+                  currentVideo: videoNum,
+                  currentVideoTitle: videoTitle,
+                  videoProgress,
+                  format: isAudio ? audioFormat : `${quality} ${container}`
+                });
               }
             }
           });
@@ -1724,19 +1757,19 @@ app.get('/api/download-playlist', async (req, res) => {
 
         const tempFiles = fs.readdirSync(playlistDir);
         const downloadedTemp = tempFiles.find(f => f.startsWith(`temp_${videoNum}.`));
-        
+
         if (downloadedTemp) {
           const tempPath = path.join(playlistDir, downloadedTemp);
-          
-          sendProgress(downloadId, 'processing', 
-            `Processing ${videoNum}/${totalVideos}: ${videoTitle}`, 
+
+          sendProgress(downloadId, 'processing',
+            `Processing ${videoNum}/${totalVideos}: ${videoTitle}`,
             ((videoNum - 0.5) / totalVideos) * 100, {
-              playlistTitle,
-              totalVideos,
-              currentVideo: videoNum,
-              currentVideoTitle: videoTitle,
-              format: isAudio ? audioFormat : `${quality} ${container}`
-            });
+            playlistTitle,
+            totalVideos,
+            currentVideo: videoNum,
+            currentVideoTitle: videoTitle,
+            format: isAudio ? audioFormat : `${quality} ${container}`
+          });
 
           const ffmpegArgs = ['-y', '-i', tempPath];
 
@@ -1772,8 +1805,8 @@ app.get('/api/download-playlist', async (req, res) => {
             ffmpeg.on('error', reject);
           });
 
-          try { fs.unlinkSync(tempPath); } catch {}
-          
+          try { fs.unlinkSync(tempPath); } catch { }
+
           downloadedFiles.push(videoFile);
         }
 
@@ -1836,12 +1869,13 @@ app.get('/api/download-playlist', async (req, res) => {
       activeJobsByType.playlist--;
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Playlist finished. Active: ${JSON.stringify(activeJobsByType)}`);
-      
+
       setTimeout(() => cleanupJobFiles(downloadId), 2000);
     });
 
     stream.on('error', (err) => {
       console.error(`[${downloadId}] Stream error:`, err);
+      discordAlerts.fileSendFailed('Playlist Stream Error', 'Failed to send zip file to client.', { jobId: downloadId, url, error: err.message });
       sendProgress(downloadId, 'error', 'Failed to send zip file');
       activeProcesses.delete(downloadId);
       activeJobsByType.playlist--;
@@ -1852,18 +1886,19 @@ app.get('/api/download-playlist', async (req, res) => {
 
   } catch (err) {
     console.error(`[${downloadId}] Playlist error:`, err.message);
-    
+    discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId: downloadId, url, error: err.message });
+
     if (!processInfo.cancelled) {
       sendProgress(downloadId, 'error', err.message || 'Playlist download failed');
     }
-    
+
     activeProcesses.delete(downloadId);
     activeJobsByType.playlist--;
     unlinkJobFromClient(downloadId);
     console.log(`[Queue] Playlist error. Active: ${JSON.stringify(activeJobsByType)}`);
-    
+
     setTimeout(() => cleanupJobFiles(downloadId), 2000);
-    
+
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Playlist download failed' });
     }
@@ -1879,7 +1914,7 @@ app.get('/api/gallery/status', (req, res) => {
 
 app.get('/api/gallery/metadata', async (req, res) => {
   const { url } = req.query;
-  
+
   if (!galleryDlAvailable) {
     return res.status(503).json({ error: 'gallery-dl not installed on server' });
   }
@@ -1894,12 +1929,12 @@ app.get('/api/gallery/metadata', async (req, res) => {
       const proc = spawn('gallery-dl', ['--dump-json', '--range', '1-10', url]);
       let stdoutData = '';
       let stderrData = '';
-      
+
       const timeout = setTimeout(() => {
         proc.kill('SIGTERM');
         reject(new Error('gallery-dl metadata timeout (30s)'));
       }, 30000);
-      
+
       proc.stdout.on('data', (data) => {
         stdoutData += data.toString();
         if (stdoutData.length > 10 * 1024 * 1024) {
@@ -1907,16 +1942,16 @@ app.get('/api/gallery/metadata', async (req, res) => {
           reject(new Error('Output too large'));
         }
       });
-      
+
       proc.stderr.on('data', (data) => {
         stderrData += data.toString();
       });
-      
+
       proc.on('close', (code) => {
         clearTimeout(timeout);
         resolve({ stdout: stdoutData, stderr: stderrData, exitCode: code });
       });
-      
+
       proc.on('error', (err) => {
         clearTimeout(timeout);
         reject(err);
@@ -1925,7 +1960,7 @@ app.get('/api/gallery/metadata', async (req, res) => {
 
     if (exitCode !== 0 && !stdout.trim()) {
       console.error('[gallery-dl] metadata error:', stderr);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Could not fetch gallery info',
         details: stderr.substring(0, 200)
       });
@@ -1950,7 +1985,7 @@ app.get('/api/gallery/metadata', async (req, res) => {
         if (!title || title === 'Gallery') {
           title = item.subcategory || item.category || item.gallery || 'Gallery';
         }
-      } catch {}
+      } catch { }
     }
 
     const hostname = new URL(url).hostname.replace('www.', '');
@@ -1969,7 +2004,7 @@ app.get('/api/gallery/metadata', async (req, res) => {
 });
 
 app.get('/api/gallery/download', async (req, res) => {
-  const { 
+  const {
     url,
     progressId,
     clientId,
@@ -1988,8 +2023,8 @@ app.get('/api/gallery/download', async (req, res) => {
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
-      return res.status(429).json({ 
-        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
   }
@@ -2186,13 +2221,14 @@ app.get('/api/gallery/download', async (req, res) => {
       try {
         const site = new URL(url).hostname.replace('www.', '');
         trackDownload('images', site, getCountryFromIP(getClientIp(req)));
-      } catch {}
+      } catch { }
 
       setTimeout(() => cleanupJobFiles(downloadId), 2000);
     }
 
   } catch (err) {
     console.error(`[${downloadId}] Gallery error:`, err.message);
+    discordAlerts.galleryError('Gallery Download Error', 'Gallery download failed.', { jobId: downloadId, url, error: err.message });
 
     if (!processInfo.cancelled) {
       sendProgress(downloadId, 'error', err.message || 'Gallery download failed');
@@ -2212,14 +2248,10 @@ app.get('/api/gallery/download', async (req, res) => {
 });
 
 
-const upload = multer({ 
+const upload = multer({
   dest: TEMP_DIR,
   limits: { fileSize: FILE_SIZE_LIMIT }
 });
-
-
-// convert API
-
 
 app.post('/api/convert', upload.single('file'), (req, res) => handleConvert(req, res));
 
@@ -2228,8 +2260,8 @@ async function handleConvert(req, res) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const { 
-    format = 'mp4', 
+  const {
+    format = 'mp4',
     clientId,
     quality = 'medium',
     reencode = 'auto',
@@ -2241,9 +2273,9 @@ async function handleConvert(req, res) {
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
-      fs.unlink(req.file.path, () => {});
-      return res.status(429).json({ 
-        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      fs.unlink(req.file.path, () => { });
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
   }
@@ -2264,33 +2296,33 @@ async function handleConvert(req, res) {
 
   try {
     const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
-    
+
     const validStartTime = validateTimeParam(startTime);
     const validEndTime = validateTimeParam(endTime);
-    
+
     if (startTime && validStartTime === null) {
-      fs.unlink(inputPath, () => {});
+      fs.unlink(inputPath, () => { });
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
       return res.status(400).json({ error: 'Invalid startTime format. Use seconds or HH:MM:SS' });
     }
     if (endTime && validEndTime === null) {
-      fs.unlink(inputPath, () => {});
+      fs.unlink(inputPath, () => { });
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
       return res.status(400).json({ error: 'Invalid endTime format. Use seconds or HH:MM:SS' });
     }
-    
+
     const ffmpegArgs = ['-y'];
-    
+
     if (validStartTime) {
       ffmpegArgs.push('-ss', validStartTime);
     }
-    
+
     if (validEndTime) {
       ffmpegArgs.push('-to', validEndTime);
     }
-    
+
     ffmpegArgs.push('-i', inputPath);
 
     ffmpegArgs.push('-threads', '0');
@@ -2315,7 +2347,7 @@ async function handleConvert(req, res) {
         'mkv': ['*'],
         'mov': ['h264', 'hevc', 'prores']
       };
-      
+
       const probeCodec = await new Promise((resolve) => {
         const ffprobe = spawn('ffprobe', [
           '-v', 'error', '-select_streams', 'v:0',
@@ -2326,11 +2358,11 @@ async function handleConvert(req, res) {
         ffprobe.on('close', () => resolve(out.trim().toLowerCase()));
         ffprobe.on('error', () => resolve('unknown'));
       });
-      
+
       const compat = codecCompatibility[format] || [];
       const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
       const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
-      
+
       if (needsReencode) {
         const crfValues = { high: 18, medium: 23, low: 28 };
         const crf = crfValues[quality] || 23;
@@ -2345,7 +2377,7 @@ async function handleConvert(req, res) {
       } else {
         ffmpegArgs.push('-codec', 'copy');
       }
-      
+
       if (format === 'mp4' || format === 'mov') {
         ffmpegArgs.push('-movflags', '+faststart');
       }
@@ -2355,7 +2387,7 @@ async function handleConvert(req, res) {
 
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-      
+
       ffmpeg.stderr.on('data', (data) => {
         const msg = data.toString();
         if (msg.includes('Error')) {
@@ -2371,12 +2403,12 @@ async function handleConvert(req, res) {
       ffmpeg.on('error', reject);
     });
 
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
 
     const stat = fs.statSync(outputPath);
     const originalName = path.parse(req.file.originalname).name;
     const outputFilename = `${sanitizeFilename(originalName)}.${format}`;
-    const mimeType = isAudioFormat 
+    const mimeType = isAudioFormat
       ? (AUDIO_MIMES[format] || 'audio/mpeg')
       : (CONTAINER_MIMES[format] || 'video/mp4');
 
@@ -2391,10 +2423,10 @@ async function handleConvert(req, res) {
       console.log(`[${convertId}] Conversion complete: ${outputFilename}`);
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
-      
+
       const fromExt = path.extname(req.file.originalname).replace('.', '') || 'unknown';
       trackConvert(fromExt, format);
-      
+
       console.log(`[Queue] Convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => cleanupJobFiles(convertId), 2000);
     });
@@ -2412,7 +2444,7 @@ async function handleConvert(req, res) {
     unlinkJobFromClient(convertId);
     console.log(`[Queue] Convert error. Active: ${JSON.stringify(activeJobsByType)}`);
     setTimeout(() => cleanupJobFiles(convertId), 2000);
-    
+
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Conversion failed' });
     }
@@ -2422,9 +2454,9 @@ async function handleConvert(req, res) {
 async function handleConvertAsync(req, jobId) {
   const job = asyncJobs.get(jobId);
   if (!job) return;
-  
-  const { 
-    format = 'mp4', 
+
+  const {
+    format = 'mp4',
     clientId,
     quality = 'medium',
     reencode = 'auto',
@@ -2447,7 +2479,7 @@ async function handleConvertAsync(req, jobId) {
   console.log(`[${convertId}] Converting ${req.file.originalname} to ${format} (async)`);
 
   if (startTime && !validateTimeParam(startTime)) {
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
     job.status = 'error';
@@ -2457,7 +2489,7 @@ async function handleConvertAsync(req, jobId) {
     return;
   }
   if (endTime && !validateTimeParam(endTime)) {
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
     job.status = 'error';
@@ -2469,22 +2501,22 @@ async function handleConvertAsync(req, jobId) {
 
   try {
     const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
-    
+
     const validStartTime = validateTimeParam(startTime);
     const validEndTime = validateTimeParam(endTime);
-    
+
     job.message = 'Analyzing file...';
     job.progress = 5;
-    
+
     const ffmpegArgs = ['-y'];
-    
+
     if (validStartTime) {
       ffmpegArgs.push('-ss', validStartTime);
     }
     if (validEndTime) {
       ffmpegArgs.push('-to', validEndTime);
     }
-    
+
     ffmpegArgs.push('-i', inputPath);
     ffmpegArgs.push('-threads', '0');
 
@@ -2508,7 +2540,7 @@ async function handleConvertAsync(req, jobId) {
         'mkv': ['*'],
         'mov': ['h264', 'hevc', 'prores']
       };
-      
+
       const probeCodec = await new Promise((resolve) => {
         const ffprobe = spawn('ffprobe', [
           '-v', 'error', '-select_streams', 'v:0',
@@ -2519,11 +2551,11 @@ async function handleConvertAsync(req, jobId) {
         ffprobe.on('close', () => resolve(out.trim().toLowerCase()));
         ffprobe.on('error', () => resolve('unknown'));
       });
-      
+
       const compat = codecCompatibility[format] || [];
       const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
       const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
-      
+
       if (needsReencode) {
         const crfValues = { high: 18, medium: 23, low: 28 };
         const crf = crfValues[quality] || 23;
@@ -2531,14 +2563,14 @@ async function handleConvertAsync(req, jobId) {
       } else {
         ffmpegArgs.push('-codec', 'copy');
       }
-      
+
       if (format === 'mp4' || format === 'mov') {
         ffmpegArgs.push('-movflags', '+faststart');
       }
     }
 
     ffmpegArgs.push(outputPath);
-    
+
     job.message = 'Converting...';
     job.progress = 10;
 
@@ -2552,18 +2584,18 @@ async function handleConvertAsync(req, jobId) {
 
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-      
+
       ffmpeg.stderr.on('data', (data) => {
         const msg = data.toString();
         const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
         if (timeMatch) {
           const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
           const progress = Math.min(95, 10 + (currentTime / duration) * 85);
-          
+
           const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
           const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
           const eta = speed ? formatETA((duration - currentTime) / speed) : null;
-          
+
           job.progress = Math.round(progress);
           job.message = eta ? `Converting... ${Math.round(progress)}% (ETA: ${eta})` : `Converting... ${Math.round(progress)}%`;
         }
@@ -2577,12 +2609,12 @@ async function handleConvertAsync(req, jobId) {
       ffmpeg.on('error', reject);
     });
 
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
 
     const stat = fs.statSync(outputPath);
     const originalName = path.parse(req.file.originalname).name;
     const outputFilename = `${sanitizeFilename(originalName)}.${format}`;
-    const mimeType = isAudioFormat 
+    const mimeType = isAudioFormat
       ? (AUDIO_MIMES[format] || 'audio/mpeg')
       : (CONTAINER_MIMES[format] || 'video/mp4');
 
@@ -2594,22 +2626,22 @@ async function handleConvertAsync(req, jobId) {
     job.outputPath = outputPath;
     job.outputFilename = outputFilename;
     job.mimeType = mimeType;
-    
+
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
-    
+
     const fromExt = path.extname(req.file.originalname).replace('.', '') || 'unknown';
     trackConvert(fromExt, format);
-    
+
     console.log(`[Queue] Async convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
 
   } catch (err) {
     console.error(`[${convertId}] Async convert error:`, err);
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(outputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
+    try { fs.unlinkSync(outputPath); } catch { }
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
-    
+
     job.status = 'error';
     job.error = err.message || 'Conversion failed';
   }
@@ -2629,22 +2661,19 @@ setInterval(() => {
         for (const f of files) {
           fs.unlinkSync(path.join(TEMP_DIR, f));
         }
-      } catch {}
+      } catch { }
       chunkedUploads.delete(uploadId);
     }
   }
 }, 60000);
 
-
-// chunked upload API
-
 app.post('/api/upload/init', express.json(), (req, res) => {
   const { fileName, fileSize, totalChunks } = req.body;
-  
+
   if (!fileName || !fileSize || !totalChunks) {
     return res.status(400).json({ error: 'Missing fileName, fileSize, or totalChunks' });
   }
-  
+
   const numericFileSize = Number(fileSize);
   if (!Number.isFinite(numericFileSize) || numericFileSize <= 0) {
     return res.status(400).json({ error: 'fileSize must be a positive number' });
@@ -2652,11 +2681,11 @@ app.post('/api/upload/init', express.json(), (req, res) => {
   if (numericFileSize > FILE_SIZE_LIMIT) {
     return res.status(400).json({ error: `File too large. Maximum size is ${FILE_SIZE_LIMIT / (1024 * 1024 * 1024)}GB` });
   }
-  
+
   if (totalChunks > 200) {
     return res.status(400).json({ error: 'Too many chunks (max 200)' });
   }
-  
+
   const uploadId = uuidv4();
   chunkedUploads.set(uploadId, {
     fileName,
@@ -2665,7 +2694,7 @@ app.post('/api/upload/init', express.json(), (req, res) => {
     receivedChunks: new Set(),
     lastActivity: Date.now()
   });
-  
+
   console.log(`[Chunk] Initialized upload ${uploadId}: ${fileName} (${(fileSize / 1024 / 1024).toFixed(1)}MB, ${totalChunks} chunks)`);
   res.json({ uploadId });
 });
@@ -2673,94 +2702,94 @@ app.post('/api/upload/init', express.json(), (req, res) => {
 app.post('/api/upload/chunk/:uploadId/:chunkIndex', upload.single('chunk'), (req, res) => {
   const { uploadId, chunkIndex } = req.params;
   const index = parseInt(chunkIndex, 10);
-  
+
   const uploadData = chunkedUploads.get(uploadId);
   if (!uploadData) {
-    if (req.file) fs.unlink(req.file.path, () => {});
+    if (req.file) fs.unlink(req.file.path, () => { });
     return res.status(404).json({ error: 'Upload not found or expired' });
   }
-  
+
   if (!req.file) {
     return res.status(400).json({ error: 'No chunk data' });
   }
-  
+
   if (index < 0 || index >= uploadData.totalChunks) {
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(req.file.path, () => { });
     return res.status(400).json({ error: 'Invalid chunk index' });
   }
-  
+
   const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(index).padStart(4, '0')}`);
-  
+
   try {
     fs.renameSync(req.file.path, chunkPath);
   } catch (err) {
     console.error(`[Chunk] Failed to save chunk ${index} for upload ${uploadId}:`, err.message);
-    try { fs.unlinkSync(req.file.path); } catch {}
+    try { fs.unlinkSync(req.file.path); } catch { }
     return res.status(500).json({ error: 'Failed to save chunk. Disk may be full or permissions issue.' });
   }
-  
+
   uploadData.receivedChunks.add(index);
   uploadData.lastActivity = Date.now();
-  
+
   const received = uploadData.receivedChunks.size;
   const total = uploadData.totalChunks;
   console.log(`[Chunk] Upload ${uploadId}: chunk ${index + 1}/${total}`);
-  
-  res.json({ 
-    received, 
-    total, 
-    complete: received === total 
+
+  res.json({
+    received,
+    total,
+    complete: received === total
   });
 });
 
 app.post('/api/upload/complete/:uploadId', express.json(), async (req, res) => {
   const { uploadId } = req.params;
-  
+
   const uploadData = chunkedUploads.get(uploadId);
   if (!uploadData) {
     return res.status(404).json({ error: 'Upload not found or expired' });
   }
-  
+
   if (uploadData.receivedChunks.size !== uploadData.totalChunks) {
-    return res.status(400).json({ 
-      error: `Missing chunks: received ${uploadData.receivedChunks.size}/${uploadData.totalChunks}` 
+    return res.status(400).json({
+      error: `Missing chunks: received ${uploadData.receivedChunks.size}/${uploadData.totalChunks}`
     });
   }
-  
+
   const assembledPath = path.join(TEMP_DIR, `assembled-${uploadId}-${sanitizeFilename(uploadData.fileName)}`);
-  
+
   try {
     const writeStream = fs.createWriteStream(assembledPath);
-    
+
     for (let i = 0; i < uploadData.totalChunks; i++) {
       const chunkPath = path.join(TEMP_DIR, `chunk-${uploadId}-${String(i).padStart(4, '0')}`);
-      
+
       await new Promise((resolve, reject) => {
         const readStream = fs.createReadStream(chunkPath);
         readStream.on('error', reject);
         readStream.on('end', () => {
-          fs.unlink(chunkPath, () => {});
+          fs.unlink(chunkPath, () => { });
           resolve();
         });
         readStream.pipe(writeStream, { end: false });
       });
     }
-    
+
     await new Promise((resolve, reject) => {
       writeStream.on('finish', resolve);
       writeStream.on('error', reject);
       writeStream.end();
     });
-    
+
     chunkedUploads.delete(uploadId);
-    
+
     console.log(`[Chunk] Upload ${uploadId} assembled: ${assembledPath}`);
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       filePath: assembledPath,
       fileName: uploadData.fileName
     });
-    
+
   } catch (err) {
     console.error(`[Chunk] Assembly failed for ${uploadId}:`, err);
     chunkedUploads.delete(uploadId);
@@ -2777,7 +2806,7 @@ setInterval(() => {
     if (now - job.createdAt > ASYNC_JOB_TIMEOUT) {
       console.log(`[AsyncJob] Job ${jobId} expired, cleaning up`);
       if (job.outputPath) {
-        fs.unlink(job.outputPath, () => {});
+        fs.unlink(job.outputPath, () => { });
       }
       asyncJobs.delete(jobId);
     }
@@ -2787,11 +2816,11 @@ setInterval(() => {
 app.get('/api/job/:jobId/status', (req, res) => {
   const { jobId } = req.params;
   const job = asyncJobs.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found or expired' });
   }
-  
+
   res.json({
     status: job.status,
     progress: job.progress || 0,
@@ -2803,33 +2832,461 @@ app.get('/api/job/:jobId/status', (req, res) => {
 app.get('/api/job/:jobId/download', (req, res) => {
   const { jobId } = req.params;
   const job = asyncJobs.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found or expired' });
   }
-  
+
   if (job.status !== 'complete') {
     return res.status(400).json({ error: 'Job not complete yet' });
   }
-  
+
   if (!job.outputPath || !fs.existsSync(job.outputPath)) {
     return res.status(404).json({ error: 'Output file not found' });
   }
-  
+
   const stat = fs.statSync(job.outputPath);
-  
+
   res.setHeader('Content-Type', job.mimeType || 'video/mp4');
   res.setHeader('Content-Length', stat.size);
   res.setHeader('Content-Disposition', `attachment; filename="${job.outputFilename}"; filename*=UTF-8''${encodeURIComponent(job.outputFilename)}`);
-  
+
   const stream = fs.createReadStream(job.outputPath);
   stream.pipe(res);
-  
+
   stream.on('close', () => {
     setTimeout(() => {
-      fs.unlink(job.outputPath, () => {});
+      fs.unlink(job.outputPath, () => { });
       asyncJobs.delete(jobId);
     }, 5000);
+  });
+});
+
+const botDownloads = new Map();
+const BOT_DOWNLOAD_EXPIRY = 5 * 60 * 1000;
+const BOT_SECRET = process.env.BOT_SECRET || 'yoinky-bot-secret';
+const COBALT_API_KEY = process.env.COBALT_API_KEY;
+const COBALT_APIS = [
+  'https://cessi-c.meowing.de',
+  'https://subito-c.meowing.de',
+  'https://nuko-c.meowing.de'
+];
+
+async function fetchMetadataViaCobalt(videoUrl) {
+  let lastError = null;
+
+  for (const apiUrl of COBALT_APIS) {
+    try {
+      console.log(`[Metadata] Trying Cobalt: ${apiUrl}`);
+      
+      const headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      };
+      if (COBALT_API_KEY) {
+        headers['Authorization'] = `Api-Key ${COBALT_API_KEY}`;
+      }
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          url: videoUrl,
+          downloadMode: 'auto',
+          filenameStyle: 'basic',
+          videoQuality: '1080'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'error') {
+        throw new Error(data.error?.code || 'Cobalt error');
+      }
+
+      const filename = data.filename || 'download';
+      const title = filename.replace(/\.[^.]+$/, '') || 'download';
+      const ext = filename.match(/\.([^.]+)$/)?.[1] || 'mp4';
+
+      console.log(`[Metadata] Cobalt success via ${apiUrl}`);
+      return {
+        title,
+        ext,
+        id: '',
+        uploader: '',
+        duration: '',
+        thumbnail: '',
+        isPlaylist: false,
+        viaCobalt: true
+      };
+
+    } catch (err) {
+      console.log(`[Metadata] Cobalt ${apiUrl} failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('All Cobalt instances failed');
+}
+
+async function downloadViaCobalt(videoUrl, jobId, isAudio = false) {
+  let lastError = null;
+
+  for (const apiUrl of COBALT_APIS) {
+    try {
+      console.log(`[Bot] Trying Cobalt: ${apiUrl}`);
+      
+      const headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      };
+      if (COBALT_API_KEY) {
+        headers['Authorization'] = `Api-Key ${COBALT_API_KEY}`;
+      }
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          url: videoUrl,
+          downloadMode: isAudio ? 'audio' : 'auto',
+          filenameStyle: 'basic',
+          videoQuality: '1080'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'error') {
+        throw new Error(data.error?.code || 'Cobalt error');
+      }
+
+      let downloadUrl = data.url;
+      if (data.status === 'tunnel' || data.status === 'redirect') {
+        downloadUrl = data.url;
+      } else if (data.status === 'picker' && data.picker?.length > 0) {
+        downloadUrl = data.picker[0].url;
+      }
+
+      if (!downloadUrl) {
+        throw new Error('No download URL from Cobalt');
+      }
+
+      const ext = isAudio ? 'mp3' : 'mp4';
+      const outputPath = path.join(TEMP_DIR, `bot-${jobId}-cobalt.${ext}`);
+
+      const fileResponse = await fetch(downloadUrl);
+      if (!fileResponse.ok) {
+        throw new Error('Failed to download from Cobalt');
+      }
+
+      const fileBuffer = await fileResponse.arrayBuffer();
+      fs.writeFileSync(outputPath, Buffer.from(fileBuffer));
+
+      console.log(`[Bot] Cobalt success via ${apiUrl}`);
+      return { filePath: outputPath, ext };
+
+    } catch (err) {
+      console.log(`[Bot] Cobalt ${apiUrl} failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('All Cobalt instances failed');
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of botDownloads.entries()) {
+    if (now - data.createdAt > BOT_DOWNLOAD_EXPIRY) {
+      console.log(`[Bot] Download token ${token.slice(0, 8)}... expired`);
+      if (data.filePath && fs.existsSync(data.filePath)) {
+        fs.unlink(data.filePath, () => {});
+      }
+      botDownloads.delete(token);
+    }
+  }
+}, 30000);
+
+app.post('/api/bot/download', express.json(), async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || authHeader !== `Bearer ${BOT_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { url, format = 'video', quality = '1080p', container = 'mp4', audioFormat = 'mp3' } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: 'URL required' });
+  }
+
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    return res.status(400).json({ error: urlCheck.error });
+  }
+
+  const jobId = uuidv4();
+  const isAudio = format === 'audio';
+  const outputExt = isAudio ? audioFormat : container;
+  const tempFile = path.join(TEMP_DIR, `bot-${jobId}.%(ext)s`);
+  const finalFile = path.join(TEMP_DIR, `bot-${jobId}-final.${outputExt}`);
+
+  const job = {
+    status: 'starting',
+    progress: 0,
+    message: 'Initializing download...',
+    createdAt: Date.now(),
+    url,
+    format: outputExt,
+    filePath: null,
+    fileName: null,
+    fileSize: null,
+    downloadToken: null
+  };
+  asyncJobs.set(jobId, job);
+
+  res.json({ jobId });
+
+  (async () => {
+    try {
+      job.status = 'downloading';
+      job.message = 'Downloading from source...';
+
+      const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+      let downloadedPath = null;
+      let downloadedExt = null;
+      let usedCobalt = false;
+
+      if (isYouTube) {
+        console.log(`[Bot] YouTube detected, using Cobalt directly for ${jobId}`);
+        job.message = 'Downloading via Cobalt...';
+        
+        try {
+          const cobaltResult = await downloadViaCobalt(url, jobId, isAudio);
+          downloadedPath = cobaltResult.filePath;
+          downloadedExt = cobaltResult.ext;
+          usedCobalt = true;
+          job.progress = 100;
+        } catch (cobaltErr) {
+          console.error(`[Bot] Cobalt failed for YouTube:`, cobaltErr.message);
+          throw new Error('YouTube download failed via Cobalt');
+        }
+      } else {
+        const ytdlpArgs = [
+          ...getCookiesArgs(),
+          '--no-playlist',
+          '--newline',
+          '-o', tempFile,
+          '--ffmpeg-location', '/usr/bin/ffmpeg',
+        ];
+
+        if (isAudio) {
+          ytdlpArgs.push('-f', 'bestaudio/best');
+        } else {
+          const maxHeight = QUALITY_HEIGHT[quality];
+          if (maxHeight) {
+            ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
+          } else {
+            ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
+          }
+          ytdlpArgs.push('--merge-output-format', container);
+        }
+
+        ytdlpArgs.push(url);
+
+        let lastProgress = 0;
+
+        await new Promise((resolve, reject) => {
+          const ytdlp = spawn('yt-dlp', ytdlpArgs);
+          let stderrOutput = '';
+
+          ytdlp.stdout.on('data', (data) => {
+            const msg = data.toString().trim();
+            const match = msg.match(/([\d.]+)%/);
+            if (match) {
+              const progress = parseFloat(match[1]);
+              if (progress > lastProgress + 2 || progress >= 100) {
+                lastProgress = progress;
+                job.progress = progress;
+                job.message = `Downloading... ${progress.toFixed(0)}%`;
+              }
+            }
+          });
+
+          ytdlp.stderr.on('data', (data) => {
+            const msg = data.toString();
+            stderrOutput += msg;
+            if (msg.includes('[download]') && msg.includes('%')) {
+              const match = msg.match(/([\d.]+)%/);
+              if (match) {
+                const progress = parseFloat(match[1]);
+                if (progress > lastProgress + 2 || progress >= 100) {
+                  lastProgress = progress;
+                  job.progress = progress;
+                  job.message = `Downloading... ${progress.toFixed(0)}%`;
+                }
+              }
+            }
+          });
+
+          ytdlp.on('close', (code) => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error('Download failed'));
+            }
+          });
+          ytdlp.on('error', reject);
+        });
+
+        const files = fs.readdirSync(TEMP_DIR);
+        const downloadedFile = files.find(f => f.startsWith(`bot-${jobId}`) && !f.includes('-final') && !f.includes('-cobalt'));
+
+        if (!downloadedFile) {
+          throw new Error('Downloaded file not found');
+        }
+
+        downloadedPath = path.join(TEMP_DIR, downloadedFile);
+        downloadedExt = path.extname(downloadedFile).slice(1);
+      }
+
+      if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+        throw new Error('Downloaded file not found');
+      }
+
+      job.status = 'processing';
+      job.progress = 100;
+      job.message = 'Processing...';
+
+      let actualFinalFile = finalFile;
+      let actualOutputExt = outputExt;
+
+      if (downloadedExt !== outputExt && !isAudio) {
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', [
+            '-i', downloadedPath,
+            '-c:v', 'copy',
+            '-c:a', 'copy',
+            '-y',
+            finalFile
+          ]);
+          ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Processing failed')));
+          ffmpeg.on('error', reject);
+        });
+        try { fs.unlinkSync(downloadedPath); } catch {}
+      } else {
+        actualFinalFile = downloadedPath;
+        actualOutputExt = downloadedExt;
+      }
+
+      const stat = fs.statSync(actualFinalFile);
+      const downloadToken = crypto.randomBytes(32).toString('hex');
+
+      let title = 'download';
+      try {
+        const infoResult = spawnSync('yt-dlp', ['--print', 'title', '--no-playlist', url], { timeout: 10000 });
+        if (infoResult.status === 0) {
+          title = infoResult.stdout.toString().trim().slice(0, 100);
+        }
+      } catch {}
+
+      const fileName = sanitizeFilename(title) + '.' + actualOutputExt;
+
+      botDownloads.set(downloadToken, {
+        filePath: actualFinalFile,
+        fileName,
+        fileSize: stat.size,
+        mimeType: isAudio ? (AUDIO_MIMES[audioFormat] || 'audio/mpeg') : (CONTAINER_MIMES[container] || 'video/mp4'),
+        createdAt: Date.now(),
+        downloaded: false
+      });
+
+      job.status = 'complete';
+      job.progress = 100;
+      job.message = 'Ready for download';
+      job.filePath = actualFinalFile;
+      job.fileName = fileName;
+      job.fileSize = stat.size;
+      job.downloadToken = downloadToken;
+
+      console.log(`[Bot] Job ${jobId} complete, token: ${downloadToken.slice(0, 8)}...`);
+
+    } catch (err) {
+      console.error(`[Bot] Job ${jobId} failed:`, err.message);
+      job.status = 'error';
+      job.message = err.message || 'Download failed';
+
+      const files = fs.readdirSync(TEMP_DIR);
+      files.filter(f => f.includes(jobId)).forEach(f => {
+        try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch {}
+      });
+    }
+  })();
+});
+
+app.get('/api/bot/download/:token', (req, res) => {
+  const { token } = req.params;
+  const data = botDownloads.get(token);
+
+  if (!data) {
+    return res.status(404).json({ error: 'Download not found or expired' });
+  }
+
+  if (!fs.existsSync(data.filePath)) {
+    botDownloads.delete(token);
+    return res.status(404).json({ error: 'File no longer available' });
+  }
+
+  const stat = fs.statSync(data.filePath);
+  const asciiFilename = data.fileName.replace(/[^\x20-\x7E]/g, '_');
+
+  res.setHeader('Content-Type', data.mimeType);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(data.fileName)}`);
+
+  const stream = fs.createReadStream(data.filePath);
+  stream.pipe(res);
+
+  stream.on('close', () => {
+    data.downloaded = true;
+    setTimeout(() => {
+      if (botDownloads.has(token)) {
+        fs.unlink(data.filePath, () => {});
+        botDownloads.delete(token);
+        console.log(`[Bot] Token ${token.slice(0, 8)}... cleaned up after download`);
+      }
+    }, 30000);
+  });
+});
+
+app.get('/api/bot/status/:jobId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || authHeader !== `Bearer ${BOT_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { jobId } = req.params;
+  const job = asyncJobs.get(jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  res.json({
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    fileName: job.fileName,
+    fileSize: job.fileSize,
+    downloadToken: job.downloadToken
   });
 });
 
@@ -2843,16 +3300,13 @@ function validateChunkedFilePath(filePath) {
   return resolved;
 }
 
-// compress API
-
-
 app.post('/api/compress-chunked', express.json(), async (req, res) => {
-  const { 
+  const {
     filePath,
     fileName,
-    targetSize = '50', 
-    duration = '0', 
-    progressId, 
+    targetSize = '50',
+    duration = '0',
+    progressId,
     clientId,
     mode = 'size',
     quality = 'medium',
@@ -2860,33 +3314,33 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     denoise = 'auto',
     downscale = false
   } = req.body;
-  
+
   const validPath = validateChunkedFilePath(filePath);
   if (!validPath) {
     return res.status(400).json({ error: 'Invalid file path' });
   }
-  
+
   if (!fs.existsSync(validPath)) {
     return res.status(400).json({ error: 'File not found. Complete chunked upload first.' });
   }
-  
+
   if (!ALLOWED_MODES.includes(mode)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid mode. Allowed: ${ALLOWED_MODES.join(', ')}` });
   }
   if (!ALLOWED_QUALITIES.includes(quality)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
   }
   if (!ALLOWED_PRESETS.includes(preset)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid preset. Allowed: ${ALLOWED_PRESETS.join(', ')}` });
   }
   if (!ALLOWED_DENOISE.includes(denoise)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
   }
-  
+
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
   req.body.targetSize = targetSize;
   req.body.duration = duration;
@@ -2897,9 +3351,9 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
   req.body.preset = preset;
   req.body.denoise = denoise;
   req.body.downscale = downscale;
-  
+
   const jobId = uuidv4();
-  
+
   asyncJobs.set(jobId, {
     status: 'processing',
     progress: 0,
@@ -2909,9 +3363,9 @@ app.post('/api/compress-chunked', express.json(), async (req, res) => {
     outputFilename: null,
     mimeType: null
   });
-  
+
   res.json({ jobId });
-  
+
   handleCompressAsync(req, jobId).catch(err => {
     console.error(`[AsyncJob] Job ${jobId} failed:`, err);
     const job = asyncJobs.get(jobId);
@@ -2930,7 +3384,7 @@ const ALLOWED_FORMATS = ['mp4', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'opus', 'wav
 const ALLOWED_REENCODES = ['auto', 'always', 'never'];
 
 app.post('/api/convert-chunked', express.json(), async (req, res) => {
-  const { 
+  const {
     filePath,
     fileName,
     format = 'mp4',
@@ -2941,29 +3395,29 @@ app.post('/api/convert-chunked', express.json(), async (req, res) => {
     endTime,
     audioBitrate = '192'
   } = req.body;
-  
+
   const validPath = validateChunkedFilePath(filePath);
   if (!validPath) {
     return res.status(400).json({ error: 'Invalid file path' });
   }
-  
+
   if (!fs.existsSync(validPath)) {
     return res.status(400).json({ error: 'File not found. Complete chunked upload first.' });
   }
-  
+
   if (!ALLOWED_FORMATS.includes(format)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid format. Allowed: ${ALLOWED_FORMATS.join(', ')}` });
   }
   if (!ALLOWED_REENCODES.includes(reencode)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid reencode option. Allowed: ${ALLOWED_REENCODES.join(', ')}` });
   }
   if (!ALLOWED_QUALITIES.includes(quality)) {
-    fs.unlink(validPath, () => {});
+    fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
   }
-  
+
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
   req.body.format = format;
   req.body.clientId = clientId;
@@ -2972,9 +3426,9 @@ app.post('/api/convert-chunked', express.json(), async (req, res) => {
   req.body.startTime = startTime;
   req.body.endTime = endTime;
   req.body.audioBitrate = audioBitrate;
-  
+
   const jobId = uuidv4();
-  
+
   asyncJobs.set(jobId, {
     status: 'processing',
     progress: 0,
@@ -2984,9 +3438,9 @@ app.post('/api/convert-chunked', express.json(), async (req, res) => {
     outputFilename: null,
     mimeType: null
   });
-  
+
   res.json({ jobId });
-  
+
   handleConvertAsync(req, jobId).catch(err => {
     console.error(`[AsyncJob] Convert job ${jobId} failed:`, err);
     const job = asyncJobs.get(jobId);
@@ -3002,10 +3456,10 @@ async function handleCompress(req, res) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const { 
-    targetSize = '50', 
-    duration = '0', 
-    progressId, 
+  const {
+    targetSize = '50',
+    duration = '0',
+    progressId,
     clientId,
     mode = 'size',
     quality = 'medium',
@@ -3013,46 +3467,46 @@ async function handleCompress(req, res) {
     denoise = 'auto',
     downscale = false
   } = req.body;
-  
+
   const shouldDownscale = downscale === true || downscale === 'true';
-  
+
   if (!ALLOWED_MODES.includes(mode)) {
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(req.file.path, () => { });
     return res.status(400).json({ error: `Invalid mode. Allowed: ${ALLOWED_MODES.join(', ')}` });
   }
   if (!ALLOWED_QUALITIES.includes(quality)) {
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(req.file.path, () => { });
     return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
   }
   if (!ALLOWED_PRESETS.includes(preset)) {
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(req.file.path, () => { });
     return res.status(400).json({ error: `Invalid preset. Allowed: ${ALLOWED_PRESETS.join(', ')}` });
   }
   if (!ALLOWED_DENOISE.includes(denoise)) {
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(req.file.path, () => { });
     return res.status(400).json({ error: `Invalid denoise. Allowed: ${ALLOWED_DENOISE.join(', ')}` });
   }
-  
+
   const targetMB = parseFloat(targetSize);
   const videoDuration = parseFloat(duration);
 
   if (videoDuration > SAFETY_LIMITS.maxVideoDuration) {
-    fs.unlink(req.file.path, () => {});
-    return res.status(400).json({ 
-      error: `Video too long. Maximum duration is ${SAFETY_LIMITS.maxVideoDuration / 3600} hours.` 
+    fs.unlink(req.file.path, () => { });
+    return res.status(400).json({
+      error: `Video too long. Maximum duration is ${SAFETY_LIMITS.maxVideoDuration / 3600} hours.`
     });
   }
 
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
-      fs.unlink(req.file.path, () => {});
-      return res.status(429).json({ 
-        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` 
+      fs.unlink(req.file.path, () => { });
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
   }
-  
+
   const compressId = progressId || uuidv4();
   const inputPath = req.file.path;
   const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.mp4`);
@@ -3076,7 +3530,7 @@ async function handleCompress(req, res) {
     if (!validateVideoFile(inputPath)) {
       throw new Error('File does not contain valid video');
     }
-    
+
     const probeResult = await probeVideo(inputPath);
     const actualDuration = videoDuration > 0 ? videoDuration : probeResult.duration;
     const sourceWidth = probeResult.width;
@@ -3087,7 +3541,7 @@ async function handleCompress(req, res) {
     const presetConfig = COMPRESSION_CONFIG.presets[preset];
     const denoiseFilter = getDenoiseFilter(denoise, sourceHeight, sourceBitrateMbps, presetConfig.denoise);
     const downscaleWidth = shouldDownscale ? getDownscaleResolution(sourceWidth, sourceHeight) : null;
-    
+
     if (denoiseFilter) {
       console.log(`[${compressId}] Denoise: ${denoise === 'auto' ? 'auto-detected' : denoise}`);
     }
@@ -3098,7 +3552,7 @@ async function handleCompress(req, res) {
     if (mode === 'quality') {
       const crf = presetConfig.crf[quality];
       const vfArg = buildVideoFilters(denoiseFilter, downscaleWidth, sourceWidth);
-      
+
       console.log(`[${compressId}] CRF mode: preset=${preset}, quality=${quality}, crf=${crf}`);
       sendProgress(compressId, 'compressing', `Encoding (${preset})...`, 5);
 
@@ -3119,7 +3573,7 @@ async function handleCompress(req, res) {
       if (sourceFileSizeMB <= targetMB) {
         console.log(`[${compressId}] Already under target, remuxing`);
         sendProgress(compressId, 'compressing', 'File already small enough...', 50);
-        
+
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', ['-y', '-i', inputPath, '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', outputPath]);
           processInfo.process = ffmpeg;
@@ -3131,7 +3585,7 @@ async function handleCompress(req, res) {
         const resolution = selectResolution(sourceWidth, sourceHeight, videoBitrateK);
         const scaleWidth = downscaleWidth || (resolution.needsScale ? resolution.width : null);
         const vfArg = buildVideoFilters(denoiseFilter, scaleWidth, sourceWidth);
-        
+
         console.log(`[${compressId}] Two-pass: target=${targetMB}MB, bitrate=${videoBitrateK}k, res=${resolution.width}x${resolution.height}`);
 
         await runTwoPassEncode({
@@ -3150,9 +3604,9 @@ async function handleCompress(req, res) {
       }
     }
 
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch { }
 
     sendProgress(compressId, 'compressing', 'Sending file...', 98);
 
@@ -3187,16 +3641,17 @@ async function handleCompress(req, res) {
 
   } catch (err) {
     console.error(`[${compressId}] Error:`, err.message);
+    discordAlerts.compressionError('Compression Error', 'Video compression failed.', { jobId: compressId, error: err.message });
     activeProcesses.delete(compressId);
     activeJobsByType.compress--;
     unlinkJobFromClient(compressId);
-    
+
     setTimeout(() => cleanupJobFiles(compressId), 2000);
-    
+
     if (!processInfo.cancelled) {
       sendProgress(compressId, 'error', err.message || 'Compression failed');
     }
-    
+
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Compression failed' });
     }
@@ -3212,7 +3667,7 @@ async function probeVideo(inputPath) {
       '-of', 'json',
       inputPath
     ]);
-    
+
     let output = '';
     ffprobe.stdout.on('data', (data) => { output += data.toString(); });
     ffprobe.on('close', () => {
@@ -3262,7 +3717,7 @@ async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, x
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', args);
     processInfo.process = ffmpeg;
-    
+
     let lastProgress = 0;
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
@@ -3270,11 +3725,11 @@ async function runCrfEncode({ inputPath, outputPath, crf, ffmpegPreset, vfArg, x
       if (timeMatch) {
         const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
         const progress = Math.min(95, (currentTime / actualDuration) * 95);
-        
+
         const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
         const encSpeed = speedMatch ? parseFloat(speedMatch[1]) : null;
         const eta = encSpeed ? formatETA((actualDuration - currentTime) / encSpeed) : null;
-        
+
         if (progress > lastProgress + 2) {
           lastProgress = progress;
           const statusMsg = eta ? `Encoding... ${Math.round(progress)}% (ETA: ${eta})` : `Encoding... ${Math.round(progress)}%`;
@@ -3320,7 +3775,7 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', pass1Args);
     processInfo.process = ffmpeg;
-    
+
     let lastProgress = 0;
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
@@ -3328,11 +3783,11 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
       if (timeMatch) {
         const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
         const progress = Math.min(45, (currentTime / actualDuration) * 45);
-        
+
         const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
         const encSpeed = speedMatch ? parseFloat(speedMatch[1]) : null;
         const eta = encSpeed ? formatETA((actualDuration - currentTime) / encSpeed) : null;
-        
+
         if (progress > lastProgress + 2) {
           lastProgress = progress;
           const statusMsg = eta ? `Pass 1/2 - ${Math.round(progress / 45 * 100)}% (ETA: ${eta})` : `Pass 1/2 - ${Math.round(progress / 45 * 100)}%`;
@@ -3375,7 +3830,7 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', pass2Args);
     processInfo.process = ffmpeg;
-    
+
     let lastProgress = 50;
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
@@ -3383,11 +3838,11 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
       if (timeMatch) {
         const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
         const progress = 50 + Math.min(45, (currentTime / actualDuration) * 45);
-        
+
         const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
         const encSpeed = speedMatch ? parseFloat(speedMatch[1]) : null;
         const eta = encSpeed ? formatETA((actualDuration - currentTime) / encSpeed) : null;
-        
+
         if (progress > lastProgress + 2) {
           lastProgress = progress;
           const statusMsg = eta ? `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}% (ETA: ${eta})` : `Pass 2/2 - ${Math.round((progress - 50) / 45 * 100)}%`;
@@ -3408,10 +3863,10 @@ async function runTwoPassEncode({ inputPath, outputPath, passLogFile, videoBitra
 async function handleCompressAsync(req, jobId) {
   const job = asyncJobs.get(jobId);
   if (!job) return;
-  
-  const { 
-    targetSize = '50', 
-    duration = '0', 
+
+  const {
+    targetSize = '50',
+    duration = '0',
     clientId,
     mode = 'size',
     quality = 'medium',
@@ -3419,25 +3874,25 @@ async function handleCompressAsync(req, jobId) {
     denoise = 'auto',
     downscale = false
   } = req.body;
-  
+
   const shouldDownscale = downscale === true || downscale === 'true';
   const targetMB = parseFloat(targetSize);
   const videoDuration = parseFloat(duration);
-  
+
   const compressId = jobId;
   const inputPath = req.file.path;
   const outputPath = path.join(TEMP_DIR, `${compressId}-compressed.mp4`);
   const passLogFile = path.join(TEMP_DIR, `${compressId}-pass`);
 
   if (isNaN(targetMB) || targetMB <= 0) {
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
     job.status = 'error';
     job.error = 'Invalid target size';
     return;
   }
 
   if (isNaN(videoDuration) || videoDuration <= 0) {
-    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
     job.status = 'error';
     job.error = 'Invalid video duration';
     return;
@@ -3456,11 +3911,11 @@ async function handleCompressAsync(req, jobId) {
 
   try {
     job.message = 'Analyzing video...';
-    
+
     if (!validateVideoFile(inputPath)) {
       throw new Error('File does not contain valid video');
     }
-    
+
     const probeResult = await probeVideo(inputPath);
     const actualDuration = videoDuration > 0 ? videoDuration : probeResult.duration;
     const sourceWidth = probeResult.width;
@@ -3475,7 +3930,7 @@ async function handleCompressAsync(req, jobId) {
     if (mode === 'quality') {
       const crf = presetConfig.crf[quality];
       const vfArg = buildVideoFilters(denoiseFilter, downscaleWidth, sourceWidth);
-      
+
       job.message = `Encoding (${preset})...`;
       job.progress = 5;
 
@@ -3495,7 +3950,7 @@ async function handleCompressAsync(req, jobId) {
       if (sourceFileSizeMB <= targetMB) {
         job.message = 'Already under target...';
         job.progress = 50;
-        
+
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', ['-y', '-i', inputPath, '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', outputPath]);
           processInfo.process = ffmpeg;
@@ -3523,9 +3978,9 @@ async function handleCompressAsync(req, jobId) {
       }
     }
 
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
+    try { fs.unlinkSync(inputPath); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch { }
 
     const stat = fs.statSync(outputPath);
     const originalName = path.parse(req.file.originalname).name;
@@ -3539,7 +3994,7 @@ async function handleCompressAsync(req, jobId) {
     job.outputPath = outputPath;
     job.outputFilename = outputFilename;
     job.mimeType = 'video/mp4';
-    
+
     activeProcesses.delete(compressId);
     activeJobsByType.compress--;
     unlinkJobFromClient(compressId);
@@ -3550,12 +4005,12 @@ async function handleCompressAsync(req, jobId) {
     activeProcesses.delete(compressId);
     activeJobsByType.compress--;
     unlinkJobFromClient(compressId);
-    
-    try { fs.unlinkSync(inputPath); } catch {}
-    try { fs.unlinkSync(outputPath); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch {}
-    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch {}
-    
+
+    try { fs.unlinkSync(inputPath); } catch { }
+    try { fs.unlinkSync(outputPath); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log`); } catch { }
+    try { fs.unlinkSync(`${passLogFile}-0.log.mbtree`); } catch { }
+
     job.status = 'error';
     job.error = err.message || 'Compression failed';
   }
@@ -3580,7 +4035,7 @@ async function runCrfEncodeAsync({ inputPath, outputPath, crf, ffmpegPreset, vfA
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', args);
     processInfo.process = ffmpeg;
-    
+
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
       const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
@@ -3630,7 +4085,7 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', pass1Args);
     processInfo.process = ffmpeg;
-    
+
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
       const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
@@ -3677,7 +4132,7 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', pass2Args);
     processInfo.process = ffmpeg;
-    
+
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
       const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
@@ -3702,35 +4157,35 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
 app.post('/api/analytics/track', (req, res) => {
   const { type, page, trackingId } = req.body;
   const country = getCountryFromIP(getClientIp(req));
-  
+
   if (type === 'pageview' && page) {
     trackPageView(page, country, trackingId);
   }
   if (type === 'dailyUser') {
     trackDailyUser(getClientIp(req), country, trackingId);
   }
-  
+
   res.json({ ok: true });
 });
 
 app.post('/api/analytics/delete', (req, res) => {
   const { trackingId } = req.body;
-  
+
   if (!trackingId) {
     return res.status(400).json({ error: 'trackingId is required' });
   }
-  
+
   const result = deleteUserData(trackingId);
   res.json(result);
 });
 
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;
-  
+
   if (!adminConfig.ADMIN_PASSWORD) {
     return res.status(503).json({ error: 'Admin features not configured' });
   }
-  
+
   if (password === adminConfig.ADMIN_PASSWORD) {
     const token = generateAdminToken();
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -3761,13 +4216,13 @@ app.post('/api/admin/logout', (req, res) => {
 
 app.get('/api/admin/analytics', (req, res) => {
   const token = req.cookies?.yoink_admin_token || req.headers['authorization']?.replace('Bearer ', '');
-  
+
   if (!validateAdminToken(token)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  
+
   analytics = loadAnalytics();
-  
+
   const dailyUsersFormatted = {};
   for (const [date, users] of Object.entries(analytics.dailyUsers)) {
     if (users instanceof Set) {
@@ -3778,7 +4233,7 @@ app.get('/api/admin/analytics', (req, res) => {
       dailyUsersFormatted[date] = Object.keys(users).length;
     }
   }
-  
+
   res.json({
     totalDownloads: analytics.totalDownloads,
     totalConverts: analytics.totalConverts,
@@ -3810,7 +4265,7 @@ app.get('*', (req, res) => {
     if (PAGE_ROUTES[req.path]) {
       return res.sendFile(path.join(__dirname, '../public', PAGE_ROUTES[req.path]));
     }
-    
+
     const publicDir = path.resolve(__dirname, '../public');
     let decodedPath = '';
     try {
@@ -3819,24 +4274,55 @@ app.get('*', (req, res) => {
       console.debug('[Route] Malformed URI:', req.path);
       return res.sendFile(path.join(publicDir, 'index.html'));
     }
-    
+
     if (decodedPath.includes('\0') || decodedPath.includes('..')) {
       return res.sendFile(path.join(publicDir, 'index.html'));
     }
-    
+
     const resolvedPath = path.resolve(publicDir, '.' + decodedPath);
     const relativePath = path.relative(publicDir, resolvedPath);
-    
+
     if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
       return res.sendFile(path.join(publicDir, 'index.html'));
     }
-    
+
     if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
       return res.sendFile(resolvedPath);
     }
     return res.sendFile(path.join(publicDir, 'index.html'));
   }
   res.status(404).json({ error: 'Not found' });
+});
+
+app.get('/api/alert/test', async (req, res) => {
+  if (!discordAlerts.isEnabled()) {
+    return res.status(503).json({
+      success: false,
+      error: 'Discord alerts not configured. Edit discord-config.js to enable.'
+    });
+  }
+
+  const sent = await discordAlerts.test();
+  res.json({ success: sent, message: sent ? 'Test alert sent to Discord!' : 'Failed to send alert' });
+});
+
+app.post('/api/github-webhook', async (req, res) => {
+  try {
+    const response = await fetch('http://localhost:3002/webhook/github', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-GitHub-Event': req.headers['x-github-event'] || '',
+        'X-GitHub-Delivery': req.headers['x-github-delivery'] || '',
+        'X-Hub-Signature-256': req.headers['x-hub-signature-256'] || ''
+      },
+      body: JSON.stringify(req.body)
+    });
+    res.status(response.status).json({ forwarded: true });
+  } catch (error) {
+    console.error('[GitHub Webhook] Forward failed:', error.message);
+    res.status(502).json({ error: 'Failed to forward webhook' });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
