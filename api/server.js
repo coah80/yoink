@@ -31,6 +31,24 @@ function needsCookiesRetry(errorOutput) {
   return BOT_DETECTION_ERRORS.some(err => errorOutput.includes(err));
 }
 
+function toUserError(message) {
+  const text = String(message || '');
+  const msg = text.toLowerCase();
+
+  if (msg.includes('cancelled')) return 'Download cancelled';
+  if (msg.includes('content.video.unavailable') || msg.includes('video unavailable') || msg.includes('private video') || msg.includes('this content is private')) return 'Video unavailable or private';
+  if (msg.includes('content.video.live') || msg.includes('live stream')) return 'Live streams cannot be downloaded';
+  if (msg.includes('content.video.age') || msg.includes('age-restricted')) return 'Age-restricted video (sign-in required)';
+  if (msg.includes('rate')) return 'Rate limited - please wait and try again';
+  if (msg.includes('econnreset') || msg.includes('fetch failed') || msg.includes('connection')) return 'Connection interrupted - try again';
+  if (msg.includes('processing failed') || msg.includes('encoding failed')) return 'Processing failed';
+  if (msg.includes('download interrupted')) return 'Download interrupted';
+  if (msg.includes('no videos were successfully downloaded')) return 'No videos were successfully downloaded';
+  if (msg.includes('downloaded file not found')) return 'Download failed';
+
+  return 'Download failed';
+}
+
 function getCookiesArgs() {
   if (hasCookiesFile()) {
     return ['--cookies', COOKIES_FILE];
@@ -1369,7 +1387,8 @@ app.get('/api/download', async (req, res) => {
         sendProgress(downloadId, 'downloading', 'Download complete', 100);
       } catch (cobaltErr) {
         console.error(`[${downloadId}] Cobalt failed:`, cobaltErr.message);
-        throw new Error('YouTube download failed - try again later');
+        const userMessage = toUserError(cobaltErr.message);
+        throw new Error(userMessage);
       }
     } else {
       const ytdlpArgs = [
@@ -1454,17 +1473,31 @@ app.get('/api/download', async (req, res) => {
     });
 
     const files = fs.readdirSync(TEMP_DIRS.download);
-    const downloadedFile = files.find(f => f.startsWith(downloadId) && !f.includes('-final') && !f.includes('-cobalt'));
+    const downloadedFile = files.find(f => 
+      f.startsWith(downloadId) && 
+      !f.includes('-final') && 
+      !f.includes('-cobalt') && 
+      !f.endsWith('.part') && 
+      !f.includes('.part-Frag')
+    );
 
     if (!downloadedFile) {
+      const partialFiles = files.filter(f => f.startsWith(downloadId));
+      console.error(`[${downloadId}] No complete file found. Partial files: ${partialFiles.join(', ') || 'none'}`);
+      
+      if (partialFiles.some(f => f.includes('.part'))) {
+        throw new Error('Download interrupted - incomplete file');
+      }
       throw new Error('Downloaded file not found');
     }
 
     downloadedPath = path.join(TEMP_DIRS.download, downloadedFile);
     downloadedExt = path.extname(downloadedFile).slice(1);
+    console.log(`[${downloadId}] Found downloaded file: ${downloadedFile}`);
     }
 
     if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+      console.error(`[${downloadId}] Downloaded path missing: ${downloadedPath}`);
       throw new Error('Downloaded file not found');
     }
 
@@ -1532,9 +1565,11 @@ app.get('/api/download', async (req, res) => {
 
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      let ffmpegStderr = '';
 
       ffmpeg.stderr.on('data', (data) => {
         const msg = data.toString();
+        ffmpegStderr += msg;
         if (msg.includes('Error') || msg.includes('error')) {
           console.error(`[${downloadId}] ffmpeg: ${msg.trim()}`);
         }
@@ -1542,13 +1577,24 @@ app.get('/api/download', async (req, res) => {
 
       ffmpeg.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`Encoding failed (code ${code})`));
+        else {
+          console.error(`[${downloadId}] FFmpeg failed with code ${code}. Last 500 chars: ${ffmpegStderr.slice(-500)}`);
+          reject(new Error(`Encoding failed (code ${code})`));
+        }
       });
 
-      ffmpeg.on('error', reject);
+      ffmpeg.on('error', (err) => {
+        console.error(`[${downloadId}] FFmpeg spawn error: ${err.message}`);
+        reject(err);
+      });
     });
 
     try { fs.unlinkSync(downloadedPath); } catch { }
+
+    if (!fs.existsSync(actualFinalFile)) {
+      console.error(`[${downloadId}] Final file not found after ffmpeg: ${actualFinalFile}`);
+      throw new Error('Processing failed - output file not created');
+    }
 
     sendProgress(downloadId, 'sending', 'Sending file to you...');
 
@@ -1635,7 +1681,7 @@ app.get('/api/download', async (req, res) => {
     console.error(`[${downloadId}] Error:`, err.message);
     discordAlerts.downloadFailed('Download Error', 'Video download failed.', { jobId: downloadId, url, format: outputExt, error: err.message });
 
-    sendProgress(downloadId, 'error', err.message || 'Download failed');
+    sendProgress(downloadId, 'error', toUserError(err.message || 'Download failed'));
 
     activeProcesses.delete(downloadId);
     removePendingJob(downloadId);
@@ -1649,7 +1695,7 @@ app.get('/api/download', async (req, res) => {
     });
 
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message || 'Download failed' });
+      res.status(500).json({ error: toUserError(err.message || 'Download failed') });
     }
   }
 });
@@ -1774,6 +1820,7 @@ app.get('/api/download-playlist', async (req, res) => {
     });
 
     const downloadedFiles = [];
+    const failedVideos = [];
 
     for (let i = 0; i < playlistInfo.entries.length; i++) {
       if (isChunked && i > 0 && i % SAFETY_LIMITS.playlistChunkSize === 0) {
@@ -1827,60 +1874,96 @@ app.get('/api/download-playlist', async (req, res) => {
       });
 
       try {
-        const ytdlpArgs = [
-          ...getCookiesArgs(),
-          '-t', 'sleep',
-          '--no-playlist',
-          '--newline',
-          '--progress-template', '%(progress._percent_str)s',
-          '-o', tempVideoFile,
-          '--ffmpeg-location', '/usr/bin/ffmpeg',
-        ];
-
-        if (isAudio) {
-          ytdlpArgs.push('-f', 'bestaudio/best');
-        } else {
-          const maxHeight = QUALITY_HEIGHT[quality];
-          if (maxHeight) {
-            ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
-          } else {
-            ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
+        const actualVideoUrl = videoUrl || `https://www.youtube.com/watch?v=${entry.id}`;
+        const isYouTubeVideo = actualVideoUrl.includes('youtube.com') || actualVideoUrl.includes('youtu.be');
+        
+        let tempPath = null;
+        
+        if (isYouTubeVideo) {
+          const videoJobId = `${downloadId}-v${videoNum}`;
+          console.log(`[${downloadId}] Video ${videoNum}: Using Cobalt for YouTube video`);
+          
+          const abortController = new AbortController();
+          processInfo.abortController = abortController;
+          
+          try {
+            const cobaltResult = await downloadViaCobalt(
+              actualVideoUrl,
+              videoJobId,
+              isAudio,
+              (progress, downloaded, total) => {
+                const overallProgress = ((videoNum - 1) / totalVideos * 100) + (progress / totalVideos);
+                sendProgress(downloadId, 'downloading',
+                  `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${progress}%)`,
+                  overallProgress, {
+                  playlistTitle,
+                  totalVideos,
+                  currentVideo: videoNum,
+                  currentVideoTitle: videoTitle,
+                  videoProgress: progress,
+                  format: isAudio ? audioFormat : `${quality} ${container}`,
+                  failedVideos: failedVideos.slice(-50),
+                  failedCount: failedVideos.length
+                });
+              },
+              abortController.signal,
+              { outputDir: playlistDir, maxRetries: 3, retryDelay: 2000 }
+            );
+            tempPath = cobaltResult.filePath;
+          } catch (cobaltErr) {
+            if (cobaltErr.message === 'Cancelled') throw cobaltErr;
+            const reason = toUserError(cobaltErr.message);
+            failedVideos.push({ num: videoNum, title: videoTitle, reason });
+            sendProgress(downloadId, 'downloading',
+              `Skipped ${videoNum}/${totalVideos}: ${videoTitle}`,
+              ((videoNum - 1) / totalVideos) * 100, {
+              playlistTitle,
+              totalVideos,
+              currentVideo: videoNum,
+              currentVideoTitle: videoTitle,
+              format: isAudio ? audioFormat : `${quality} ${container}`,
+              failedVideos: failedVideos.slice(-50),
+              failedCount: failedVideos.length
+            });
+            console.error(`[${downloadId}] Cobalt failed for video ${videoNum}:`, cobaltErr.message);
+            continue;
           }
-          ytdlpArgs.push('--merge-output-format', container);
         }
+        
+        if (!tempPath && !isYouTubeVideo) {
+          const ytdlpArgs = [
+            ...getCookiesArgs(),
+            '-t', 'sleep',
+            '--no-playlist',
+            '--newline',
+            '--progress-template', '%(progress._percent_str)s',
+            '-o', tempVideoFile,
+            '--ffmpeg-location', '/usr/bin/ffmpeg',
+          ];
 
-        ytdlpArgs.push(videoUrl || `https://www.youtube.com/watch?v=${entry.id}`);
-
-        await new Promise((resolve, reject) => {
-          const ytdlp = spawn('yt-dlp', ytdlpArgs);
-
-          processInfo.process = ytdlp;
-
-          let stderrOutput = '';
-
-          ytdlp.stdout.on('data', (data) => {
-            const msg = data.toString().trim();
-            const match = msg.match(/([\d.]+)%/);
-            if (match) {
-              const videoProgress = parseFloat(match[1]);
-              const overallProgress = ((videoNum - 1) / totalVideos * 100) + (videoProgress / totalVideos);
-              sendProgress(downloadId, 'downloading',
-                `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`,
-                overallProgress, {
-                playlistTitle,
-                totalVideos,
-                currentVideo: videoNum,
-                currentVideoTitle: videoTitle,
-                videoProgress,
-                format: isAudio ? audioFormat : `${quality} ${container}`
-              });
+          if (isAudio) {
+            ytdlpArgs.push('-f', 'bestaudio/best');
+          } else {
+            const maxHeight = QUALITY_HEIGHT[quality];
+            if (maxHeight) {
+              ytdlpArgs.push('-f', `bv[vcodec^=avc][height<=${maxHeight}]+ba[acodec^=mp4a]/bv[height<=${maxHeight}]+ba/b`);
+            } else {
+              ytdlpArgs.push('-f', 'bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b');
             }
-          });
+            ytdlpArgs.push('--merge-output-format', container);
+          }
 
-          ytdlp.stderr.on('data', (data) => {
-            const msg = data.toString();
-            stderrOutput += msg;
-            if (msg.includes('[download]') && msg.includes('%')) {
+          ytdlpArgs.push(actualVideoUrl);
+
+          await new Promise((resolve, reject) => {
+            const ytdlp = spawn('yt-dlp', ytdlpArgs);
+
+            processInfo.process = ytdlp;
+
+            let stderrOutput = '';
+
+            ytdlp.stdout.on('data', (data) => {
+              const msg = data.toString().trim();
               const match = msg.match(/([\d.]+)%/);
               if (match) {
                 const videoProgress = parseFloat(match[1]);
@@ -1896,27 +1979,50 @@ app.get('/api/download-playlist', async (req, res) => {
                   format: isAudio ? audioFormat : `${quality} ${container}`
                 });
               }
-            }
+            });
+
+            ytdlp.stderr.on('data', (data) => {
+              const msg = data.toString();
+              stderrOutput += msg;
+              if (msg.includes('[download]') && msg.includes('%')) {
+                const match = msg.match(/([\d.]+)%/);
+                if (match) {
+                  const videoProgress = parseFloat(match[1]);
+                  const overallProgress = ((videoNum - 1) / totalVideos * 100) + (videoProgress / totalVideos);
+                  sendProgress(downloadId, 'downloading',
+                    `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${videoProgress.toFixed(0)}%)`,
+                    overallProgress, {
+                    playlistTitle,
+                    totalVideos,
+                    currentVideo: videoNum,
+                    currentVideoTitle: videoTitle,
+                    videoProgress,
+                    format: isAudio ? audioFormat : `${quality} ${container}`
+                  });
+                }
+              }
+            });
+
+            ytdlp.on('close', (code) => {
+              if (code === 0) resolve();
+              else {
+                const errorMatch = stderrOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
+                const errorMessage = errorMatch ? errorMatch[1].trim() : `Failed to download video ${videoNum}`;
+                reject(new Error(errorMessage));
+              }
+            });
+
+            ytdlp.on('error', reject);
           });
 
-          ytdlp.on('close', (code) => {
-            if (code === 0) resolve();
-            else {
-              const errorMatch = stderrOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
-              const errorMessage = errorMatch ? errorMatch[1].trim() : `Failed to download video ${videoNum}`;
-              reject(new Error(errorMessage));
-            }
-          });
+          const tempFiles = fs.readdirSync(playlistDir);
+          const downloadedTemp = tempFiles.find(f => f.startsWith(`temp_${videoNum}.`));
+          if (downloadedTemp) {
+            tempPath = path.join(playlistDir, downloadedTemp);
+          }
+        }
 
-          ytdlp.on('error', reject);
-        });
-
-        const tempFiles = fs.readdirSync(playlistDir);
-        const downloadedTemp = tempFiles.find(f => f.startsWith(`temp_${videoNum}.`));
-
-        if (downloadedTemp) {
-          const tempPath = path.join(playlistDir, downloadedTemp);
-
+        if (tempPath && fs.existsSync(tempPath)) {
           sendProgress(downloadId, 'processing',
             `Processing ${videoNum}/${totalVideos}: ${videoTitle}`,
             ((videoNum - 0.5) / totalVideos) * 100, {
@@ -1954,9 +2060,16 @@ app.get('/api/download-playlist', async (req, res) => {
 
           await new Promise((resolve, reject) => {
             const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+            let ffmpegError = '';
+            ffmpeg.stderr.on('data', (data) => {
+              ffmpegError += data.toString();
+            });
             ffmpeg.on('close', (code) => {
               if (code === 0) resolve();
-              else reject(new Error(`Processing failed for video ${videoNum}`));
+              else {
+                console.error(`[${downloadId}] FFmpeg failed for video ${videoNum} (code ${code}):`, ffmpegError.substring(0, 500));
+                reject(new Error(`Processing failed for video ${videoNum} (code ${code})`));
+              }
             });
             ffmpeg.on('error', reject);
           });
@@ -1964,15 +2077,39 @@ app.get('/api/download-playlist', async (req, res) => {
           try { fs.unlinkSync(tempPath); } catch { }
 
           downloadedFiles.push(videoFile);
+          console.log(`[${downloadId}] Video ${videoNum} complete: ${safeTitle}`);
+        } else {
+          console.error(`[${downloadId}] No temp file found for video ${videoNum}`);
         }
 
       } catch (err) {
         console.error(`[${downloadId}] Error downloading video ${videoNum}:`, err.message);
+        const reason = toUserError(err.message);
+        failedVideos.push({ num: videoNum, title: videoTitle, reason });
+        sendProgress(downloadId, 'downloading',
+          `Skipped ${videoNum}/${totalVideos}: ${videoTitle}`,
+          ((videoNum - 1) / totalVideos) * 100, {
+          playlistTitle,
+          totalVideos,
+          currentVideo: videoNum,
+          currentVideoTitle: videoTitle,
+          format: isAudio ? audioFormat : `${quality} ${container}`,
+          failedVideos: failedVideos.slice(-50),
+          failedCount: failedVideos.length
+        });
+        if (err.message === 'Cancelled' || err.message === 'Download cancelled') {
+          throw err;
+        }
       }
     }
 
     if (downloadedFiles.length === 0) {
+      console.error(`[${downloadId}] Playlist failed completely. Errors: ${JSON.stringify(failedVideos)}`);
       throw new Error('No videos were successfully downloaded');
+    }
+    
+    if (failedVideos.length > 0) {
+      console.log(`[${downloadId}] Playlist partially complete: ${downloadedFiles.length}/${totalVideos} videos (${failedVideos.length} failed)`);
     }
 
     sendProgress(downloadId, 'zipping', `Creating zip file with ${downloadedFiles.length} videos...`, 95, {
@@ -2018,7 +2155,9 @@ app.get('/api/download-playlist', async (req, res) => {
       sendProgress(downloadId, 'complete', `Downloaded ${downloadedFiles.length} videos!`, 100, {
         playlistTitle,
         totalVideos,
-        downloadedCount: downloadedFiles.length
+        downloadedCount: downloadedFiles.length,
+        failedVideos: failedVideos.slice(-50),
+        failedCount: failedVideos.length
       });
       activeDownloads.delete(downloadId);
       activeProcesses.delete(downloadId);
@@ -2045,7 +2184,7 @@ app.get('/api/download-playlist', async (req, res) => {
     discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId: downloadId, url, error: err.message });
 
     if (!processInfo.cancelled) {
-      sendProgress(downloadId, 'error', err.message || 'Playlist download failed');
+      sendProgress(downloadId, 'error', toUserError(err.message || 'Playlist download failed'));
     }
 
     activeProcesses.delete(downloadId);
@@ -2056,7 +2195,7 @@ app.get('/api/download-playlist', async (req, res) => {
     setTimeout(() => cleanupJobFiles(downloadId), 2000);
 
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message || 'Playlist download failed' });
+      res.status(500).json({ error: toUserError(err.message || 'Playlist download failed') });
     }
   }
 });
@@ -3089,131 +3228,173 @@ async function fetchMetadataViaCobalt(videoUrl) {
   throw lastError || new Error('All Cobalt instances failed');
 }
 
-async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallback = null, abortSignal = null) {
+async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallback = null, abortSignal = null, options = {}) {
+  const { outputDir = TEMP_DIRS.download, maxRetries = 3, retryDelay = 2000 } = options;
   let lastError = null;
+  let attemptCount = 0;
+  const startTime = Date.now();
 
-  for (const apiUrl of COBALT_APIS) {
-    try {
-      if (abortSignal?.aborted) {
-        throw new Error('Cancelled');
-      }
-      
-      console.log(`[Cobalt] Trying: ${apiUrl}`);
-      
-      const headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      };
-      if (COBALT_API_KEY) {
-        headers['Authorization'] = `Api-Key ${COBALT_API_KEY}`;
-      }
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
+  for (let retry = 0; retry < maxRetries; retry++) {
+    for (const apiUrl of COBALT_APIS) {
+      attemptCount++;
+      try {
+        if (abortSignal?.aborted) {
+          throw new Error('Cancelled');
+        }
+        
+        console.log(`[Cobalt] [${jobId}] Attempt ${attemptCount} - Trying: ${apiUrl} (retry ${retry + 1}/${maxRetries})`);
+        
+        const headers = {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        };
+        if (COBALT_API_KEY) {
+          headers['Authorization'] = `Api-Key ${COBALT_API_KEY}`;
+        }
+        
+        const requestBody = {
           url: videoUrl,
           downloadMode: isAudio ? 'audio' : 'auto',
           filenameStyle: 'basic',
           videoQuality: '1080'
-        }),
-        signal: abortSignal
-      });
+        };
+        
+        console.log(`[Cobalt] [${jobId}] Request: ${JSON.stringify(requestBody)}`);
+        
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: abortSignal
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.status === 'error') {
-        throw new Error(data.error?.code || 'Cobalt error');
-      }
-
-      let downloadUrl = data.url;
-      if (data.status === 'tunnel' || data.status === 'redirect') {
-        downloadUrl = data.url;
-      } else if (data.status === 'picker' && data.picker?.length > 0) {
-        downloadUrl = data.picker[0].url;
-      }
-
-      if (!downloadUrl) {
-        throw new Error('No download URL from Cobalt');
-      }
-
-      const ext = isAudio ? 'mp3' : 'mp4';
-      const outputPath = path.join(TEMP_DIRS.download, `${jobId}-cobalt.${ext}`);
-      const partPath = outputPath + '.part';
-      
-      let startByte = 0;
-      if (fs.existsSync(partPath)) {
-        const stats = fs.statSync(partPath);
-        startByte = stats.size;
-        console.log(`[Cobalt] Resuming from byte ${startByte}`);
-      }
-      
-      const downloadHeaders = {};
-      if (startByte > 0) {
-        downloadHeaders['Range'] = `bytes=${startByte}-`;
-      }
-      
-      const fileResponse = await fetch(downloadUrl, { headers: downloadHeaders, signal: abortSignal });
-      
-      if (!fileResponse.ok && fileResponse.status !== 206) {
-        if (fileResponse.status === 416 && startByte > 0) {
-          fs.renameSync(partPath, outputPath);
-          console.log(`[Cobalt] File already complete`);
-          return { filePath: outputPath, ext, downloadUrl };
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'no body');
+          console.log(`[Cobalt] [${jobId}] HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+          throw new Error(`HTTP ${response.status}`);
         }
-        throw new Error(`Failed to download: HTTP ${fileResponse.status}`);
-      }
-      
-      const contentLength = parseInt(fileResponse.headers.get('content-length') || '0');
-      const totalSize = startByte + contentLength;
-      
-      const writeStream = fs.createWriteStream(partPath, { flags: startByte > 0 ? 'a' : 'w' });
-      const reader = fileResponse.body.getReader();
-      
-      let downloadedBytes = startByte;
-      
-      try {
-        while (true) {
-          if (abortSignal?.aborted) {
-            reader.cancel();
-            writeStream.destroy();
-            throw new Error('Cancelled');
-          }
-          
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          writeStream.write(Buffer.from(value));
-          downloadedBytes += value.length;
-          
-          if (progressCallback && totalSize > 0) {
-            const progress = Math.round((downloadedBytes / totalSize) * 100);
-            progressCallback(progress, downloadedBytes, totalSize);
-          }
+
+        const data = await response.json();
+        console.log(`[Cobalt] [${jobId}] Response status: ${data.status}`);
+        
+        if (data.status === 'error') {
+          const errorCode = data.error?.code || 'unknown';
+          const errorContext = data.error?.context || {};
+          console.log(`[Cobalt] [${jobId}] Error response: code=${errorCode}, context=${JSON.stringify(errorContext)}`);
+          throw new Error(`Cobalt error: ${errorCode}`);
         }
-      } catch (readErr) {
-        writeStream.destroy();
-        throw readErr;
+
+        let downloadUrl = data.url;
+        if (data.status === 'tunnel' || data.status === 'redirect') {
+          downloadUrl = data.url;
+        } else if (data.status === 'picker' && data.picker?.length > 0) {
+          downloadUrl = data.picker[0].url;
+          console.log(`[Cobalt] [${jobId}] Picker mode - selected first of ${data.picker.length} options`);
+        }
+
+        if (!downloadUrl) {
+          console.log(`[Cobalt] [${jobId}] No URL in response: ${JSON.stringify(data).substring(0, 300)}`);
+          throw new Error('No download URL from Cobalt');
+        }
+
+        const ext = isAudio ? 'mp3' : 'mp4';
+        const outputPath = path.join(outputDir, `${jobId}-cobalt.${ext}`);
+        const partPath = outputPath + '.part';
+        
+        let startByte = 0;
+        if (fs.existsSync(partPath)) {
+          const stats = fs.statSync(partPath);
+          startByte = stats.size;
+          console.log(`[Cobalt] [${jobId}] Resuming from byte ${startByte}`);
+        }
+        
+        const downloadHeaders = {};
+        if (startByte > 0) {
+          downloadHeaders['Range'] = `bytes=${startByte}-`;
+        }
+        
+        console.log(`[Cobalt] [${jobId}] Starting file download...`);
+        const fileResponse = await fetch(downloadUrl, { headers: downloadHeaders, signal: abortSignal });
+        
+        if (!fileResponse.ok && fileResponse.status !== 206) {
+          if (fileResponse.status === 416 && startByte > 0) {
+            fs.renameSync(partPath, outputPath);
+            console.log(`[Cobalt] [${jobId}] File already complete`);
+            return { filePath: outputPath, ext, downloadUrl };
+          }
+          console.log(`[Cobalt] [${jobId}] File download failed: HTTP ${fileResponse.status}`);
+          throw new Error(`File download failed: HTTP ${fileResponse.status}`);
+        }
+        
+        const contentLength = parseInt(fileResponse.headers.get('content-length') || '0');
+        const totalSize = startByte + contentLength;
+        console.log(`[Cobalt] [${jobId}] Content-Length: ${contentLength}, Total: ${totalSize}`);
+        
+        const writeStream = fs.createWriteStream(partPath, { flags: startByte > 0 ? 'a' : 'w' });
+        const reader = fileResponse.body.getReader();
+        
+        let downloadedBytes = startByte;
+        let lastProgressLog = 0;
+        
+        try {
+          while (true) {
+            if (abortSignal?.aborted) {
+              reader.cancel();
+              writeStream.destroy();
+              throw new Error('Cancelled');
+            }
+            
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            writeStream.write(Buffer.from(value));
+            downloadedBytes += value.length;
+            
+            if (progressCallback && totalSize > 0) {
+              const progress = Math.round((downloadedBytes / totalSize) * 100);
+              progressCallback(progress, downloadedBytes, totalSize);
+              
+              if (progress - lastProgressLog >= 25) {
+                console.log(`[Cobalt] [${jobId}] Progress: ${progress}% (${downloadedBytes}/${totalSize})`);
+                lastProgressLog = progress;
+              }
+            }
+          }
+        } catch (readErr) {
+          writeStream.destroy();
+          console.log(`[Cobalt] [${jobId}] Stream read error: ${readErr.message}`);
+          throw readErr;
+        }
+        
+        writeStream.end();
+        await new Promise(resolve => writeStream.on('finish', resolve));
+        
+        fs.renameSync(partPath, outputPath);
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        const fileSize = fs.statSync(outputPath).size;
+        console.log(`[Cobalt] [${jobId}] Success via ${apiUrl} in ${duration}s (${(fileSize / 1024 / 1024).toFixed(1)}MB)`);
+        return { filePath: outputPath, ext, downloadUrl };
+
+      } catch (err) {
+        console.log(`[Cobalt] [${jobId}] ${apiUrl} failed: ${err.message}`);
+        lastError = err;
+        
+        if (err.message === 'Cancelled') {
+          throw err;
+        }
       }
-      
-      writeStream.end();
-      await new Promise(resolve => writeStream.on('finish', resolve));
-      
-      fs.renameSync(partPath, outputPath);
-
-      console.log(`[Cobalt] Success via ${apiUrl}`);
-      return { filePath: outputPath, ext, downloadUrl };
-
-    } catch (err) {
-      console.log(`[Cobalt] ${apiUrl} failed: ${err.message}`);
-      lastError = err;
+    }
+    
+    if (retry < maxRetries - 1) {
+      const delay = retryDelay * Math.pow(2, retry);
+      console.log(`[Cobalt] [${jobId}] All instances failed, retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
+  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[Cobalt] [${jobId}] All ${attemptCount} attempts failed after ${duration}s. Last error: ${lastError?.message}`);
   throw lastError || new Error('All Cobalt instances failed');
 }
 
@@ -3284,14 +3465,28 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
         job.message = 'Downloading via Cobalt...';
         
         try {
-          const cobaltResult = await downloadViaCobalt(url, jobId, isAudio);
+          const cobaltResult = await downloadViaCobalt(url, jobId, isAudio, (progress) => {
+            job.progress = progress;
+          });
           downloadedPath = cobaltResult.filePath;
           downloadedExt = cobaltResult.ext;
           usedCobalt = true;
           job.progress = 100;
         } catch (cobaltErr) {
           console.error(`[Bot] Cobalt failed for YouTube:`, cobaltErr.message);
-          throw new Error('YouTube download failed via Cobalt');
+          
+          let userFriendlyError = 'YouTube download failed';
+          if (cobaltErr.message.includes('content.video.unavailable')) {
+            userFriendlyError = 'Video unavailable or private';
+          } else if (cobaltErr.message.includes('content.video.live')) {
+            userFriendlyError = 'Live streams cannot be downloaded';
+          } else if (cobaltErr.message.includes('content.video.age')) {
+            userFriendlyError = 'Age-restricted video';
+          } else if (cobaltErr.message.includes('rate')) {
+            userFriendlyError = 'Rate limited - try again later';
+          }
+          
+          throw new Error(userFriendlyError);
         }
       } else {
         const ytdlpArgs = [
@@ -3362,9 +3557,17 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
         });
 
         const files = fs.readdirSync(TEMP_DIRS.bot);
-        const downloadedFile = files.find(f => f.startsWith(`bot-${jobId}`) && !f.includes('-final') && !f.includes('-cobalt'));
+        const downloadedFile = files.find(f => 
+          f.startsWith(`bot-${jobId}`) && 
+          !f.includes('-final') && 
+          !f.includes('-cobalt') &&
+          !f.endsWith('.part') &&
+          !f.includes('.part-Frag')
+        );
 
         if (!downloadedFile) {
+          const partialFiles = files.filter(f => f.startsWith(`bot-${jobId}`));
+          console.error(`[Bot ${jobId}] No complete file. Partials: ${partialFiles.join(', ') || 'none'}`);
           throw new Error('Downloaded file not found');
         }
 
@@ -3373,6 +3576,7 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
       }
 
       if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+        console.error(`[Bot ${jobId}] File missing: ${downloadedPath}`);
         throw new Error('Downloaded file not found');
       }
 
@@ -4701,9 +4905,17 @@ async function resumeDownload(jobId, job) {
       });
       
       const files = fs.readdirSync(TEMP_DIRS.download);
-      const downloadedFile = files.find(f => f.startsWith(jobId) && !f.includes('-final') && !f.includes('-cobalt'));
+      const downloadedFile = files.find(f => 
+        f.startsWith(jobId) && 
+        !f.includes('-final') && 
+        !f.includes('-cobalt') &&
+        !f.endsWith('.part') &&
+        !f.includes('.part-Frag')
+      );
       
       if (!downloadedFile) {
+        const partialFiles = files.filter(f => f.startsWith(jobId));
+        console.error(`[${jobId}] Resume: No complete file. Partials: ${partialFiles.join(', ') || 'none'}`);
         throw new Error('Downloaded file not found');
       }
       

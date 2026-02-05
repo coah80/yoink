@@ -1854,6 +1854,22 @@ https://youtube.com/watch?v=..."></textarea>
             ? `<span class="queue-item-format">${item.formatDisplay}</span>`
             : '';
 
+          const failedDetails = item.isPlaylist && item.failedVideos && item.failedVideos.length
+            ? `
+                <div class="queue-item-failed">
+                  <div class="queue-item-failed-header">failed videos (${item.failedCount || item.failedVideos.length})</div>
+                  <div class="queue-item-failed-list">
+                    ${item.failedVideos.map(v => `
+                      <div class="queue-item-failed-item">
+                        <div class="queue-item-failed-num">#${v.num}</div>
+                        <div>${escapeHtml(v.title || 'Video')} — ${escapeHtml(v.reason || 'Download failed')}</div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `
+            : '';
+
           return `
             <div class="queue-item" data-id="${item.id}">
               <div class="queue-item-header">
@@ -1915,6 +1931,7 @@ https://youtube.com/watch?v=..."></textarea>
                   <div class="queue-item-progress-fill" style="width: ${item.progress || 0}%"></div>
                 </div>
               ` : ''}
+              ${failedDetails}
             </div>
           `;
         }).join('');
@@ -2391,7 +2408,8 @@ https://youtube.com/watch?v=..."></textarea>
           videoCount,
           currentVideo: 0,
           currentVideoTitle: '',
-          formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
+          formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`),
+          failedVideos: []
         };
         addToQueue(queueItem);
 
@@ -2424,6 +2442,12 @@ https://youtube.com/watch?v=..."></textarea>
               }
               if (data.downloadedCount !== undefined) {
                 item.downloadedCount = data.downloadedCount;
+              }
+              if (data.failedVideos !== undefined) {
+                item.failedVideos = data.failedVideos;
+              }
+              if (data.failedCount !== undefined) {
+                item.failedCount = data.failedCount;
               }
               if (data.format !== undefined) {
                 item.formatDisplay = data.format;
