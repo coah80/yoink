@@ -33,12 +33,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignore API calls
   if (url.pathname.startsWith('/api/')) {
     return;
   }
 
-  // Ignore non-GET requests (analytics, connect, etc.)
   if (event.request.method !== 'GET') {
     return;
   }

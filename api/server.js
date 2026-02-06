@@ -3676,9 +3676,7 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
 
             job.message = 'Downloading full video...';
 
-            // Download full video
             const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, jobId, isAudio, (progress) => {
-              // Scale progress to 10-70% like main endpoint
               const scaledProgress = 10 + (progress * 0.6);
               job.progress = scaledProgress;
             });
@@ -3710,7 +3708,6 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
               ffmpeg.on('error', (err) => reject(new Error(`ffmpeg error: ${err.message}`)));
             });
 
-            // Clean up full video
             try { fs.unlinkSync(fullVideoPath); } catch (e) { console.error('Failed to cleanup full video:', e); }
 
             downloadedPath = clipPath;
@@ -3747,7 +3744,7 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
               userFriendlyError = 'Age-restricted video';
             } else if (cobaltErr.message.includes('rate')) {
               userFriendlyError = 'Rate limited - try again later';
-            } else if (cobaltErr.message.includes('api.link.unsupported')) { // Handle clip error explicitly if logic fails
+            } else if (cobaltErr.message.includes('api.link.unsupported')) {
               userFriendlyError = 'Link processing failed';
             }
 
