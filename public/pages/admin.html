@@ -214,6 +214,147 @@
       font-size: 0.8rem;
       margin-top: 24px;
     }
+
+    .banner-control {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+
+    .banner-control h3 {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--purple-400);
+    }
+
+    .banner-toggle {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .banner-toggle label {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 50px;
+      height: 26px;
+      background: var(--border);
+      border-radius: 13px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .toggle-switch.active {
+      background: var(--purple-500);
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: left 0.3s;
+    }
+
+    .toggle-switch.active::after {
+      left: 27px;
+    }
+
+    .banner-input-group {
+      margin-bottom: 16px;
+    }
+
+    .banner-input-group label {
+      display: block;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+    }
+
+    .banner-textarea {
+      width: 100%;
+      padding: 12px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .banner-select {
+      width: 100%;
+      padding: 12px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      background: var(--surface-elevated);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text);
+    }
+
+    .banner-save-btn {
+      padding: 12px 24px;
+      font-family: var(--font-heading);
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, var(--purple-500), var(--purple-600));
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .banner-save-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+    }
+
+    .banner-preview {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      font-size: 0.95rem;
+      display: none;
+    }
+
+    .banner-preview.show {
+      display: block;
+    }
+
+    .banner-preview.info {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: rgb(96, 165, 250);
+    }
+
+    .banner-preview.warning {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: rgb(251, 191, 36);
+    }
+
+    .banner-preview.error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: rgb(248, 113, 113);
+    }
   </style>
 </head>
 <body>
@@ -276,6 +417,28 @@
           </div>
         </div>
 
+        <div class="banner-control">
+          <h3>📢 global banner</h3>
+          <div class="banner-toggle">
+            <label>enabled</label>
+            <div class="toggle-switch" id="bannerToggle"></div>
+          </div>
+          <div class="banner-input-group">
+            <label>message</label>
+            <textarea class="banner-textarea" id="bannerMessage" placeholder="e.g., We're experiencing some issues with YouTube downloads. Working on a fix!"></textarea>
+          </div>
+          <div class="banner-input-group">
+            <label>type</label>
+            <select class="banner-select" id="bannerType">
+              <option value="info">ℹ️ Info (blue)</option>
+              <option value="warning">⚠️ Warning (yellow)</option>
+              <option value="error">🚨 Error (red)</option>
+            </select>
+          </div>
+          <button class="banner-save-btn" id="bannerSaveBtn">save banner</button>
+          <div class="banner-preview" id="bannerPreview"></div>
+        </div>
+
         <div class="data-grid">
           <div class="data-card">
             <h3>📁 favorite formats</h3>
@@ -328,11 +491,13 @@
         });
 
         const data = await res.json();
-        
+
         if (data.success) {
           isAuthenticated = true;
+          adminToken = data.token;
           showDashboard();
           loadAnalytics();
+          loadBanner();
         } else {
           loginError.style.display = 'block';
           passwordInput.value = '';
@@ -507,6 +672,83 @@
     passwordInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') login();
     });
+    // Banner controls
+    const bannerToggle = document.getElementById('bannerToggle');
+    const bannerMessage = document.getElementById('bannerMessage');
+    const bannerType = document.getElementById('bannerType');
+    const bannerSaveBtn = document.getElementById('bannerSaveBtn');
+    const bannerPreview = document.getElementById('bannerPreview');
+
+    let bannerState = { enabled: false, message: '', type: 'info' };
+    let adminToken = null;
+
+    async function loadBanner() {
+      try {
+        const res = await fetch(`${API_BASE}/api/banner`);
+        const data = await res.json();
+        bannerState = data;
+
+        bannerToggle.classList.toggle('active', data.enabled);
+        bannerMessage.value = data.message || '';
+        bannerType.value = data.type || 'info';
+        updateBannerPreview();
+      } catch (e) {
+        console.error('Failed to load banner:', e);
+      }
+    }
+
+    async function saveBanner() {
+      if (!adminToken) return;
+
+      const newState = {
+        enabled: bannerToggle.classList.contains('active'),
+        message: bannerMessage.value.trim(),
+        type: bannerType.value
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/banner`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify(newState)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          bannerState = data.banner;
+          alert('✅ Banner updated!');
+        }
+      } catch (e) {
+        alert('❌ Failed to save banner');
+        console.error('Failed to save banner:', e);
+      }
+    }
+
+    function updateBannerPreview() {
+      const message = bannerMessage.value.trim();
+      const type = bannerType.value;
+      const enabled = bannerToggle.classList.contains('active');
+
+      if (message && enabled) {
+        bannerPreview.textContent = message;
+        bannerPreview.className = `banner-preview show ${type}`;
+      } else {
+        bannerPreview.className = 'banner-preview';
+      }
+    }
+
+    bannerToggle.addEventListener('click', () => {
+      bannerToggle.classList.toggle('active');
+      updateBannerPreview();
+    });
+
+    bannerMessage.addEventListener('input', updateBannerPreview);
+    bannerType.addEventListener('change', updateBannerPreview);
+    bannerSaveBtn.addEventListener('click', saveBanner);
+
     refreshBtn.addEventListener('click', loadAnalytics);
     logoutBtn.addEventListener('click', logout);
 
