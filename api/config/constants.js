@@ -99,10 +99,9 @@ const BOT_DOWNLOAD_EXPIRY = 5 * 60 * 1000;
 // Cobalt Configuration
 const COBALT_API_KEY = process.env.COBALT_API_KEY;
 const COBALT_APIS = [
-  'https://cobalt-api.meowing.de',
-  'https://cessi-c.meowing.de',
+  'https://nuko-c.meowing.de',
   'https://subito-c.meowing.de',
-  'https://nuko-c.meowing.de'
+  'https://cessi-c.meowing.de'
 ];
 
 // Heavy Job Types
