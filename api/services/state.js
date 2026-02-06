@@ -19,6 +19,7 @@ const rateLimitStore = new Map();
 const botDownloads = new Map();
 const asyncJobs = new Map();
 const uploadSessions = new Map();
+const expiringFiles = new Map();
 
 const activeJobsByType = {
   download: 0,
@@ -171,6 +172,8 @@ function getQueueStatus() {
   };
 }
 
+const lastLoggedProgress = new Map();
+
 function sendProgress(downloadId, stage, message, progress = null, extra = null) {
   const res = activeDownloads.get(downloadId);
   if (res) {
@@ -180,7 +183,20 @@ function sendProgress(downloadId, stage, message, progress = null, extra = null)
     data.queueStatus = getQueueStatus();
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
-  console.log(`[${downloadId}] ${stage}: ${message}`);
+  
+  const lastProg = lastLoggedProgress.get(downloadId) || -1;
+  const isProgressMessage = progress !== null && message.includes('%');
+  
+  if (isProgressMessage) {
+    if (progress >= 100 || progress - lastProg >= 25) {
+      console.log(`[${downloadId.slice(0, 8)}] ${stage}: ${message}`);
+      lastLoggedProgress.set(downloadId, progress);
+      if (progress >= 100) lastLoggedProgress.delete(downloadId);
+    }
+  } else {
+    console.log(`[${downloadId.slice(0, 8)}] ${stage}: ${message}`);
+    lastLoggedProgress.delete(downloadId);
+  }
 }
 
 function sendQueuePosition(progressId) {
@@ -255,6 +271,62 @@ function startSessionCleanup(cleanupJobFiles) {
   }, 10000);
 }
 
+const PREVIEW_EXPIRY_MS = 5 * 60 * 1000;
+const DOWNLOAD_EXPIRY_MS = 20 * 60 * 1000;
+
+function createExpiringFile(filePath, filename, mimeType, fileSize, expiryMs = DOWNLOAD_EXPIRY_MS) {
+  const token = uuidv4();
+  const expiresAt = Date.now() + expiryMs;
+  
+  expiringFiles.set(token, {
+    filePath,
+    filename,
+    mimeType,
+    fileSize,
+    expiresAt,
+    createdAt: Date.now()
+  });
+  
+  setTimeout(() => {
+    const file = expiringFiles.get(token);
+    if (file) {
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(file.filePath)) {
+          fs.unlinkSync(file.filePath);
+          console.log(`[Expiry] Deleted expired file: ${file.filename}`);
+        }
+      } catch (e) {}
+      expiringFiles.delete(token);
+    }
+  }, expiryMs);
+  
+  return { token, expiresAt };
+}
+
+function getExpiringFile(token) {
+  const file = expiringFiles.get(token);
+  if (!file) return null;
+  if (Date.now() > file.expiresAt) {
+    expiringFiles.delete(token);
+    return null;
+  }
+  return file;
+}
+
+function deleteExpiringFile(token) {
+  const file = expiringFiles.get(token);
+  if (file) {
+    try {
+      const fs = require('fs');
+      if (fs.existsSync(file.filePath)) {
+        fs.unlinkSync(file.filePath);
+      }
+    } catch (e) {}
+    expiringFiles.delete(token);
+  }
+}
+
 module.exports = {
   activeDownloads,
   activeProcesses,
@@ -269,6 +341,7 @@ module.exports = {
   asyncJobs,
   uploadSessions,
   activeJobsByType,
+  expiringFiles,
   
   setGalleryDlAvailable,
   isGalleryDlAvailable,
@@ -290,5 +363,10 @@ module.exports = {
   removePendingJob,
   incrementJobType,
   decrementJobType,
-  startSessionCleanup
+  startSessionCleanup,
+  createExpiringFile,
+  getExpiringFile,
+  deleteExpiringFile,
+  PREVIEW_EXPIRY_MS,
+  DOWNLOAD_EXPIRY_MS
 };

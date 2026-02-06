@@ -22,7 +22,7 @@ const {
   botDownloads
 } = require('../services/state');
 
-const { downloadViaCobalt } = require('../services/cobalt');
+const { downloadViaCobalt, streamClipFromCobalt } = require('../services/cobalt');
 const { parseYouTubeClip } = require('../services/youtube');
 const { getCookiesArgs } = require('../utils/cookies');
 const { validateUrl } = require('../utils/validation');
@@ -109,46 +109,78 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
           const clipData = await parseYouTubeClip(url);
           console.log(`[Bot] Clip parsed: video ${clipData.videoId}, ${clipData.startTimeMs}-${clipData.endTimeMs}ms`);
 
-          job.message = 'Downloading full video...';
-
-          const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, jobId, isAudio, (progress) => {
-            job.progress = Math.floor(progress * 0.7);
-          });
-
-          const fullVideoPath = cobaltResult.filePath;
-          const ext = cobaltResult.ext;
-
-          console.log(`[Bot] Full video downloaded, trimming to clip...`);
-          job.message = 'Trimming clip...';
-          job.progress = 75;
-
-          const clipPath = path.join(TEMP_DIRS.bot, `bot-${jobId}-clip.${ext}`);
+          job.message = 'Stream trimming clip...';
+          
           const startTime = clipData.startTimeMs / 1000;
-          const duration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
+          const endTime = clipData.endTimeMs / 1000;
+          const clipPath = path.join(TEMP_DIRS.bot, `bot-${jobId}-clip.mp4`);
 
-          await new Promise((resolve, reject) => {
-            const ffmpeg = spawn('ffmpeg', [
-              '-ss', startTime.toString(),
-              '-i', fullVideoPath,
-              '-t', duration.toString(),
-              '-c', 'copy',
-              '-avoid_negative_ts', 'make_zero',
-              '-y',
-              clipPath
-            ]);
-            ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)));
-            ffmpeg.on('error', reject);
-          });
+          try {
+            const result = await streamClipFromCobalt(
+              clipData.fullVideoUrl,
+              jobId,
+              startTime,
+              endTime,
+              clipPath,
+              (progress) => {
+                job.progress = progress;
+                job.message = `Trimming... ${progress}%`;
+              }
+            );
 
-          try { fs.unlinkSync(fullVideoPath); } catch (e) {}
+            downloadedPath = result.filePath;
+            downloadedExt = result.ext;
+            usedCobalt = true;
+            job.progress = 100;
+          } catch (streamErr) {
+            console.error(`[Bot] Stream trim failed:`, streamErr.message);
+            console.log(`[Bot] Falling back to full download + trim...`);
+            
+            job.message = 'Downloading full video (fallback)...';
+            
+            const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, jobId, false, (progress) => {
+              job.progress = Math.floor(progress * 0.8);
+              job.message = `Downloading... ${job.progress}%`;
+            });
 
-          downloadedPath = clipPath;
-          downloadedExt = ext;
-          usedCobalt = true;
-          job.progress = 100;
+            job.message = 'Trimming clip...';
+            job.progress = 85;
+            
+            const duration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
+            const trimmedPath = path.join(TEMP_DIRS.bot, `bot-${jobId}-trimmed.mp4`);
+
+            await new Promise((resolve, reject) => {
+              const ffmpeg = spawn('ffmpeg', [
+                '-ss', startTime.toString(),
+                '-i', cobaltResult.filePath,
+                '-t', duration.toString(),
+                '-c', 'copy',
+                '-avoid_negative_ts', 'make_zero',
+                '-y',
+                trimmedPath
+              ]);
+              ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Trim failed')));
+              ffmpeg.on('error', reject);
+            });
+
+            try { fs.unlinkSync(cobaltResult.filePath); } catch {}
+            
+            downloadedPath = trimmedPath;
+            downloadedExt = 'mp4';
+            usedCobalt = true;
+            job.progress = 100;
+          }
 
         } catch (clipErr) {
-          console.error(`[Bot] Clip processing failed:`, clipErr.message);
+          console.error(`[Bot] Clip download failed:`, clipErr.message);
+          const errMsg = clipErr.message || '';
+          if (errMsg.includes('too_long') || errMsg.includes('content.too_long')) {
+            throw new Error('Video is too long (over 3 hours). Clips from very long videos are not supported.');
+          } else if (errMsg.includes('youtube.login') || errMsg.includes('api.youtube.login')) {
+            throw new Error('This video requires YouTube login to access.');
+          } else if (errMsg.includes('unavailable')) {
+            throw new Error('Video is unavailable or private.');
+          }
           throw new Error(`Clip download failed: ${clipErr.message}`);
         }
 

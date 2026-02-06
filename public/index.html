@@ -898,6 +898,52 @@
       margin-right: 6px;
     }
 
+    .queue-item-file-links {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+
+    .file-link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+
+    .file-link-btn.preview-btn {
+      background: var(--purple-500);
+      color: white;
+    }
+
+    .file-link-btn.preview-btn:hover {
+      background: var(--purple-400);
+    }
+
+    .file-link-btn.download-btn {
+      background: var(--green-500, #22c55e);
+      color: white;
+    }
+
+    .file-link-btn.download-btn:hover {
+      background: var(--green-400, #4ade80);
+    }
+
+    .file-link-expiry {
+      color: var(--text-muted);
+      font-size: 11px;
+      margin-left: auto;
+    }
+
     footer {
       padding: 20px 24px;
       display: flex;
@@ -2035,6 +2081,26 @@ https://youtube.com/watch?v=..."></textarea>
                   ${item.logs.map(l => `<div class="queue-item-log"><span class="queue-item-log-time">${l.time}</span>${escapeHtml(l.msg)}</div>`).join('')}
                 </div>
               ` : ''}
+              ${item.fileLinks ? `
+                <div class="queue-item-file-links">
+                  <a href="${item.fileLinks.preview}" target="_blank" class="file-link-btn preview-btn" title="Preview in browser">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                    </svg>
+                    Preview
+                  </a>
+                  <a href="${item.fileLinks.download}" class="file-link-btn download-btn" title="Download file">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download
+                  </a>
+                  <span class="file-link-expiry">Expires: ${new Date(item.fileLinks.expiresAt).toLocaleTimeString()}</span>
+                </div>
+              ` : ''}
               ${failedDetails}
             </div>
           `;
@@ -2330,17 +2396,25 @@ https://youtube.com/watch?v=..."></textarea>
             if (data.currentVideoTitle !== undefined) queueItem.currentVideoTitle = data.currentVideoTitle;
             if (data.format !== undefined) queueItem.formatDisplay = data.format;
             if (data.downloadedCount !== undefined) queueItem.downloadedCount = data.downloadedCount;
+            if (data.fileLinks) queueItem.fileLinks = data.fileLinks;
             renderQueue();
 
             if (data.stage === 'complete') {
               queueItem.endTime = Date.now();
               const elapsed = queueItem.startTime ? Math.floor((queueItem.endTime - queueItem.startTime) / 1000) : 0;
               const timeStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
-              const msg = queueItem.format === 'images' ? 'Gallery download complete!' : (queueItem.isPlaylist ? 'Playlist download complete!' : `Download complete! (${timeStr})`);
-              showToast(msg, 'success');
+              
+              if (data.fileLinks) {
+                showToast(`File ready! Expires in ${Math.floor(data.fileLinks.expiresIn / 60)} min`, 'success');
+              } else {
+                const msg = queueItem.format === 'images' ? 'Gallery download complete!' : (queueItem.isPlaylist ? 'Playlist download complete!' : `Download complete! (${timeStr})`);
+                showToast(msg, 'success');
+              }
               eventSource.close();
               stopHeartbeat(heartbeatJobId);
-              setTimeout(() => removeFromQueue(item.id), 5000);
+              if (!data.fileLinks) {
+                setTimeout(() => removeFromQueue(item.id), 5000);
+              }
             } else if (data.stage === 'error') {
               showToast(data.message, 'error');
               eventSource.close();
