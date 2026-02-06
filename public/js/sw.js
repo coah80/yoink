@@ -66,7 +66,9 @@ self.addEventListener('fetch', (event) => {
         }).catch(() => { });
         return cachedResponse;
       }
-      return fetch(event.request);
+      return fetch(event.request).catch(() => {
+        return null;
+      });
     })
   );
 });
