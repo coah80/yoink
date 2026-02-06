@@ -255,7 +255,7 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
             downloadedBytes += value.length;
 
             if (progressCallback && totalSize > 0) {
-              const progress = Math.round((downloadedBytes / totalSize) * 100);
+              const progress = Math.min(100, Math.round((downloadedBytes / totalSize) * 100));
               progressCallback(progress, downloadedBytes, totalSize);
 
               if (progress - lastProgressLog >= 25) {

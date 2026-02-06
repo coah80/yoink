@@ -42,66 +42,62 @@ router.get('/api/metadata', async (req, res) => {
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
   const isClip = url.includes('/clip/');
 
-  if (isYouTube && !downloadPlaylist) {
-    console.log('[Metadata] YouTube detected, using Cobalt directly...');
-
-    if (isClip) {
+  if (isClip) {
+    try {
+      console.log('[Metadata] Detected YouTube clip, parsing...');
+      const clipData = await parseYouTubeClip(url);
+      const clipDuration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
+      
       try {
-        console.log('[Metadata] Detected YouTube clip, parsing...');
-        const clipData = await parseYouTubeClip(url);
-
-        const clipDuration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
-
-        try {
-          const cobaltMeta = await fetchMetadataViaCobalt(clipData.fullVideoUrl);
-          const originalDurationSec = parseInt(cobaltMeta.duration) || 0;
-          
-          let clipWarning = 'Clip will be downloaded by fetching the full video and trimming it.';
-          if (originalDurationSec > 1800) {
-            clipWarning = `Warning: The full video is ${Math.round(originalDurationSec / 60)} minutes long. This may take a very long time to download.`;
-          } else if (originalDurationSec > 600) {
-            clipWarning = `The full video is ${Math.round(originalDurationSec / 60)} minutes. Download may take a while.`;
-          }
-          
-          return res.json({
-            ...cobaltMeta,
-            isClip: true,
-            clipId: url.match(/\/clip\/([^/?#]+)/)?.[1],
-            clipStartTime: clipData.startTimeMs / 1000,
-            clipEndTime: clipData.endTimeMs / 1000,
-            clipDuration: clipDuration,
-            duration: clipDuration,
-            originalVideoId: clipData.videoId,
-            originalDuration: cobaltMeta.duration,
-            fullVideoUrl: clipData.fullVideoUrl,
-            usingCookies: false,
-            clipNote: clipWarning
-          });
-        } catch (cobaltErr) {
-          console.log('[Metadata] Cobalt failed for clip, returning basic metadata');
-          return res.json({
-            isClip: true,
-            clipId: url.match(/\/clip\/([^/?#]+)/)?.[1],
-            clipStartTime: clipData.startTimeMs / 1000,
-            clipEndTime: clipData.endTimeMs / 1000,
-            clipDuration: clipDuration,
-            duration: clipDuration,
-            originalVideoId: clipData.videoId,
-            fullVideoUrl: clipData.fullVideoUrl,
-            title: `YouTube Clip`,
-            thumbnail: `https://i.ytimg.com/vi/${clipData.videoId}/maxresdefault.jpg`,
-            usingCookies: false,
-            clipNote: 'Clip will be downloaded by fetching the full video and trimming it. This may take a while depending on video length.'
-          });
+        const cobaltMeta = await fetchMetadataViaCobalt(clipData.fullVideoUrl);
+        const originalDurationSec = parseInt(cobaltMeta.duration) || 0;
+        
+        let clipWarning = 'Clip will download full video then trim to clip portion.';
+        if (originalDurationSec > 1800) {
+          clipWarning = `Warning: Full video is ${Math.round(originalDurationSec / 60)} min. This will take a long time.`;
+        } else if (originalDurationSec > 600) {
+          clipWarning = `Full video is ${Math.round(originalDurationSec / 60)} min. Download may take a while.`;
         }
-      } catch (clipErr) {
-        console.error('[Metadata] Clip parsing failed:', clipErr.message);
-        return res.status(400).json({
-          error: 'Could not parse YouTube clip. The clip URL may be invalid or YouTube is blocking the request.',
-          clipUnsupported: true
+        
+        return res.json({
+          ...cobaltMeta,
+          isClip: true,
+          clipStartTime: clipData.startTimeMs / 1000,
+          clipEndTime: clipData.endTimeMs / 1000,
+          clipDuration,
+          duration: clipDuration,
+          originalVideoId: clipData.videoId,
+          originalDuration: cobaltMeta.duration,
+          fullVideoUrl: clipData.fullVideoUrl,
+          usingCookies: false,
+          clipNote: clipWarning
+        });
+      } catch (cobaltErr) {
+        return res.json({
+          isClip: true,
+          clipStartTime: clipData.startTimeMs / 1000,
+          clipEndTime: clipData.endTimeMs / 1000,
+          clipDuration,
+          duration: clipDuration,
+          originalVideoId: clipData.videoId,
+          fullVideoUrl: clipData.fullVideoUrl,
+          title: 'YouTube Clip',
+          thumbnail: `https://i.ytimg.com/vi/${clipData.videoId}/maxresdefault.jpg`,
+          usingCookies: false,
+          clipNote: 'Clip will download full video then trim to clip portion.'
         });
       }
+    } catch (clipErr) {
+      console.error('[Metadata] Clip parsing failed:', clipErr.message);
+      return res.status(400).json({
+        error: 'Could not parse YouTube clip. Try using the full video URL instead.',
+        clipUnsupported: true
+      });
     }
+  }
+
+  if (isYouTube && !downloadPlaylist) {
+    console.log('[Metadata] YouTube detected, using Cobalt directly...');
 
     try {
       const cobaltMeta = await fetchMetadataViaCobalt(url);

@@ -112,8 +112,7 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
           job.message = 'Downloading full video...';
 
           const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, jobId, isAudio, (progress) => {
-            const scaledProgress = 10 + (progress * 0.6);
-            job.progress = scaledProgress;
+            job.progress = Math.floor(progress * 0.7);
           });
 
           const fullVideoPath = cobaltResult.filePath;
@@ -121,31 +120,27 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
 
           console.log(`[Bot] Full video downloaded, trimming to clip...`);
           job.message = 'Trimming clip...';
-          job.progress = 70;
+          job.progress = 75;
 
           const clipPath = path.join(TEMP_DIRS.bot, `bot-${jobId}-clip.${ext}`);
           const startTime = clipData.startTimeMs / 1000;
-          const endTime = clipData.endTimeMs / 1000;
-
-          const ffmpegArgs = [
-            '-ss', startTime.toString(),
-            '-i', fullVideoPath,
-            '-t', (endTime - startTime).toString(),
-            '-c:v', 'libx264',
-            '-c:a', 'copy',
-            '-preset', 'fast',
-            '-avoid_negative_ts', 'make_zero',
-            '-y',
-            clipPath
-          ];
+          const duration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
 
           await new Promise((resolve, reject) => {
-            const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-            ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited with code ${code}`)));
-            ffmpeg.on('error', (err) => reject(new Error(`ffmpeg error: ${err.message}`)));
+            const ffmpeg = spawn('ffmpeg', [
+              '-ss', startTime.toString(),
+              '-i', fullVideoPath,
+              '-t', duration.toString(),
+              '-c', 'copy',
+              '-avoid_negative_ts', 'make_zero',
+              '-y',
+              clipPath
+            ]);
+            ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)));
+            ffmpeg.on('error', reject);
           });
 
-          try { fs.unlinkSync(fullVideoPath); } catch (e) { console.error('Failed to cleanup full video:', e); }
+          try { fs.unlinkSync(fullVideoPath); } catch (e) {}
 
           downloadedPath = clipPath;
           downloadedExt = ext;
@@ -153,27 +148,8 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
           job.progress = 100;
 
         } catch (clipErr) {
-          console.error(`[Bot] Clip processing failed:`, clipErr);
-          
-          console.log(`[Bot] Falling back to Cobalt for clip download...`);
-          job.message = 'Retrying with Cobalt...';
-          job.progress = 0;
-          
-          try {
-            const cobaltResult = await downloadViaCobalt(url, jobId, isAudio, (progress) => {
-              job.progress = progress;
-            });
-
-            downloadedPath = cobaltResult.filePath;
-            downloadedExt = cobaltResult.ext;
-            usedCobalt = true;
-            job.progress = 100;
-            console.log(`[Bot] Clip downloaded via Cobalt fallback`);
-
-          } catch (fallbackErr) {
-            console.error(`[Bot] Cobalt fallback also failed:`, fallbackErr);
-            throw new Error(`Clip download failed: ${clipErr.message}`);
-          }
+          console.error(`[Bot] Clip processing failed:`, clipErr.message);
+          throw new Error(`Clip download failed: ${clipErr.message}`);
         }
 
       } else {
