@@ -2031,10 +2031,14 @@ https://youtube.com/watch?v=..."></textarea>
             if (metadata.usingCookies) {
               showToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
             }
+            if (metadata.clipNote) {
+              const isWarning = metadata.clipNote.toLowerCase().includes('warning') || metadata.originalDuration > 600;
+              showToast(metadata.clipNote, isWarning ? 'warning' : 'info', 6000);
+            }
           } else if (!metaRes.ok && contentType && contentType.includes('application/json')) {
             const err = await metaRes.json();
             if (err.clipUnsupported) {
-              showToast('YouTube clips are not supported. YouTube blocks direct clip downloads. Please download the full video and trim it yourself.', 'error', 10000);
+              showToast('Could not parse YouTube clip. Try using the full video URL instead.', 'error', 8000);
               return null;
             }
             throw new Error(err.error || 'Metadata fetch failed');
@@ -2384,8 +2388,8 @@ https://youtube.com/watch?v=..."></textarea>
             if (contentType && contentType.includes('application/json')) {
               const err = await metaRes.json();
               if (err.clipUnsupported) {
-                setStatus('error', 'YouTube clips are not supported');
-                showToast('YouTube clips are not supported. YouTube blocks direct clip downloads. Please download the full video and trim it yourself.', 'error', 10000);
+                setStatus('error', 'Could not parse YouTube clip');
+                showToast('Could not parse YouTube clip. Try using the full video URL instead.', 'error', 8000);
                 yoinkBtn.classList.remove('loading');
                 return;
               }
