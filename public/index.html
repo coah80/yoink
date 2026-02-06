@@ -823,6 +823,18 @@
       text-transform: uppercase;
     }
 
+    .queue-item-timer {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 6px;
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+      font-size: 0.7rem;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      font-family: monospace;
+    }
+
     footer {
       padding: 20px 24px;
       display: flex;
@@ -1541,6 +1553,15 @@ https://youtube.com/watch?v=..."></textarea>
     let queue = [];
     let settings = loadSettings();
 
+    setInterval(() => {
+      const hasActiveDownloads = queue.some(item => 
+        ['starting', 'downloading', 'processing', 'remuxing', 'sending', 'zipping', 'playlist-info'].includes(item.stage)
+      );
+      if (hasActiveDownloads) {
+        renderQueue();
+      }
+    }, 1000);
+
     function normalizeUrl(url) {
       try {
         const parsed = new URL(url);
@@ -1845,6 +1866,14 @@ https://youtube.com/watch?v=..."></textarea>
           const isError = item.stage === 'error';
           const statusClass = isActive ? 'active' : (isComplete ? 'success' : (isError ? 'error' : ''));
           const showProgress = isActive && item.progress !== undefined;
+          
+          let timerText = '';
+          if (item.startTime && (isActive || isComplete)) {
+            const elapsed = (isComplete && item.endTime ? item.endTime : Date.now()) - item.startTime;
+            const secs = Math.floor(elapsed / 1000);
+            const mins = Math.floor(secs / 60);
+            timerText = mins > 0 ? `${mins}m ${secs % 60}s` : `${secs}s`;
+          }
 
           let statusText = item.status || 'Waiting...';
           if (item.isPlaylist && item.currentVideo && item.videoCount) {
@@ -1891,7 +1920,7 @@ https://youtube.com/watch?v=..."></textarea>
                   </svg>
                 </div>
                 <div class="queue-item-info">
-                  <div class="queue-item-title">${escapeHtml(item.title)}${formatBadge}</div>
+                  <div class="queue-item-title">${escapeHtml(item.title)}${formatBadge}${timerText ? `<span class="queue-item-timer">${timerText}</span>` : ''}</div>
                   <div class="queue-item-status ${statusClass}">${escapeHtml(statusText)}</div>
                 </div>
                 <div class="queue-item-actions">
@@ -2070,7 +2099,8 @@ https://youtube.com/watch?v=..."></textarea>
         status: startImmediately ? 'Initializing...' : 'In queue',
         progress: 0,
         isPlaylist: downloadPlaylist,
-        formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`)
+        formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`),
+        startTime: startImmediately ? Date.now() : null
       };
 
       addToQueue(queueItem);
@@ -2189,6 +2219,7 @@ https://youtube.com/watch?v=..."></textarea>
     }
 
     async function startDownload(item) {
+      item.startTime = Date.now();
       const heartbeatJobId = startHeartbeat();
       const eventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
 
@@ -2208,7 +2239,10 @@ https://youtube.com/watch?v=..."></textarea>
             renderQueue();
 
             if (data.stage === 'complete') {
-              const msg = queueItem.format === 'images' ? 'Gallery download complete!' : (queueItem.isPlaylist ? 'Playlist download complete!' : 'Download complete!');
+              queueItem.endTime = Date.now();
+              const elapsed = queueItem.startTime ? Math.floor((queueItem.endTime - queueItem.startTime) / 1000) : 0;
+              const timeStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+              const msg = queueItem.format === 'images' ? 'Gallery download complete!' : (queueItem.isPlaylist ? 'Playlist download complete!' : `Download complete! (${timeStr})`);
               showToast(msg, 'success');
               eventSource.close();
               stopHeartbeat(heartbeatJobId);
