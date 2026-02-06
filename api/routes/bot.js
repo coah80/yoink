@@ -102,11 +102,6 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
       const isClip = url.includes('/clip/');
 
       if (isClip) {
-        console.log(`[Bot] YouTube clip detected for ${jobId} - clips not supported`);
-        job.status = 'error';
-        job.error = 'YouTube clips are currently not supported. YouTube has been blocking direct clip downloads. Please download the full video and trim it yourself.';
-        job.clipUnsupported = true;
-        return;
         console.log(`[Bot] YouTube clip detected for ${jobId}, parsing...`);
         job.message = 'Parsing clip...';
 

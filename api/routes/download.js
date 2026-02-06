@@ -46,12 +46,6 @@ router.get('/api/metadata', async (req, res) => {
     console.log('[Metadata] YouTube detected, using Cobalt directly...');
 
     if (isClip) {
-      return res.status(400).json({
-        error: 'YouTube clips are currently not supported',
-        clipUnsupported: true,
-        message: 'YouTube has been blocking direct clip downloads. Clips require a browser extension to work. For now, please download the full video and trim it yourself.',
-        fullVideoUrl: url.replace(/\/clip\/[^/?#]+/, '/watch?v=') + (url.match(/[?&]v=([^&]+)/)?.[1] || '')
-      });
       try {
         console.log('[Metadata] Detected YouTube clip, parsing...');
         const clipData = await parseYouTubeClip(url);
@@ -60,6 +54,15 @@ router.get('/api/metadata', async (req, res) => {
 
         try {
           const cobaltMeta = await fetchMetadataViaCobalt(clipData.fullVideoUrl);
+          const originalDurationSec = parseInt(cobaltMeta.duration) || 0;
+          
+          let clipWarning = 'Clip will be downloaded by fetching the full video and trimming it.';
+          if (originalDurationSec > 1800) {
+            clipWarning = `Warning: The full video is ${Math.round(originalDurationSec / 60)} minutes long. This may take a very long time to download.`;
+          } else if (originalDurationSec > 600) {
+            clipWarning = `The full video is ${Math.round(originalDurationSec / 60)} minutes. Download may take a while.`;
+          }
+          
           return res.json({
             ...cobaltMeta,
             isClip: true,
@@ -70,7 +73,9 @@ router.get('/api/metadata', async (req, res) => {
             duration: clipDuration,
             originalVideoId: clipData.videoId,
             originalDuration: cobaltMeta.duration,
-            usingCookies: false
+            fullVideoUrl: clipData.fullVideoUrl,
+            usingCookies: false,
+            clipNote: clipWarning
           });
         } catch (cobaltErr) {
           console.log('[Metadata] Cobalt failed for clip, returning basic metadata');
@@ -82,14 +87,19 @@ router.get('/api/metadata', async (req, res) => {
             clipDuration: clipDuration,
             duration: clipDuration,
             originalVideoId: clipData.videoId,
+            fullVideoUrl: clipData.fullVideoUrl,
             title: `YouTube Clip`,
             thumbnail: `https://i.ytimg.com/vi/${clipData.videoId}/maxresdefault.jpg`,
-            usingCookies: false
+            usingCookies: false,
+            clipNote: 'Clip will be downloaded by fetching the full video and trimming it. This may take a while depending on video length.'
           });
         }
       } catch (clipErr) {
         console.error('[Metadata] Clip parsing failed:', clipErr.message);
-        return res.status(500).json({ error: `Failed to parse YouTube clip: ${clipErr.message}` });
+        return res.status(400).json({
+          error: 'Could not parse YouTube clip. The clip URL may be invalid or YouTube is blocking the request.',
+          clipUnsupported: true
+        });
       }
     }
 
