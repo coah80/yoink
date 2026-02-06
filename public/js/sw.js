@@ -37,6 +37,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (url.origin !== location.origin) {
+    return;
+  }
+
   if (event.request.method !== 'GET') {
     return;
   }

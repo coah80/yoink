@@ -3925,7 +3925,104 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
   })();
 });
 
-app.get('/api/bot/download/:token', (req, res) => {
+// Serve a download page that auto-triggers the download
+app.get('/api/bot/download-page/:token', (req, res) => {
+  app.get('/api/bot/download/:token', (req, res) => {
+    const { token } = req.params;
+    const data = botDownloads.get(token);
+
+    if (!data || !fs.existsSync(data.filePath)) {
+      return res.status(404).send('Download expired or file not found');
+    }
+
+    const filename = data.fileName;
+    const downloadUrl = `/api/bot/download/${token}`;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Downloading ${filename}...</title>
+  <style>
+    body {
+      background: #0a0a0f;
+      color: #fafafa;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+    }
+    .container {
+      padding: 2rem;
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 16px;
+      max-width: 400px;
+      width: 90%;
+    }
+    h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+    p { color: #a1a1aa; font-size: 0.9rem; margin-bottom: 2rem; }
+    .loader {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #8b5cf6;
+      border-bottom-color: transparent;
+      border-radius: 50%;
+      display: inline-block;
+      animation: rotation 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+    @keyframes rotation {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    button {
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-block;
+    }
+    button:hover { background: #7c3aed; }
+    a { text-decoration: none; color: white; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="loader"></div>
+    <h1>Downloading ${filename}</h1>
+    <p id="status">Your download should start automatically...</p>
+    <a href="${downloadUrl}">
+      <button>Click here if it doesn't start</button>
+    </a>
+  </div>
+  <script>
+    setTimeout(() => {
+      window.location.href = '${downloadUrl}';
+      document.getElementById('status').innerText = 'Download started! You can close this tab.';
+      setTimeout(() => {
+        // Attempt to close, though browsers may block it
+        window.close();
+      }, 2000);
+    }, 1000);
+  </script>
+</body>
+</html>
+  `;
+
+    res.send(html);
+  });
+
   const { token } = req.params;
   const data = botDownloads.get(token);
 

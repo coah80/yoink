@@ -1382,7 +1382,8 @@
     <div class="footer-left">
       <div>this is a <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> wrapper</div>
       <div>inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt</a>, love u wukko</div>
-      <div>youtube powered by <a href="https://patriick.dev/" target="_blank" rel="noopener">patrick</a> at <a href="https://cobalt.meowing.de" target="_blank" rel="noopener">cobalt.meowing.de</a></div>
+      <div>youtube powered by <a href="https://patriick.dev/" target="_blank" rel="noopener">patrick</a> at <a
+          href="https://cobalt.meowing.de" target="_blank" rel="noopener">cobalt.meowing.de</a></div>
       <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">by using this site you agree to our <a
           href="/privacy">privacy policy</a></div>
     </div>
@@ -1658,7 +1659,7 @@ https://youtube.com/watch?v=..."></textarea>
       });
 
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/js/sw.js?v=3').catch(err => {
+        navigator.serviceWorker.register('/js/sw.js?v=4').catch(err => {
           console.log('SW registration failed:', err);
         });
       }
@@ -2217,25 +2218,25 @@ https://youtube.com/watch?v=..."></textarea>
 
       let reconnectAttempts = 0;
       const maxReconnectAttempts = 10;
-      
+
       eventSource.onerror = () => {
         eventSource.close();
-        
+
         const queueItem = queue.find(q => q.id === item.id);
         if (!queueItem || queueItem.stage === 'complete' || queueItem.stage === 'error' || queueItem.stage === 'cancelled') {
           return;
         }
-        
+
         if (reconnectAttempts < maxReconnectAttempts) {
           reconnectAttempts++;
           const delay = Math.min(1000 * reconnectAttempts, 5000);
           console.log(`[SSE] Connection lost, reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
-          
+
           if (queueItem) {
             queueItem.status = `Reconnecting... (${reconnectAttempts}/${maxReconnectAttempts})`;
             renderQueue();
           }
-          
+
           setTimeout(() => {
             const newEventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
             newEventSource.onmessage = eventSource.onmessage;
@@ -2492,26 +2493,26 @@ https://youtube.com/watch?v=..."></textarea>
 
         eventSource.onerror = () => {
           eventSource.close();
-          
+
           const queueItem = queue.find(q => q.id === progressId);
           if (!queueItem || queueItem.stage === 'complete' || queueItem.stage === 'error' || queueItem.stage === 'cancelled') {
             return;
           }
-          
+
           let reconnectAttempts2 = 0;
           const maxReconnectAttempts2 = 10;
-          
+
           const tryReconnect = () => {
             if (reconnectAttempts2 < maxReconnectAttempts2) {
               reconnectAttempts2++;
               const delay = Math.min(1000 * reconnectAttempts2, 5000);
               console.log(`[SSE] Connection lost, reconnecting in ${delay}ms (attempt ${reconnectAttempts2}/${maxReconnectAttempts2})`);
-              
+
               if (queueItem) {
                 queueItem.status = `Reconnecting... (${reconnectAttempts2}/${maxReconnectAttempts2})`;
                 renderQueue();
               }
-              
+
               setTimeout(() => {
                 const newEventSource = new EventSource(`${API_BASE}/api/progress/${progressId}`);
                 newEventSource.onmessage = eventSource.onmessage;
@@ -2530,7 +2531,7 @@ https://youtube.com/watch?v=..."></textarea>
               stopHeartbeat(heartbeatJobId2);
             }
           };
-          
+
           tryReconnect();
         };
 
