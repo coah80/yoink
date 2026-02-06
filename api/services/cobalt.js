@@ -302,8 +302,70 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
   throw lastError || new Error('All Cobalt instances failed');
 }
 
+const { spawn } = require('child_process');
+
+async function streamClipFromCobalt(videoUrl, jobId, startTimeSec, endTimeSec, outputPath, progressCallback = null) {
+  console.log(`[Cobalt] [${jobId}] Getting stream URL for clip trim...`);
+  
+  const { url: streamUrl } = await getCobaltDownloadUrl(videoUrl, false);
+  
+  const duration = endTimeSec - startTimeSec;
+  console.log(`[Cobalt] [${jobId}] Trimming ${startTimeSec}s to ${endTimeSec}s (${duration}s)`);
+  
+  return new Promise((resolve, reject) => {
+    const ffmpegArgs = [
+      '-accurate_seek',
+      '-ss', startTimeSec.toString(),
+      '-i', streamUrl,
+      '-t', duration.toString(),
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast', 
+      '-crf', '18',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-movflags', '+faststart',
+      '-y',
+      outputPath
+    ];
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+    let stderr = '';
+
+    ffmpeg.stderr.on('data', (data) => {
+      stderr += data.toString();
+      if (progressCallback) {
+        const timeMatch = stderr.match(/time=(\d+):(\d+):(\d+)/);
+        if (timeMatch) {
+          const secs = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]);
+          const progress = Math.min(100, Math.round((secs / duration) * 100));
+          progressCallback(progress);
+        }
+      }
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        const stats = fs.statSync(outputPath);
+        console.log(`[Cobalt] [${jobId}] Stream clip complete: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
+        resolve({
+          filePath: outputPath,
+          ext: path.extname(outputPath).slice(1) || 'mp4'
+        });
+      } else {
+        console.error(`[Cobalt] [${jobId}] ffmpeg stream trim failed: ${stderr.slice(-500)}`);
+        reject(new Error('Stream trim failed'));
+      }
+    });
+
+    ffmpeg.on('error', (err) => {
+      reject(new Error(`ffmpeg error: ${err.message}`));
+    });
+  });
+}
+
 module.exports = {
   getCobaltDownloadUrl,
   fetchMetadataViaCobalt,
-  downloadViaCobalt
+  downloadViaCobalt,
+  streamClipFromCobalt
 };

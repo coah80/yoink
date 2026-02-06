@@ -1,28 +1,3 @@
-const MULLVAD_SERVERS = [
-  'us-qas-wg-002', 'us-qas-wg-003', 'us-qas-wg-004',
-  'us-qas-wg-101', 'us-qas-wg-102', 'us-qas-wg-103',
-  'us-qas-wg-201', 'us-qas-wg-203', 'us-qas-wg-204',
-  'us-atl-wg-001', 'us-atl-wg-002',
-  'us-atl-wg-301', 'us-atl-wg-302', 'us-atl-wg-303', 'us-atl-wg-304',
-  'us-bos-wg-001', 'us-bos-wg-101', 'us-bos-wg-102',
-  'us-chi-wg-201', 'us-chi-wg-203',
-  'us-chi-wg-301', 'us-chi-wg-302', 'us-chi-wg-303'
-];
-
-function getRandomMullvadProxy(excludeServers = []) {
-  const account = process.env.MULLVAD_ACCOUNT;
-  if (!account) return null;
-
-  const availableServers = MULLVAD_SERVERS.filter(s => !excludeServers.includes(s));
-  if (availableServers.length === 0) return null;
-
-  const randomServer = availableServers[Math.floor(Math.random() * availableServers.length)];
-  return {
-    url: `socks5h://${account}:m@${randomServer}.relays.mullvad.net:1080`,
-    server: randomServer
-  };
-}
-
 async function parseYouTubeClip(clipUrl) {
   console.log(`[Clip] Parsing YouTube clip: ${clipUrl}`);
   
@@ -71,6 +46,5 @@ async function parseYouTubeClip(clipUrl) {
 }
 
 module.exports = {
-  parseYouTubeClip,
-  getRandomMullvadProxy
+  parseYouTubeClip
 };

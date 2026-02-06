@@ -11,8 +11,8 @@ const { toUserError } = require('../utils/errors');
 const { hasCookiesFile, getCookiesArgs, needsCookiesRetry } = require('../utils/cookies');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
 const { getClientIp, getCountryFromIP } = require('../utils/ip');
-const { parseYouTubeClip, getRandomMullvadProxy } = require('../services/youtube');
-const { fetchMetadataViaCobalt, downloadViaCobalt } = require('../services/cobalt');
+const { parseYouTubeClip } = require('../services/youtube');
+const { fetchMetadataViaCobalt, downloadViaCobalt, streamClipFromCobalt } = require('../services/cobalt');
 const discordAlerts = require('../discord-alerts');
 const { trackDownload } = require('../services/analyticsOptional');
 
@@ -27,7 +27,11 @@ const {
   registerPendingJob,
   updatePendingJob,
   removePendingJob,
-  sendProgress
+  sendProgress,
+  createExpiringFile,
+  getExpiringFile,
+  deleteExpiringFile,
+  DOWNLOAD_EXPIRY_MS
 } = require('../services/state');
 
 router.get('/api/metadata', async (req, res) => {
@@ -207,6 +211,30 @@ router.get('/api/metadata', async (req, res) => {
   });
 });
 
+router.get('/api/file/:token', (req, res) => {
+  const { token } = req.params;
+  const { download } = req.query;
+  
+  const file = getExpiringFile(token);
+  if (!file) {
+    return res.status(404).json({ error: 'File expired or not found' });
+  }
+  
+  if (!fs.existsSync(file.filePath)) {
+    deleteExpiringFile(token);
+    return res.status(404).json({ error: 'File not found' });
+  }
+  
+  const disposition = download === 'true' ? 'attachment' : 'inline';
+  const asciiFilename = file.filename.replace(/[^\x20-\x7E]/g, '_');
+  
+  res.setHeader('Content-Type', file.mimeType);
+  res.setHeader('Content-Length', file.fileSize);
+  res.setHeader('Content-Disposition', `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+  
+  fs.createReadStream(file.filePath).pipe(res);
+});
+
 router.get('/api/download', async (req, res) => {
   const {
     url,
@@ -219,8 +247,7 @@ router.get('/api/download', async (req, res) => {
     progressId,
     playlist = 'false',
     clientId,
-    twitterGifs = 'true',
-    clipMethod = 'cobalt'
+    twitterGifs = 'true'
   } = req.query;
 
   const convertTwitterGifs = twitterGifs === 'true';
@@ -282,21 +309,15 @@ router.get('/api/download', async (req, res) => {
       const isClip = url.includes('/clip/');
 
       if (isClip) {
-        console.log(`[${downloadId}] YouTube clip detected, clip method: ${clipMethod}`);
+        console.log(`[${downloadId}] YouTube clip detected`);
 
         try {
           const clipData = await parseYouTubeClip(url);
           console.log(`[${downloadId}] Clip parsed: video ${clipData.videoId}, ${clipData.startTimeMs}-${clipData.endTimeMs}ms`);
 
-          if (clipMethod === 'ytdlp') {
-            const result = await downloadClipViaYtdlp(clipData, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req);
-            downloadedPath = result.path;
-            downloadedExt = result.ext;
-          } else {
-            const result = await downloadClipViaCobalt(clipData, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req);
-            downloadedPath = result.path;
-            downloadedExt = result.ext;
-          }
+          const result = await downloadClipViaCobalt(clipData, downloadId);
+          downloadedPath = result.path;
+          downloadedExt = result.ext;
         } catch (clipErr) {
           console.error(`[${downloadId}] Clip download failed:`, clipErr.message);
           throw new Error(`Clip download failed: ${clipErr.message}`);
@@ -321,15 +342,7 @@ router.get('/api/download', async (req, res) => {
           sendProgress(downloadId, 'downloading', 'Download complete', 100);
         } catch (cobaltErr) {
           console.error(`[${downloadId}] Cobalt failed:`, cobaltErr.message);
-          
-          if (cobaltErr.message === 'Cancelled' || cobaltErr.message.includes('Download cancelled')) {
-            throw cobaltErr;
-          }
-          
-          console.log(`[${downloadId}] Falling back to yt-dlp with proxy...`);
-          const result = await downloadViaYtdlp(url, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req);
-          downloadedPath = result.path;
-          downloadedExt = result.ext;
+          throw cobaltErr;
         }
       }
     } else {
@@ -400,176 +413,80 @@ router.get('/api/download', async (req, res) => {
   }
 });
 
-async function downloadClipViaYtdlp(clipData, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req) {
-  console.log(`[${downloadId}] User prefers yt-dlp, downloading clip section...`);
-  sendProgress(downloadId, 'downloading', 'Downloading clip section...', 0);
+async function downloadClipViaCobalt(clipData, downloadId) {
+  console.log(`[${downloadId}] Stream trimming clip via Cobalt...`);
+  sendProgress(downloadId, 'downloading', 'Trimming clip from stream...', 0);
 
   const startTime = clipData.startTimeMs / 1000;
   const endTime = clipData.endTimeMs / 1000;
-  const proxy = getRandomMullvadProxy();
-
-  const ytdlpArgs = [
-    ...getCookiesArgs(),
-    '--download-sections', `*${startTime}-${endTime}`,
-    '--force-keyframes-at-cuts',
-    '-t', 'sleep',
-    '--no-playlist',
-    '--newline',
-    '--progress-template', '%(progress._percent_str)s',
-    '-o', tempFile,
-    '--ffmpeg-location', '/usr/bin/ffmpeg',
-  ];
-
-  if (proxy) {
-    ytdlpArgs.push('--proxy', proxy.url);
-    console.log(`[${downloadId}] Using Mullvad proxy: ${proxy.server}`);
-  }
-
-  if (isAudio) {
-    ytdlpArgs.push('-x', '--audio-format', audioFormat, '--audio-quality', '320');
-  } else {
-    ytdlpArgs.push('-f', `bestvideo[height<=${quality.replace('p', '')}]+bestaudio/best[height<=${quality.replace('p', '')}]`);
-    ytdlpArgs.push('--merge-output-format', container);
-  }
-
-  ytdlpArgs.push(clipData.fullVideoUrl);
-
-  await new Promise((resolve, reject) => {
-    const ytdlp = spawn('yt-dlp', ytdlpArgs);
-    processInfo.process = ytdlp;
-
-    let lastProgress = 0;
-    ytdlp.stdout.on('data', (data) => {
-      const output = data.toString();
-      const match = output.match(/(\d+\.?\d*)%/);
-      if (match) {
-        const progress = parseFloat(match[1]);
-        if (progress > lastProgress) {
-          lastProgress = progress;
-          sendProgress(downloadId, 'downloading', `Downloading clip... ${Math.round(progress)}%`, Math.round(progress));
-          updatePendingJob(downloadId, { progress: Math.round(progress), status: 'downloading' });
-        }
-      }
-    });
-
-    ytdlp.stderr.on('data', (data) => {
-      console.log(`[${downloadId}] yt-dlp: ${data.toString().trim()}`);
-    });
-
-    ytdlp.on('close', (code) => {
-      if (processInfo.cancelled) {
-        reject(new Error('Download cancelled'));
-      } else if (code !== 0) {
-        reject(new Error('yt-dlp failed to download clip'));
-      } else {
-        resolve();
-      }
-    });
-
-    ytdlp.on('error', reject);
-
-    req.on('close', () => {
-      if (!processInfo.cancelled) {
-        ytdlp.kill('SIGTERM');
-      }
-    });
-  });
-
-  const files = fs.readdirSync(TEMP_DIRS.download);
-  const downloadedFile = files.find(f => 
-    f.startsWith(downloadId) && 
-    !f.includes('-final') && 
-    !f.includes('-cobalt') &&
-    !f.includes('-trimmed') &&
-    !f.endsWith('.part') &&
-    !f.includes('.part-Frag')
-  );
-
-  if (!downloadedFile) {
-    throw new Error('Clip download incomplete');
-  }
-
-  return {
-    path: path.join(TEMP_DIRS.download, downloadedFile),
-    ext: path.extname(downloadedFile).slice(1)
-  };
-}
-
-async function downloadClipViaCobalt(clipData, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req) {
-  console.log(`[${downloadId}] Using Cobalt to download full video for trimming...`);
-  sendProgress(downloadId, 'downloading', 'Downloading full video...', 0);
-
-  try {
-    const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, downloadId, isAudio, (progress, downloaded, total) => {
-      sendProgress(downloadId, 'downloading', `Downloading... ${progress}%`, progress);
-      updatePendingJob(downloadId, { progress, status: 'downloading' });
-    }, null, { quality, container });
-
-    let downloadedPath = cobaltResult.filePath;
-    let downloadedExt = cobaltResult.ext;
-    console.log(`[${downloadId}] Full video downloaded via Cobalt: ${path.basename(downloadedPath)}`);
+  const duration = (clipData.endTimeMs - clipData.startTimeMs) / 1000;
+  const clipFile = path.join(TEMP_DIRS.download, `${downloadId}-clip.mp4`);
   
-    sendProgress(downloadId, 'processing', 'Trimming clip...', 95);
-    updatePendingJob(downloadId, { progress: 95, status: 'processing' });
+  try {
+    const result = await streamClipFromCobalt(
+      clipData.fullVideoUrl, 
+      downloadId, 
+      startTime, 
+      endTime, 
+      clipFile,
+      (progress) => {
+        sendProgress(downloadId, 'downloading', `Trimming... ${progress}%`, progress);
+        updatePendingJob(downloadId, { progress, status: 'downloading' });
+      }
+    );
 
-    const startTime = clipData.startTimeMs / 1000;
-    const endTime = clipData.endTimeMs / 1000;
-    const duration = endTime - startTime;
+    sendProgress(downloadId, 'downloading', 'Clip ready', 100);
+    return { path: result.filePath, ext: result.ext };
+  } catch (streamErr) {
+    console.error(`[${downloadId}] Stream trim failed:`, streamErr.message);
+    console.log(`[${downloadId}] Falling back to Cobalt full download + trim...`);
+    sendProgress(downloadId, 'downloading', 'Downloading full video...', 0);
 
-    const trimmedFile = path.join(TEMP_DIRS.download, `${downloadId}-trimmed.${downloadedExt}`);
-
-    await new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', [
-        '-ss', startTime.toString(),
-        '-i', downloadedPath,
-        '-t', duration.toString(),
-        '-c:v', 'libx264',
-        '-c:a', 'copy',
-        '-preset', 'fast',
-        '-avoid_negative_ts', 'make_zero',
-        trimmedFile
-      ]);
-
-      processInfo.process = ffmpeg;
-      let stderrOutput = '';
-
-      ffmpeg.stderr.on('data', (data) => {
-        stderrOutput += data.toString();
+    try {
+      const cobaltResult = await downloadViaCobalt(clipData.fullVideoUrl, downloadId, false, (progress) => {
+        sendProgress(downloadId, 'downloading', `Downloading... ${progress}%`, progress);
       });
 
-      ffmpeg.on('close', (code) => {
-        if (processInfo.cancelled) {
-          reject(new Error('Download cancelled'));
-        } else if (code !== 0) {
-          console.error(`[${downloadId}] ffmpeg trim error:`, stderrOutput);
-          reject(new Error('Failed to trim clip'));
-        } else {
-          resolve();
-        }
+      sendProgress(downloadId, 'processing', 'Trimming clip...', 95);
+
+      const trimmedFile = path.join(TEMP_DIRS.download, `${downloadId}-trimmed.${cobaltResult.ext}`);
+
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', [
+          '-ss', startTime.toString(),
+          '-i', cobaltResult.filePath,
+          '-t', duration.toString(),
+          '-c', 'copy',
+          '-avoid_negative_ts', 'make_zero',
+          '-y',
+          trimmedFile
+        ]);
+
+        ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error('Trim failed')));
+        ffmpeg.on('error', reject);
       });
 
-      ffmpeg.on('error', reject);
-
-      req.on('close', () => {
-        if (!processInfo.cancelled) {
-          ffmpeg.kill('SIGTERM');
-        }
-      });
-    });
-
-    fs.unlinkSync(downloadedPath);
-    return { path: trimmedFile, ext: downloadedExt };
-  } catch (cobaltErr) {
-    console.error(`[${downloadId}] Cobalt failed for clip:`, cobaltErr.message);
-    console.log(`[${downloadId}] Falling back to yt-dlp for clip...`);
-    return await downloadClipViaYtdlp(clipData, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req);
+      try { fs.unlinkSync(cobaltResult.filePath); } catch {}
+      
+      sendProgress(downloadId, 'downloading', 'Clip ready', 100);
+      return { path: trimmedFile, ext: cobaltResult.ext };
+    } catch (cobaltErr) {
+      const errMsg = cobaltErr.message || '';
+      if (errMsg.includes('too_long') || errMsg.includes('content.too_long')) {
+        throw new Error('Video is too long (over 3 hours). Clips from very long videos are not supported.');
+      } else if (errMsg.includes('youtube.login') || errMsg.includes('api.youtube.login')) {
+        throw new Error('This video requires YouTube login to access.');
+      } else if (errMsg.includes('unavailable')) {
+        throw new Error('Video is unavailable or private.');
+      }
+      throw cobaltErr;
+    }
   }
 }
 
 async function downloadViaYtdlp(url, downloadId, isAudio, audioFormat, quality, container, tempFile, processInfo, req, downloadPlaylist = false) {
-  sendProgress(downloadId, 'downloading', 'Retrying with fallback method...', 0);
+  sendProgress(downloadId, 'downloading', 'Downloading via yt-dlp...', 0);
   
-  const proxy = getRandomMullvadProxy();
   const ytdlpArgs = [
     ...getCookiesArgs(),
     '--continue',
@@ -580,11 +497,6 @@ async function downloadViaYtdlp(url, downloadId, isAudio, audioFormat, quality, 
     '-o', tempFile,
     '--ffmpeg-location', '/usr/bin/ffmpeg',
   ];
-  
-  if (proxy) {
-    ytdlpArgs.push('--proxy', proxy.url);
-    console.log(`[${downloadId}] Using Mullvad proxy: ${proxy.server}`);
-  }
   
   if (isAudio) {
     ytdlpArgs.push('-f', 'bestaudio/best');
@@ -743,18 +655,54 @@ async function processWithFfmpeg(inputPath, outputPath, isAudio, isGif, audioFor
   });
 }
 
-async function sendFileToClient(res, req, filePath, filename, outputExt, isAudio, isGif, audioFormat, container, downloadId, url) {
-  sendProgress(downloadId, 'sending', 'Sending file to you...');
+const SMALL_FILE_THRESHOLD = 10 * 1024 * 1024;
 
+async function sendFileToClient(res, req, filePath, filename, outputExt, isAudio, isGif, audioFormat, container, downloadId, url) {
   const stat = fs.statSync(filePath);
   const safeFilename = sanitizeFilename(filename || 'download');
   const fullFilename = `${safeFilename}.${outputExt}`;
-  const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, '_') + '.' + outputExt;
   const mimeType = isGif
     ? 'image/gif'
     : isAudio
       ? (AUDIO_MIMES[audioFormat] || 'audio/mpeg')
       : (CONTAINER_MIMES[container] || 'video/mp4');
+
+  if (stat.size < SMALL_FILE_THRESHOLD) {
+    const { token, expiresAt } = createExpiringFile(filePath, fullFilename, mimeType, stat.size, DOWNLOAD_EXPIRY_MS);
+    
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const previewUrl = `${baseUrl}/api/file/${token}`;
+    const downloadUrl = `${baseUrl}/api/file/${token}?download=true`;
+    
+    sendProgress(downloadId, 'complete', 'File ready!', 100, {
+      fileLinks: {
+        preview: previewUrl,
+        download: downloadUrl,
+        expiresAt,
+        expiresIn: Math.floor((expiresAt - Date.now()) / 1000),
+        filename: fullFilename,
+        size: stat.size
+      }
+    });
+    
+    activeDownloads.delete(downloadId);
+    activeProcesses.delete(downloadId);
+    removePendingJob(downloadId);
+    activeJobsByType.download--;
+    unlinkJobFromClient(downloadId);
+
+    try {
+      const site = new URL(url).hostname.replace('www.', '');
+      trackDownload(outputExt, site, getCountryFromIP(getClientIp(req)));
+    } catch (e) { }
+
+    console.log(`[${downloadId.slice(0, 8)}] Small file - returning link (expires in 20 min)`);
+    return;
+  }
+
+  sendProgress(downloadId, 'sending', 'Sending file to you...');
+
+  const asciiFilename = safeFilename.replace(/[^\x20-\x7E]/g, '_') + '.' + outputExt;
 
   res.setHeader('Content-Type', mimeType);
   res.setHeader('Content-Length', stat.size);
