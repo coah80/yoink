@@ -1658,7 +1658,7 @@ https://youtube.com/watch?v=..."></textarea>
       });
 
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/js/sw.js').catch(err => {
+        navigator.serviceWorker.register('/js/sw.js?v=3').catch(err => {
           console.log('SW registration failed:', err);
         });
       }

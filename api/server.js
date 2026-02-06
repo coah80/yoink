@@ -767,6 +767,14 @@ app.use(cookieParser());
 
 app.use(express.json({ limit: '500mb' }));
 
+// Serve service worker with no-cache headers
+app.get('/js/sw.js', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.sendFile(path.join(__dirname, '../public/js/sw.js'));
+});
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api/download', rateLimitMiddleware);
