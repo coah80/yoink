@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=cole
 WorkingDirectory=/home/cole/yoink/api
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node index.js
 Restart=always
 Environment=PATH=/home/cole/.deno/bin:/usr/local/bin:/usr/bin:/bin
 
