@@ -835,6 +835,69 @@
       font-family: monospace;
     }
 
+    .queue-item-logs-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 8px;
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .queue-item-logs-toggle:hover {
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+    }
+
+    .queue-item-logs-toggle svg {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.2s;
+    }
+
+    .queue-item-logs-toggle.expanded svg {
+      transform: rotate(180deg);
+    }
+
+    .queue-item-logs {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      background: #0d0d12;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      max-height: 150px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 0.7rem;
+      line-height: 1.4;
+    }
+
+    .queue-item-logs.show {
+      display: block;
+    }
+
+    .queue-item-log {
+      color: var(--text-muted);
+      padding: 2px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .queue-item-log:last-child {
+      border-bottom: none;
+    }
+
+    .queue-item-log-time {
+      color: var(--purple-400);
+      margin-right: 6px;
+    }
+
     footer {
       padding: 20px 24px;
       display: flex;
@@ -1961,10 +2024,29 @@ https://youtube.com/watch?v=..."></textarea>
                   <div class="queue-item-progress-fill" style="width: ${item.progress || 0}%"></div>
                 </div>
               ` : ''}
+              ${(isActive || isComplete || isError) && item.logs && item.logs.length > 0 ? `
+                <button class="queue-item-logs-toggle ${item.logsExpanded ? 'expanded' : ''}" onclick="event.stopPropagation(); toggleItemLogs('${item.id}')">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                  ${item.logs.length} log entries
+                </button>
+                <div class="queue-item-logs ${item.logsExpanded ? 'show' : ''}" id="logs-${item.id}">
+                  ${item.logs.map(l => `<div class="queue-item-log"><span class="queue-item-log-time">${l.time}</span>${escapeHtml(l.msg)}</div>`).join('')}
+                </div>
+              ` : ''}
               ${failedDetails}
             </div>
           `;
         }).join('');
+      }
+    }
+
+    function toggleItemLogs(id) {
+      const item = queue.find(q => q.id === id);
+      if (item) {
+        item.logsExpanded = !item.logsExpanded;
+        renderQueue();
       }
     }
 
@@ -2100,7 +2182,9 @@ https://youtube.com/watch?v=..."></textarea>
         progress: 0,
         isPlaylist: downloadPlaylist,
         formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? settings.audioFormat : `${settings.quality} ${settings.container}`),
-        startTime: startImmediately ? Date.now() : null
+        startTime: startImmediately ? Date.now() : null,
+        logs: [],
+        logsExpanded: false
       };
 
       addToQueue(queueItem);
@@ -2220,6 +2304,8 @@ https://youtube.com/watch?v=..."></textarea>
 
     async function startDownload(item) {
       item.startTime = Date.now();
+      item.logs = item.logs || [];
+      item.logs.push({ time: new Date().toLocaleTimeString(), msg: 'Starting download...' });
       const heartbeatJobId = startHeartbeat();
       const eventSource = new EventSource(`${API_BASE}/api/progress/${item.id}`);
 
@@ -2228,6 +2314,14 @@ https://youtube.com/watch?v=..."></textarea>
           const data = JSON.parse(event.data);
           const queueItem = queue.find(q => q.id === item.id);
           if (queueItem) {
+            if (data.log) {
+              queueItem.logs.push({ time: new Date().toLocaleTimeString(), msg: data.log });
+              if (queueItem.logs.length > 50) queueItem.logs.shift();
+            }
+            if (data.message && data.message !== queueItem.status) {
+              queueItem.logs.push({ time: new Date().toLocaleTimeString(), msg: data.message });
+              if (queueItem.logs.length > 50) queueItem.logs.shift();
+            }
             queueItem.stage = data.stage;
             queueItem.status = data.message;
             if (data.progress !== undefined) queueItem.progress = data.progress;
