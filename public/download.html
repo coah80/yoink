@@ -84,6 +84,8 @@
     </div>
   </main>
   <script>
+    const API_BASE = 'https://yoink.coah80.com';
+
     const urlParams = new URLSearchParams(window.location.search);
     const hashToken = window.location.hash.substring(1);
     const token = urlParams.get('token') || hashToken;
@@ -100,7 +102,7 @@
       status.textContent = 'no download token provided';
       status.classList.add('error');
     } else {
-      const downloadUrl = `/api/bot/download/${token}`;
+      const downloadUrl = `${API_BASE}/api/bot/download/${token}`;
 
       status.textContent = 'starting download...';
 
