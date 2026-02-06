@@ -3925,104 +3925,136 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
   })();
 });
 
-// Serve a download page that auto-triggers the download
-app.get('/api/bot/download-page/:token', (req, res) => {
-  app.get('/api/bot/download/:token', (req, res) => {
-    const { token } = req.params;
-    const data = botDownloads.get(token);
+app.get('/api/download/:token', (req, res) => {
+  const { token } = req.params;
+  const data = botDownloads.get(token);
 
-    if (!data || !fs.existsSync(data.filePath)) {
-      return res.status(404).send('Download expired or file not found');
-    }
+  if (!data) {
+    return res.status(404).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Download Not Found</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+          }
+          .container {
+            text-align: center;
+            padding: 2rem;
+          }
+          h1 { font-size: 3rem; margin: 0; }
+          p { font-size: 1.2rem; opacity: 0.9; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>❌</h1>
+          <h2>Download Not Found</h2>
+          <p>This download link has expired or is invalid.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
 
-    const filename = data.fileName;
-    const downloadUrl = `/api/bot/download/${token}`;
+  const downloadUrl = `/api/bot/download/${token}`;
 
-    const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Downloading ${filename}...</title>
-  <style>
-    body {
-      background: #0a0a0f;
-      color: #fafafa;
-      font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      text-align: center;
-    }
-    .container {
-      padding: 2rem;
-      background: #12121a;
-      border: 1px solid #2a2a3a;
-      border-radius: 16px;
-      max-width: 400px;
-      width: 90%;
-    }
-    h1 { font-size: 1.2rem; margin-bottom: 1rem; }
-    p { color: #a1a1aa; font-size: 0.9rem; margin-bottom: 2rem; }
-    .loader {
-      width: 24px;
-      height: 24px;
-      border: 3px solid #8b5cf6;
-      border-bottom-color: transparent;
-      border-radius: 50%;
-      display: inline-block;
-      animation: rotation 1s linear infinite;
-      margin-bottom: 1rem;
-    }
-    @keyframes rotation {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    button {
-      background: #8b5cf6;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 500;
-      text-decoration: none;
-      display: inline-block;
-    }
-    button:hover { background: #7c3aed; }
-    a { text-decoration: none; color: white; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="loader"></div>
-    <h1>Downloading ${filename}</h1>
-    <p id="status">Your download should start automatically...</p>
-    <a href="${downloadUrl}">
-      <button>Click here if it doesn't start</button>
-    </a>
-  </div>
-  <script>
-    setTimeout(() => {
-      window.location.href = '${downloadUrl}';
-      document.getElementById('status').innerText = 'Download started! You can close this tab.';
-      setTimeout(() => {
-        // Attempt to close, though browsers may block it
-        window.close();
-      }, 2000);
-    }, 1000);
-  </script>
-</body>
-</html>
-  `;
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Downloading...</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          margin: 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+        .container {
+          text-align: center;
+          padding: 2rem;
+        }
+        .spinner {
+          border: 4px solid rgba(255, 255, 255, 0.3);
+          border-radius: 50%;
+          border-top: 4px solid white;
+          width: 50px;
+          height: 50px;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 1.5rem;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        h1 {
+          font-size: 2rem;
+          margin: 0 0 0.5rem;
+        }
+        p {
+          font-size: 1.1rem;
+          opacity: 0.9;
+          margin: 0.5rem 0;
+        }
+        .filename {
+          font-size: 0.9rem;
+          opacity: 0.7;
+          margin-top: 1rem;
+          word-break: break-all;
+          max-width: 400px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="spinner"></div>
+        <h1>Downloading...</h1>
+        <p>Your download should start automatically.</p>
+        <p class="filename">${data.fileName}</p>
+        <p style="margin-top: 2rem; font-size: 0.85rem;">This page will close automatically.</p>
+      </div>
+      <iframe id="downloadFrame" style="display:none;"></iframe>
+      <script>
+        // Start download immediately
+        document.getElementById('downloadFrame').src = '${downloadUrl}';
 
-    res.send(html);
-  });
+        // Close window after delay
+        setTimeout(() => {
+          window.close();
+          // If window.close() fails (not opened by script), show completion message
+          setTimeout(() => {
+            document.body.innerHTML = \`
+              <div class="container">
+                <h1>✅</h1>
+                <h2>Download Started</h2>
+                <p>You can close this page now.</p>
+              </div>
+            \`;
+          }, 100);
+        }, 2000);
+      </script>
+    </body>
+    </html>
+  `);
+});
 
+app.get('/api/bot/download/:token', (req, res) => {
   const { token } = req.params;
   const data = botDownloads.get(token);
 

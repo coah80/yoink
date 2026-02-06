@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Downloading...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 500px;
+    }
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top: 4px solid white;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1.5rem;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0 0 0.5rem;
+    }
+    p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+      margin: 0.5rem 0;
+    }
+    .error {
+      color: #ff6b6b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <h1>Downloading...</h1>
+    <p>Your download should start automatically.</p>
+    <p id="status" style="margin-top: 2rem; font-size: 0.85rem;">Preparing download...</p>
+  </div>
+  <iframe id="downloadFrame" style="display:none;"></iframe>
+  <script>
+    // Extract token from URL hash or query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const hashToken = window.location.hash.substring(1);
+    const token = urlParams.get('token') || hashToken;
+
+    const statusEl = document.getElementById('status');
+
+    if (!token) {
+      document.querySelector('.spinner').style.display = 'none';
+      document.querySelector('h1').textContent = '❌ Error';
+      document.querySelector('h1').nextElementSibling.textContent = 'Invalid download link';
+      statusEl.textContent = 'No download token provided';
+      statusEl.classList.add('error');
+    } else {
+      // Start download
+      const downloadUrl = `/api/bot/download/${token}`;
+      document.getElementById('downloadFrame').src = downloadUrl;
+      statusEl.textContent = 'Download started';
+
+      // Try to close window after delay
+      setTimeout(() => {
+        try {
+          window.close();
+        } catch (e) {
+          // If close fails, show success message
+          document.querySelector('.spinner').style.display = 'none';
+          document.querySelector('h1').textContent = '✅ Download Started';
+          document.querySelector('h1').nextElementSibling.textContent = 'Your download has begun.';
+          statusEl.textContent = 'You can close this page now.';
+        }
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
