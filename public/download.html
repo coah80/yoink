@@ -55,7 +55,6 @@
   </div>
   <iframe id="downloadFrame" style="display:none;"></iframe>
   <script>
-    // Extract token from URL hash or query parameter
     const urlParams = new URLSearchParams(window.location.search);
     const hashToken = window.location.hash.substring(1);
     const token = urlParams.get('token') || hashToken;
@@ -69,17 +68,14 @@
       statusEl.textContent = 'No download token provided';
       statusEl.classList.add('error');
     } else {
-      // Start download
       const downloadUrl = `/api/bot/download/${token}`;
       document.getElementById('downloadFrame').src = downloadUrl;
       statusEl.textContent = 'Download started';
 
-      // Try to close window after delay
       setTimeout(() => {
         try {
           window.close();
         } catch (e) {
-          // If close fails, show success message
           document.querySelector('.spinner').style.display = 'none';
           document.querySelector('h1').textContent = '✅ Download Started';
           document.querySelector('h1').nextElementSibling.textContent = 'Your download has begun.';
