@@ -3628,7 +3628,7 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { url, format = 'video', quality = '1080p', container = 'mp4', audioFormat = 'mp3' } = req.body;
+  const { url, format = 'video', quality = '1080p', container = 'mp4', audioFormat = 'mp3', playlist = false } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL required' });
@@ -3762,7 +3762,7 @@ app.post('/api/bot/download', express.json(), async (req, res) => {
       } else {
         const ytdlpArgs = [
           ...getCookiesArgs(),
-          '--no-playlist',
+          playlist ? '--yes-playlist' : '--no-playlist',
           '--newline',
           '-o', tempFile,
           '--ffmpeg-location', '/usr/bin/ffmpeg',
