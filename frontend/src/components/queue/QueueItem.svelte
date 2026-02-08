@@ -1,7 +1,6 @@
 <script>
   import { queue } from '../../stores/queue.js';
   import { ACTIVE_STAGES } from '../../lib/constants.js';
-  import { escapeHtml } from '../../lib/utils.js';
 
   let { item } = $props();
 
@@ -27,7 +26,7 @@
     if (item.isPlaylist && item.currentVideo && item.videoCount) {
       return `${item.currentVideo}/${item.videoCount} - ${item.currentVideoTitle || item.status}`;
     }
-    let text = item.status || 'Waiting...';
+    let text = item.status || 'waiting...';
     if (isActive && (item.speed || item.eta)) {
       const parts = [];
       if (item.speed) parts.push(item.speed);
@@ -116,28 +115,6 @@
     <div class="queue-item-progress">
       <div class="queue-item-progress-fill" style="width: {item.progress || 0}%"></div>
     </div>
-  {/if}
-
-  {#if (isActive || isComplete || isError) && item.logs?.length > 0}
-    <button
-      class="queue-item-logs-toggle"
-      class:expanded={item.logsExpanded}
-      onclick={(e) => { e.stopPropagation(); queue.toggleLogs(item.id); }}
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-      {item.logs.length} log entries
-    </button>
-    {#if item.logsExpanded}
-      <div class="queue-item-logs">
-        {#each item.logs as log}
-          <div class="queue-item-log">
-            <span class="queue-item-log-time">{log.time}</span>{log.msg}
-          </div>
-        {/each}
-      </div>
-    {/if}
   {/if}
 
   {#if item.isPlaylist && item.failedVideos?.length > 0}
@@ -308,63 +285,6 @@
 
   .queue-item-retry:active {
     transform: scale(0.9);
-  }
-
-  .queue-item-logs-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    font-family: var(--font-body);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .queue-item-logs-toggle:hover {
-    background: var(--surface-elevated);
-    color: var(--text-secondary);
-  }
-
-  .queue-item-logs-toggle svg {
-    width: 12px;
-    height: 12px;
-    transition: transform 0.2s;
-  }
-
-  .queue-item-logs-toggle.expanded svg {
-    transform: rotate(180deg);
-  }
-
-  .queue-item-logs {
-    padding: 8px;
-    background: #0d0d12;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    max-height: 150px;
-    overflow-y: auto;
-    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-    font-size: 0.7rem;
-    line-height: 1.4;
-  }
-
-  .queue-item-log {
-    color: var(--text-muted);
-    padding: 2px 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .queue-item-log:last-child {
-    border-bottom: none;
-  }
-
-  .queue-item-log-time {
-    color: var(--purple-400);
-    margin-right: 6px;
   }
 
   .queue-item-failed {

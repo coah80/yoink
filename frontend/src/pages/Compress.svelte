@@ -188,8 +188,8 @@
 
     compressing = true;
     progress = 0;
-    progressLabel = 'Uploading...';
-    progressDetail = 'Sending file to server...';
+    progressLabel = 'uploading...';
+    progressDetail = 'sending file to server...';
     showResult = false;
 
     const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -203,7 +203,7 @@
       sseConnection = createSSEConnection(progressId, {
         onMessage: (data) => {
           if (data.stage === 'compressing') {
-            progressLabel = 'Compressing...';
+            progressLabel = 'compressing...';
             if (data.progress !== undefined) progress = data.progress;
             if (data.message) progressDetail = data.message;
           }
@@ -214,18 +214,18 @@
       let response;
 
       if (useChunked) {
-        progressLabel = 'Uploading...';
-        progressDetail = 'Large file detected, uploading in chunks...';
+        progressLabel = 'uploading...';
+        progressDetail = 'large file detected, uploading in chunks...';
 
         const uploadResult = await uploadChunked(selectedFile, (p) => {
           progress = p;
-          progressDetail = 'Uploading chunks...';
+          progressDetail = 'uploading chunks...';
         });
 
         const { filePath, fileName } = uploadResult;
         progress = 0;
-        progressLabel = 'Compressing...';
-        progressDetail = 'Starting compression...';
+        progressLabel = 'compressing...';
+        progressDetail = 'starting compression...';
 
         const initResponse = await fetch(`${apiBase()}/api/compress-chunked`, {
           method: 'POST',
@@ -392,8 +392,8 @@
           </button>
         </div>
         <div class="file-meta">
-          <span>Duration: {videoDuration ? durationText : 'unknown'}</span>
-          <span>Resolution: {resolutionText}</span>
+          <span>duration: {videoDuration ? durationText : 'unknown'}</span>
+          <span>resolution: {resolutionText}</span>
         </div>
       </div>
     {/if}
@@ -525,7 +525,7 @@
           <line x1="12" y1="9" x2="12" y2="13"></line>
           <line x1="12" y1="17" x2="12.01" y2="17"></line>
         </svg>
-        Quality Warning
+        quality warning
       </div>
       <div class="quality-gauge">
         <div class="quality-gauge-bg"></div>
@@ -534,7 +534,7 @@
         <div class="quality-gauge-center"></div>
         <div class="quality-gauge-value">
           <span>{estimatedBitrate}</span>
-          <span class="quality-gauge-unit">Kbps</span>
+          <span class="quality-gauge-unit">kbps</span>
         </div>
       </div>
       <div class="quality-modal-message">
@@ -543,8 +543,8 @@
         For better results, try a <strong>shorter clip</strong> or a <strong>larger target size</strong>.
       </div>
       <div class="quality-modal-buttons">
-        <button class="quality-modal-btn cancel" onclick={() => showQualityWarning = false}>Cancel</button>
-        <button class="quality-modal-btn proceed" onclick={compress}>Compress Anyway</button>
+        <button class="quality-modal-btn cancel" onclick={() => showQualityWarning = false}>cancel</button>
+        <button class="quality-modal-btn proceed" onclick={compress}>compress anyway</button>
       </div>
     </div>
   </div>

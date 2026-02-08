@@ -16,7 +16,7 @@ const { asyncJobs, botDownloads } = require('../services/state');
 const { downloadViaCobalt } = require('../services/cobalt');
 const { downloadViaYtdlp, getPlaylistInfo, handleClipDownload } = require('../services/downloader');
 const { processVideo } = require('../services/processor');
-const { parseYouTubeClip } = require('../services/youtube');
+const { parseYouTubeClip, downloadClipViaYtdlp } = require('../services/youtube');
 const { validateUrl } = require('../utils/validation');
 const { toUserError } = require('../utils/errors');
 const { sanitizeFilename } = require('../utils/files');
@@ -77,18 +77,28 @@ async function processBotDownload(jobId, job, url, isAudio, audioFormat, outputE
 
       if (isClip) {
         job.message = 'Parsing clip...';
-        const clipData = await parseYouTubeClip(url);
-        job.message = 'Stream trimming clip...';
-
-        const result = await handleClipDownload(clipData, jobId, {
-          tempDir: TEMP_DIRS.bot,
-          onProgress: (progress) => {
+        try {
+          const clipData = await parseYouTubeClip(url);
+          job.message = 'Stream trimming clip...';
+          const result = await handleClipDownload(clipData, jobId, {
+            tempDir: TEMP_DIRS.bot,
+            onProgress: (progress) => {
+              job.progress = progress;
+              job.message = `Trimming... ${progress}%`;
+            }
+          });
+          downloadedPath = result.path;
+          downloadedExt = result.ext;
+        } catch (clipErr) {
+          console.log(`[Bot] Clip parsing/trim failed: ${clipErr.message}, falling back to yt-dlp`);
+          job.message = 'Downloading clip via yt-dlp...';
+          const result = await downloadClipViaYtdlp(url, jobId, TEMP_DIRS.bot, (progress) => {
             job.progress = progress;
-            job.message = `Trimming... ${progress}%`;
-          }
-        });
-        downloadedPath = result.path;
-        downloadedExt = result.ext;
+            job.message = `Downloading clip... ${progress.toFixed(0)}%`;
+          });
+          downloadedPath = result.path;
+          downloadedExt = result.ext;
+        }
         job.progress = 100;
       } else {
         job.message = 'Downloading via Cobalt...';

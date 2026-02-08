@@ -130,7 +130,7 @@
           const jobStatus = await statusRes.json();
           if (jobStatus.status === 'error') throw new Error(jobStatus.error || 'Conversion failed');
           progress = jobStatus.progress || 0;
-          progressLabel = jobStatus.message || 'Processing...';
+          progressLabel = jobStatus.message || 'processing...';
           if (jobStatus.status === 'complete') break;
         }
 
@@ -144,13 +144,13 @@
             if (e.lengthComputable) {
               const percent = Math.round((e.loaded / e.total) * 90);
               progress = percent;
-              progressLabel = `Uploading... ${percent}%`;
+              progressLabel = `uploading... ${percent}%`;
             }
           };
 
           xhr.onload = () => {
             progress = 95;
-            progressLabel = 'Processing...';
+            progressLabel = 'processing...';
             resolve(new Response(xhr.response, {
               status: xhr.status,
               statusText: xhr.statusText,
@@ -173,7 +173,7 @@
       }
 
       progress = 100;
-      progressLabel = 'Complete!';
+      progressLabel = 'complete!';
 
       const contentDisposition = response.headers.get('Content-Disposition');
       let downloadName = selectedFile.name.replace(/\.[^.]+$/, '') + '.' + targetFormat;
@@ -186,11 +186,11 @@
       downloadBlob(blob, downloadName);
 
       statusType = 'success';
-      statusMessage = 'Conversion complete! Download started.';
+      statusMessage = 'conversion complete! download started.';
       if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
     } catch (err) {
       statusType = 'error';
-      statusMessage = err.message || 'Conversion failed';
+      statusMessage = err.message || 'conversion failed';
       progress = 0;
       progressLabel = '';
       if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
