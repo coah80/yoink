@@ -597,11 +597,14 @@
     align-items: center;
     justify-content: center;
     padding: 20px 20px 40px;
+    width: 100%;
   }
 
   .branding {
     text-align: center;
     margin-bottom: 40px;
+    max-width: 100%;
+    overflow-wrap: break-word;
   }
 
   h1 {
@@ -1254,7 +1257,17 @@
     }
 
     .segment {
-      padding: 12px 16px;
+      padding: 12px 14px;
+      gap: 0;
+    }
+
+    .yoink-btn {
+      padding: 14px 20px;
+      font-size: 0.9rem;
+    }
+
+    .yoink-dropdown-toggle {
+      padding: 14px 12px;
     }
   }
 </style>

@@ -310,6 +310,7 @@
     align-items: center;
     justify-content: flex-start;
     padding: 40px 20px;
+    width: 100%;
   }
 
   .page-header {
