@@ -1150,7 +1150,7 @@
 
   @media (max-width: 600px) {
     main {
-      padding: 16px 16px 32px;
+      padding: 16px 12px 32px;
     }
 
     .branding {
@@ -1163,6 +1163,10 @@
 
     .splash {
       font-size: 0.9rem;
+    }
+
+    .input-container {
+      max-width: 100%;
     }
 
     .format-section {

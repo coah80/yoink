@@ -546,11 +546,11 @@
 
   @media (max-width: 600px) {
     main {
-      padding: 24px 16px;
+      padding: 20px 12px;
     }
 
     .page-header h1 {
-      font-size: 2rem;
+      font-size: 1.8rem;
     }
 
     .drop-zone {

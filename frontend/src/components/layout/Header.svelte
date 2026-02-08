@@ -101,7 +101,7 @@
 
   @media (max-width: 600px) {
     header {
-      padding: 12px 16px;
+      padding: 12px 12px;
     }
 
     .nav-links {
