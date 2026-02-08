@@ -32,6 +32,17 @@ async function getCobaltDownloadUrl(videoUrl, isAudio = false, options = {}) {
       });
 
       if (!response.ok) {
+        const errorText = await response.text().catch(() => 'no body');
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.error?.code) {
+            throw new Error(errorData.error.code);
+          }
+        } catch (parseErr) {
+          if (parseErr.message && !parseErr.message.includes('JSON')) {
+            throw parseErr;
+          }
+        }
         throw new Error(`HTTP ${response.status}`);
       }
 
@@ -175,6 +186,17 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
         if (!response.ok) {
           const errorText = await response.text().catch(() => 'no body');
           console.log(`[Cobalt] [${jobId}] HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+          
+          try {
+            const errorData = JSON.parse(errorText);
+            if (errorData.error?.code) {
+              throw new Error(errorData.error.code);
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) {
+              throw parseErr;
+            }
+          }
           throw new Error(`HTTP ${response.status}`);
         }
 
@@ -185,7 +207,7 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
           const errorCode = data.error?.code || 'unknown';
           const errorContext = data.error?.context || {};
           console.log(`[Cobalt] [${jobId}] Error response: code=${errorCode}, context=${JSON.stringify(errorContext)}`);
-          throw new Error(`Cobalt error: ${errorCode}`);
+          throw new Error(errorCode);
         }
 
         let downloadUrl = data.url;

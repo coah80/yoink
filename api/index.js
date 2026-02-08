@@ -1,9 +1,10 @@
 require('dotenv').config();
 const { createApp } = require('./app');
 const { PORT } = require('./config/constants');
-const { clearTempDir, startCleanupInterval } = require('./utils/files');
+const { clearTempDir, startCleanupInterval, cleanupJobFiles } = require('./utils/files');
 const { startRateLimitCleanup } = require('./middleware/rateLimit');
 const { checkDependencies } = require('./utils/dependencies');
+const { startSessionCleanup } = require('./services/state');
 
 clearTempDir();
 
@@ -13,6 +14,7 @@ const app = createApp();
 
 startCleanupInterval();
 startRateLimitCleanup();
+startSessionCleanup(cleanupJobFiles);
 
 const server = app.listen(PORT, () => {
   console.log(`
