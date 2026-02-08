@@ -7,7 +7,7 @@
   import { settings } from '../stores/settings.js';
   import { addToast } from '../stores/toast.js';
   import { apiBase, fetchJson } from '../lib/api.js';
-  import { normalizeUrl, hasPlaylistParam, generateProgressId } from '../lib/utils.js';
+  import { normalizeUrl, hasPlaylistParam, generateProgressId, isYouTubeUrl } from '../lib/utils.js';
   import { splashTexts, isPornSite } from '../lib/constants.js';
   import { triggerIframeDownload } from '../lib/download.js';
 
@@ -110,6 +110,12 @@
   async function addUrlToQueue(rawUrl, startImmediately = false) {
     const url = normalizeUrl(rawUrl);
     const format = currentFormat === 'auto' ? 'video' : currentFormat;
+
+    if (format === 'images' && isYouTubeUrl(url)) {
+      addToast('YouTube doesn\'t support image downloads', 'error');
+      return null;
+    }
+
     const progressId = generateProgressId();
     const s = $settings;
 
@@ -205,6 +211,11 @@
 
     if (isPornSite(url)) {
       splash = { text: 'okay dude are you just gonna download porn' };
+    }
+
+    if (currentFormat === 'images' && isYouTubeUrl(url)) {
+      addToast('YouTube doesn\'t support image downloads — use video or audio', 'error');
+      return;
     }
 
     loading = true;
