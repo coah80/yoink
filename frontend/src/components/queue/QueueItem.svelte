@@ -8,11 +8,19 @@
   let isComplete = $derived(item.stage === 'complete');
   let isError = $derived(item.stage === 'error');
   let isQueued = $derived(item.stage === 'queued');
+  let isReady = $derived(item.stage === 'ready');
   let showProgress = $derived(isActive && item.progress !== undefined);
 
   let statusClass = $derived(
-    isActive ? 'active' : isComplete ? 'success' : isError ? 'error' : ''
+    isReady ? 'success' : isActive ? 'active' : isComplete ? 'success' : isError ? 'error' : ''
   );
+
+  let fileSizeText = $derived.by(() => {
+    if (!item.fileSize) return '';
+    const mb = item.fileSize / (1024 * 1024);
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb.toFixed(1)} MB`;
+  });
 
   let timerText = $derived.by(() => {
     if (!item.startTime || (!isActive && !isComplete)) return '';
@@ -37,11 +45,15 @@
   });
 </script>
 
-<div class="queue-item">
+<div class="queue-item" class:clickable={isReady || isQueued} onclick={() => { if (isReady) queue.downloadReady(item.id); else if (isQueued) queue.startDownload(item); }}>
   <div class="queue-item-header">
-    <div class="queue-item-icon" class:spinning={isActive}>
+    <div class="queue-item-icon" class:spinning={isActive} class:ready={isReady}>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        {#if isComplete}
+        {#if isReady}
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        {:else if isComplete}
           <polyline points="20 6 9 17 4 12"></polyline>
         {:else if isError}
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -71,14 +83,24 @@
         {#if item.isPlaylist && item.formatDisplay}
           <span class="queue-item-format">{item.formatDisplay}</span>
         {/if}
-        {#if timerText}
+        {#if isReady && fileSizeText}
+          <span class="queue-item-timer">{fileSizeText}</span>
+        {:else if timerText}
           <span class="queue-item-timer">{timerText}</span>
         {/if}
       </div>
       <div class="queue-item-status {statusClass}">{statusText}</div>
     </div>
     <div class="queue-item-actions">
-      {#if isError && item.url}
+      {#if isReady}
+        <button class="queue-item-download" onclick={(e) => { e.stopPropagation(); queue.downloadReady(item.id); }} title="Download">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </button>
+      {:else if isError && item.url}
         <button class="queue-item-retry" onclick={(e) => { e.stopPropagation(); queue.retryDownload(item.id); }} title="Retry">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="1 4 1 10 7 10"></polyline>
@@ -141,6 +163,14 @@
     margin-bottom: 4px;
   }
 
+  .queue-item.clickable {
+    cursor: pointer;
+  }
+
+  .queue-item.clickable:hover {
+    background: var(--surface-hover, var(--surface-elevated));
+  }
+
   .queue-item:last-child {
     margin-bottom: 0;
   }
@@ -170,6 +200,11 @@
 
   .queue-item-icon.spinning svg {
     animation: spin 1s linear infinite;
+  }
+
+  .queue-item-icon.ready {
+    background: rgba(74, 222, 128, 0.1);
+    color: var(--success);
   }
 
   @keyframes spin {
@@ -284,6 +319,27 @@
   }
 
   .queue-item-retry:active {
+    transform: scale(0.9);
+  }
+
+  .queue-item-download {
+    padding: 8px;
+    background: transparent;
+    border: none;
+    color: var(--success);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease-out;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .queue-item-download:hover {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.1);
+  }
+
+  .queue-item-download:active {
     transform: scale(0.9);
   }
 

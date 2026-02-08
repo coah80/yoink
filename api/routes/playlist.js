@@ -2,14 +2,17 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const archiver = require('archiver');
 
-const { TEMP_DIRS, SAFETY_LIMITS } = require('../config/constants');
+const { TEMP_DIRS, SAFETY_LIMITS, PLAYLIST_DOWNLOAD_EXPIRY } = require('../config/constants');
 const {
   activeDownloads,
   activeProcesses,
   activeJobsByType,
+  asyncJobs,
+  botDownloads,
   registerClient,
   linkJobToClient,
   unlinkJobFromClient,
@@ -25,11 +28,11 @@ const { toUserError } = require('../utils/errors');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
 const discordAlerts = require('../discord-alerts');
 
-router.get('/api/download-playlist', async (req, res) => {
+router.post('/api/playlist/start', express.json(), async (req, res) => {
   const {
-    url, format = 'video', filename, quality = '1080p', container = 'mp4',
-    audioFormat = 'mp3', audioBitrate = '320', progressId, clientId
-  } = req.query;
+    url, format = 'video', quality = '1080p', container = 'mp4',
+    audioFormat = 'mp3', audioBitrate = '320', clientId
+  } = req.body;
 
   const urlCheck = validateUrl(url);
   if (!urlCheck.valid) return res.status(400).json({ error: urlCheck.error });
@@ -41,59 +44,77 @@ router.get('/api/download-playlist', async (req, res) => {
     }
   }
 
-  const downloadId = progressId || uuidv4();
-  if (clientId) {
-    registerClient(clientId);
-    linkJobToClient(downloadId, clientId);
-  }
-
-  activeJobsByType.playlist++;
-  console.log(`[Queue] Playlist started. Active: ${JSON.stringify(activeJobsByType)}`);
-
+  const jobId = uuidv4();
   const isAudio = format === 'audio';
   const outputExt = isAudio ? audioFormat : container;
-  const playlistDir = path.join(TEMP_DIRS.playlist, downloadId);
+
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(jobId, clientId);
+  }
+
+  const job = {
+    status: 'starting',
+    progress: 0,
+    message: 'getting playlist info...',
+    createdAt: Date.now(),
+    url,
+    format: outputExt,
+    type: 'playlist',
+    playlistTitle: null,
+    totalVideos: 0,
+    videosCompleted: 0,
+    currentVideo: 0,
+    currentVideoTitle: '',
+    failedVideos: [],
+    failedCount: 0,
+    downloadToken: null,
+    fileName: null,
+    fileSize: null
+  };
+
+  asyncJobs.set(jobId, job);
+  res.json({ jobId });
+
+  processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate);
+});
+
+async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate) {
+  const playlistDir = path.join(TEMP_DIRS.playlist, jobId);
   if (!fs.existsSync(playlistDir)) fs.mkdirSync(playlistDir, { recursive: true });
 
   const processInfo = { cancelled: false, process: null, tempDir: playlistDir };
-  activeProcesses.set(downloadId, processInfo);
-  sendProgress(downloadId, 'starting', 'Getting playlist info...');
+  activeProcesses.set(jobId, processInfo);
+  activeJobsByType.playlist++;
+  console.log(`[Queue] Async playlist started. Active: ${JSON.stringify(activeJobsByType)}`);
 
   try {
     const playlistInfo = await getPlaylistInfo(url);
 
     if (playlistInfo.count > SAFETY_LIMITS.maxPlaylistVideos) {
-      activeJobsByType.playlist--;
-      unlinkJobFromClient(downloadId);
-      activeProcesses.delete(downloadId);
-      return res.status(400).json({ error: `Playlist too large. Maximum ${SAFETY_LIMITS.maxPlaylistVideos} videos allowed. This playlist has ${playlistInfo.count} videos.` });
+      throw new Error(`Playlist too large. Maximum ${SAFETY_LIMITS.maxPlaylistVideos} videos allowed. This playlist has ${playlistInfo.count} videos.`);
     }
 
     const totalVideos = playlistInfo.count;
     const playlistTitle = playlistInfo.title;
-    const isChunked = totalVideos > SAFETY_LIMITS.playlistChunkSize;
-    const totalChunks = Math.ceil(totalVideos / SAFETY_LIMITS.playlistChunkSize);
 
-    sendProgress(downloadId, 'playlist-info', `Found ${totalVideos} videos in playlist${isChunked ? ` (processing in ${totalChunks} chunks of ${SAFETY_LIMITS.playlistChunkSize})` : ''}`, 0, {
+    job.status = 'downloading';
+    job.playlistTitle = playlistTitle;
+    job.totalVideos = totalVideos;
+    job.message = `found ${totalVideos} videos`;
+
+    sendProgress(jobId, 'playlist-info', `Found ${totalVideos} videos in playlist`, 0, {
       playlistTitle, totalVideos, currentVideo: 0, currentVideoTitle: '',
-      format: isAudio ? audioFormat : `${quality} ${container}`,
-      isChunked, totalChunks, currentChunk: isChunked ? 1 : null
+      format: isAudio ? audioFormat : `${quality} ${container}`
     });
 
     const downloadedFiles = [];
     const failedVideos = [];
 
     for (let i = 0; i < playlistInfo.entries.length; i++) {
-      if (isChunked && i > 0 && i % SAFETY_LIMITS.playlistChunkSize === 0) {
-        const currentChunk = Math.floor(i / SAFETY_LIMITS.playlistChunkSize) + 1;
-        sendProgress(downloadId, 'chunk-pause', `Chunk ${currentChunk - 1}/${totalChunks} complete. Starting chunk ${currentChunk}...`,
-          (i / totalVideos) * 100, { playlistTitle, totalVideos, currentVideo: i, currentChunk, totalChunks });
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-
       if (processInfo.cancelled) throw new Error('Download cancelled');
       if (processInfo.finishEarly) {
-        console.log(`[${downloadId}] Finishing early after ${downloadedFiles.length} videos`);
+        console.log(`[${jobId}] Finishing early after ${downloadedFiles.length} videos`);
         break;
       }
 
@@ -105,14 +126,17 @@ router.get('/api/download-playlist', async (req, res) => {
 
       const safeTitle = sanitizeFilename(videoTitle).substring(0, 100);
       const videoFile = path.join(playlistDir, `${String(videoNum).padStart(3, '0')} - ${safeTitle}.${outputExt}`);
-      const currentChunk = isChunked ? Math.floor(i / SAFETY_LIMITS.playlistChunkSize) + 1 : null;
-      const chunkLabel = isChunked ? `[Chunk ${currentChunk}/${totalChunks}] ` : '';
 
-      sendProgress(downloadId, 'downloading', `${chunkLabel}Downloading ${videoNum}/${totalVideos}: ${videoTitle}`,
-        ((videoNum - 1) / totalVideos) * 100, {
+      job.currentVideo = videoNum;
+      job.currentVideoTitle = videoTitle;
+      job.progress = ((videoNum - 1) / totalVideos) * 100;
+      job.message = `downloading ${videoNum}/${totalVideos}: ${videoTitle}`;
+
+      sendProgress(jobId, 'downloading', `Downloading ${videoNum}/${totalVideos}: ${videoTitle}`,
+        job.progress, {
           playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle,
           format: isAudio ? audioFormat : `${quality} ${container}`,
-          isChunked, currentChunk, totalChunks
+          failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length
         });
 
       try {
@@ -121,7 +145,7 @@ router.get('/api/download-playlist', async (req, res) => {
         let tempPath = null;
 
         if (isYouTubeVideo) {
-          const videoJobId = `${downloadId}-v${videoNum}`;
+          const videoJobId = `${jobId}-v${videoNum}`;
           const abortController = new AbortController();
           processInfo.abortController = abortController;
 
@@ -129,7 +153,8 @@ router.get('/api/download-playlist', async (req, res) => {
             const cobaltResult = await downloadViaCobalt(actualVideoUrl, videoJobId, isAudio,
               (progress) => {
                 const overallProgress = ((videoNum - 1) / totalVideos * 100) + (progress / totalVideos);
-                sendProgress(downloadId, 'downloading', `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${progress}%)`,
+                job.progress = overallProgress;
+                sendProgress(jobId, 'downloading', `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${progress}%)`,
                   overallProgress, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle, videoProgress: progress,
                     format: isAudio ? audioFormat : `${quality} ${container}`, failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length });
               }, abortController.signal, { outputDir: playlistDir, maxRetries: 3, retryDelay: 2000 });
@@ -137,22 +162,23 @@ router.get('/api/download-playlist', async (req, res) => {
           } catch (cobaltErr) {
             if (cobaltErr.message === 'Cancelled') throw cobaltErr;
             failedVideos.push({ num: videoNum, title: videoTitle, reason: toUserError(cobaltErr.message) });
-            sendProgress(downloadId, 'downloading', `Skipped ${videoNum}/${totalVideos}: ${videoTitle}`,
-              ((videoNum - 1) / totalVideos) * 100, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle,
-                format: isAudio ? audioFormat : `${quality} ${container}`, failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length });
+            job.failedVideos = failedVideos.slice(-50);
+            job.failedCount = failedVideos.length;
             continue;
           }
         }
 
         if (!tempPath && !isYouTubeVideo) {
-          const tempVideoFile = path.join(playlistDir, `temp_${videoNum}.%(ext)s`);
           const result = await downloadViaYtdlp(actualVideoUrl, `temp_${videoNum}`, {
             isAudio, quality, container,
             tempDir: playlistDir,
             processInfo,
             onProgress: (progress, speed, eta) => {
               const overallProgress = ((videoNum - 1) / totalVideos * 100) + (progress / totalVideos);
-              sendProgress(downloadId, 'downloading', `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${progress.toFixed(0)}%)`,
+              job.progress = overallProgress;
+              if (speed) job.speed = speed;
+              if (eta) job.eta = eta;
+              sendProgress(jobId, 'downloading', `Downloading ${videoNum}/${totalVideos}: ${videoTitle} (${progress.toFixed(0)}%)`,
                 overallProgress, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle, videoProgress: progress, speed, eta });
             }
           });
@@ -160,11 +186,11 @@ router.get('/api/download-playlist', async (req, res) => {
         }
 
         if (tempPath && fs.existsSync(tempPath)) {
-          sendProgress(downloadId, 'processing', `Processing ${videoNum}/${totalVideos}: ${videoTitle}`,
-            ((videoNum - 0.5) / totalVideos) * 100, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle, format: isAudio ? audioFormat : container });
+          sendProgress(jobId, 'processing', `Processing ${videoNum}/${totalVideos}: ${videoTitle}`,
+            ((videoNum - 0.5) / totalVideos) * 100, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle });
 
           const processed = await processVideo(tempPath, videoFile, {
-            isAudio, audioFormat, audioBitrate, container, jobId: downloadId
+            isAudio, audioFormat, audioBitrate, container, jobId
           });
 
           if (processed.skipped && tempPath !== videoFile) {
@@ -172,26 +198,30 @@ router.get('/api/download-playlist', async (req, res) => {
           }
 
           downloadedFiles.push(videoFile);
-          console.log(`[${downloadId}] Video ${videoNum} complete: ${safeTitle}`);
+          job.videosCompleted = downloadedFiles.length;
+          console.log(`[${jobId}] Video ${videoNum} complete: ${safeTitle}`);
         }
       } catch (err) {
-        console.error(`[${downloadId}] Error downloading video ${videoNum}:`, err.message);
+        console.error(`[${jobId}] Error downloading video ${videoNum}:`, err.message);
         failedVideos.push({ num: videoNum, title: videoTitle, reason: toUserError(err.message) });
-        sendProgress(downloadId, 'downloading', `Skipped ${videoNum}/${totalVideos}: ${videoTitle}`,
-          ((videoNum - 1) / totalVideos) * 100, { playlistTitle, totalVideos, currentVideo: videoNum, currentVideoTitle: videoTitle,
-            format: isAudio ? audioFormat : `${quality} ${container}`, failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length });
+        job.failedVideos = failedVideos.slice(-50);
+        job.failedCount = failedVideos.length;
         if (err.message === 'Cancelled' || err.message === 'Download cancelled') throw err;
       }
     }
 
     if (downloadedFiles.length === 0) throw new Error('No videos were successfully downloaded');
 
-    sendProgress(downloadId, 'zipping', `Creating zip file with ${downloadedFiles.length} videos...`, 95, {
-      playlistTitle, totalVideos, downloadedCount: downloadedFiles.length, format: isAudio ? audioFormat : `${quality} ${container}`
+    job.status = 'zipping';
+    job.progress = 95;
+    job.message = `creating zip with ${downloadedFiles.length} videos...`;
+
+    sendProgress(jobId, 'zipping', `Creating zip file with ${downloadedFiles.length} videos...`, 95, {
+      playlistTitle, totalVideos, downloadedCount: downloadedFiles.length
     });
 
-    const zipPath = path.join(TEMP_DIRS.playlist, `${downloadId}.zip`);
-    const safePlaylistName = sanitizeFilename(playlistTitle || filename || 'playlist');
+    const zipPath = path.join(TEMP_DIRS.playlist, `${jobId}.zip`);
+    const safePlaylistName = sanitizeFilename(playlistTitle || 'playlist');
 
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
@@ -203,58 +233,129 @@ router.get('/api/download-playlist', async (req, res) => {
       archive.finalize();
     });
 
-    sendProgress(downloadId, 'sending', 'Sending zip file to you...');
+    try {
+      if (fs.existsSync(playlistDir)) fs.rmSync(playlistDir, { recursive: true, force: true });
+    } catch {}
 
     const stat = fs.statSync(zipPath);
-    const zipFilename = `${safePlaylistName}.zip`;
+    const downloadToken = crypto.randomBytes(32).toString('hex');
+    const fileName = `${safePlaylistName}.zip`;
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Length', stat.size);
-    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"; filename*=UTF-8''${encodeURIComponent(zipFilename)}`);
-
-    const stream = fs.createReadStream(zipPath);
-    stream.pipe(res);
-
-    stream.on('close', () => {
-      sendProgress(downloadId, 'complete', `Downloaded ${downloadedFiles.length} videos!`, 100, {
-        playlistTitle, totalVideos, downloadedCount: downloadedFiles.length, failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length
-      });
-      activeDownloads.delete(downloadId);
-      activeProcesses.delete(downloadId);
-      activeJobsByType.playlist--;
-      unlinkJobFromClient(downloadId);
-      console.log(`[Queue] Playlist finished. Active: ${JSON.stringify(activeJobsByType)}`);
-      setTimeout(() => cleanupJobFiles(downloadId), 2000);
+    botDownloads.set(downloadToken, {
+      filePath: zipPath, fileName, fileSize: stat.size,
+      mimeType: 'application/zip', createdAt: Date.now(),
+      downloaded: false, isWebPlaylist: true
     });
 
-    stream.on('error', (err) => {
-      console.error(`[${downloadId}] Stream error:`, err);
-      discordAlerts.fileSendFailed('Playlist Stream Error', 'Failed to send zip file to client.', { jobId: downloadId, error: err.message });
-      sendProgress(downloadId, 'error', 'Failed to send zip file');
-      activeProcesses.delete(downloadId);
-      activeJobsByType.playlist--;
-      unlinkJobFromClient(downloadId);
-      setTimeout(() => cleanupJobFiles(downloadId), 2000);
+    job.status = 'complete';
+    job.progress = 100;
+    job.message = `${downloadedFiles.length} videos ready to download`;
+    job.downloadToken = downloadToken;
+    job.fileName = fileName;
+    job.fileSize = stat.size;
+    job.failedVideos = failedVideos.slice(-50);
+    job.failedCount = failedVideos.length;
+
+    sendProgress(jobId, 'complete', `${downloadedFiles.length} videos ready!`, 100, {
+      playlistTitle, totalVideos, downloadedCount: downloadedFiles.length,
+      failedVideos: failedVideos.slice(-50), failedCount: failedVideos.length,
+      downloadToken
     });
+
+    activeProcesses.delete(jobId);
+    activeJobsByType.playlist--;
+    unlinkJobFromClient(jobId);
+    console.log(`[Queue] Async playlist complete. Active: ${JSON.stringify(activeJobsByType)}`);
 
   } catch (err) {
-    console.error(`[${downloadId}] Playlist error:`, err.message);
-    discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId: downloadId, url, error: err.message });
+    console.error(`[${jobId}] Async playlist error:`, err.message);
+    discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId, url, error: err.message });
+
+    job.status = 'error';
+    job.message = toUserError(err.message || 'Playlist download failed');
 
     if (!processInfo.cancelled) {
-      sendProgress(downloadId, 'error', toUserError(err.message || 'Playlist download failed'));
+      sendProgress(jobId, 'error', toUserError(err.message || 'Playlist download failed'));
     }
 
-    activeProcesses.delete(downloadId);
+    activeProcesses.delete(jobId);
     activeJobsByType.playlist--;
-    unlinkJobFromClient(downloadId);
-    console.log(`[Queue] Playlist error. Active: ${JSON.stringify(activeJobsByType)}`);
-    setTimeout(() => cleanupJobFiles(downloadId), 2000);
+    unlinkJobFromClient(jobId);
+    console.log(`[Queue] Async playlist error. Active: ${JSON.stringify(activeJobsByType)}`);
 
-    if (!res.headersSent) {
-      res.status(500).json({ error: toUserError(err.message || 'Playlist download failed') });
+    try {
+      if (fs.existsSync(playlistDir)) fs.rmSync(playlistDir, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
+router.get('/api/playlist/status/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = asyncJobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  res.json({
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    playlistTitle: job.playlistTitle,
+    totalVideos: job.totalVideos,
+    videosCompleted: job.videosCompleted,
+    currentVideo: job.currentVideo,
+    currentVideoTitle: job.currentVideoTitle,
+    failedVideos: job.failedVideos,
+    failedCount: job.failedCount,
+    downloadToken: job.downloadToken,
+    fileName: job.fileName,
+    fileSize: job.fileSize,
+    speed: job.speed,
+    eta: job.eta
+  });
+});
+
+router.get('/api/playlist/download/:token', (req, res) => {
+  const { token } = req.params;
+  const data = botDownloads.get(token);
+
+  if (!data) return res.status(404).json({ error: 'Download not found or expired' });
+  if (!fs.existsSync(data.filePath)) {
+    botDownloads.delete(token);
+    return res.status(404).json({ error: 'File no longer available' });
+  }
+
+  const stat = fs.statSync(data.filePath);
+  const asciiFilename = data.fileName.replace(/[^\x20-\x7E]/g, '_');
+
+  res.setHeader('Content-Type', data.mimeType);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(data.fileName)}`);
+
+  const stream = fs.createReadStream(data.filePath);
+  stream.pipe(res);
+
+  stream.on('close', () => {
+    data.downloaded = true;
+    setTimeout(() => {
+      if (botDownloads.has(token)) {
+        fs.unlink(data.filePath, () => {});
+        botDownloads.delete(token);
+        console.log(`[Playlist] Token ${token.slice(0, 8)}... cleaned up after download`);
+      }
+    }, 30000);
+  });
+});
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of botDownloads.entries()) {
+    if (data.isWebPlaylist && now - data.createdAt > PLAYLIST_DOWNLOAD_EXPIRY) {
+      console.log(`[Playlist] Download token ${token.slice(0, 8)}... expired`);
+      if (data.filePath && fs.existsSync(data.filePath)) {
+        fs.unlink(data.filePath, () => {});
+      }
+      botDownloads.delete(token);
     }
   }
-});
+}, 60000);
 
 module.exports = router;
