@@ -50,11 +50,25 @@
   }
 
   function checkSharedUrl() {
-    const sharedUrl = sessionStorage.getItem('yoink_shared_url');
+    let sharedUrl = sessionStorage.getItem('yoink_shared_url');
+
+    // Detect PWA share target: browser loads /share?url=... but hash router sees /
+    if (!sharedUrl && window.location.pathname === '/share') {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('url') || params.get('text') || '';
+      const urlMatch = raw.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        sharedUrl = urlMatch[0].replace(/[.,!?;:)\]}>]+$/, '');
+      }
+      // Clean the address bar
+      history.replaceState(null, '', '/#/');
+    }
+
     if (sharedUrl) {
       sessionStorage.removeItem('yoink_shared_url');
       urlValue = sharedUrl;
-      addToast('URL shared! Click yoink to download', 'info');
+      // Auto-download after a tick so the UI renders first
+      setTimeout(() => handleYoink(), 150);
     }
   }
 
