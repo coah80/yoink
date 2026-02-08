@@ -95,6 +95,7 @@ const COMPRESSION_CONFIG = {
 // Bot Configuration
 const BOT_SECRET = process.env.BOT_SECRET || 'yoinky-bot-secret';
 const BOT_DOWNLOAD_EXPIRY = 5 * 60 * 1000;
+const PLAYLIST_DOWNLOAD_EXPIRY = 30 * 60 * 1000;
 
 // Cobalt Configuration
 const COBALT_API_KEY = process.env.COBALT_API_KEY;
@@ -148,6 +149,7 @@ module.exports = {
   COMPRESSION_CONFIG,
   BOT_SECRET,
   BOT_DOWNLOAD_EXPIRY,
+  PLAYLIST_DOWNLOAD_EXPIRY,
   COBALT_API_KEY,
   COBALT_APIS,
   HEAVY_JOB_TYPES,

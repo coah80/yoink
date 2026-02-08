@@ -9,7 +9,7 @@ const archiver = require('archiver');
 
 const {
   TEMP_DIRS, SAFETY_LIMITS, CONTAINER_MIMES, AUDIO_MIMES,
-  BOT_SECRET, BOT_DOWNLOAD_EXPIRY
+  BOT_SECRET, BOT_DOWNLOAD_EXPIRY, ASYNC_JOB_TIMEOUT
 } = require('../config/constants');
 
 const { asyncJobs, botDownloads } = require('../services/state');
@@ -30,6 +30,12 @@ setInterval(() => {
         fs.unlink(data.filePath, () => {});
       }
       botDownloads.delete(token);
+    }
+  }
+  for (const [jobId, job] of asyncJobs.entries()) {
+    if (now - job.createdAt > ASYNC_JOB_TIMEOUT) {
+      console.log(`[Bot] Job ${jobId.slice(0, 8)}... expired (${job.status})`);
+      asyncJobs.delete(jobId);
     }
   }
 }, 30000);
@@ -317,6 +323,10 @@ async function processBotPlaylistDownload(jobId, job, url, isAudio, audioFormat,
     job.videosCompleted = downloadedFiles.length;
 
     console.log(`[Bot] Playlist job ${jobId} complete, token: ${downloadToken.slice(0, 8)}...`);
+
+    try {
+      if (fs.existsSync(playlistDir)) fs.rmSync(playlistDir, { recursive: true, force: true });
+    } catch {}
 
   } catch (err) {
     console.error(`[Bot] Playlist job ${jobId} failed:`, err.message);

@@ -64,5 +64,5 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const ACTIVE_STAGES = [
-  'starting', 'downloading', 'processing', 'remuxing', 'sending', 'zipping', 'playlist-info',
+  'starting', 'downloading', 'processing', 'remuxing', 'sending', 'zipping', 'playlist-info', 'reconnecting',
 ];

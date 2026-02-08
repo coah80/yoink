@@ -154,6 +154,12 @@ function startSessionCleanup(cleanupJobFiles) {
         console.log(`[Session] Client ${clientId.slice(0, 8)}... heartbeat timeout, cancelling ${session.activeJobs.size} jobs`);
 
         for (const jobId of session.activeJobs) {
+          const asyncJob = asyncJobs.get(jobId);
+          if (asyncJob && asyncJob.type === 'playlist') {
+            session.activeJobs.delete(jobId);
+            jobToClient.delete(jobId);
+            continue;
+          }
           const processInfo = activeProcesses.get(jobId);
           if (processInfo) {
             processInfo.cancelled = true;
