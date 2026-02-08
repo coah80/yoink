@@ -40,6 +40,15 @@ export function normalizeUrl(url) {
   }
 }
 
+export function isYouTubeUrl(url) {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'youtu.be' || host.includes('youtube.com');
+  } catch {
+    return false;
+  }
+}
+
 export function hasPlaylistParam(url) {
   try {
     return new URL(url).searchParams.has('list');
