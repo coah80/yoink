@@ -640,36 +640,51 @@
 
   @media (max-width: 600px) {
     main {
-      padding: 24px 16px;
+      padding: 20px 12px;
     }
 
     .page-header {
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
     .page-header h1 {
-      font-size: 2rem;
+      font-size: 1.8rem;
+    }
+
+    .page-header p {
+      font-size: 0.85rem;
     }
 
     .settings-nav {
-      gap: 6px;
+      gap: 4px;
       flex-wrap: wrap;
       justify-content: center;
-      padding-bottom: 4px;
+      margin-bottom: 24px;
     }
 
     .settings-nav-item {
-      padding: 8px 14px;
-      font-size: 0.8rem;
+      padding: 8px 12px;
+      font-size: 0.75rem;
       flex-shrink: 0;
     }
 
     .settings-card {
-      padding: 16px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      margin-bottom: 12px;
+    }
+
+    .setting-label {
+      font-size: 0.85rem;
     }
 
     .quality-grid {
       grid-template-columns: repeat(4, 1fr);
+    }
+
+    .quality-option {
+      padding: 10px 4px;
+      font-size: 0.8rem;
     }
 
     .segmented-control {
@@ -678,17 +693,49 @@
 
     .segment {
       min-width: auto;
-      padding: 10px 10px;
-      font-size: 0.8rem;
+      padding: 8px 8px;
+      font-size: 0.75rem;
+    }
+
+    .section-title {
+      font-size: 1.1rem;
+      margin-bottom: 16px;
     }
 
     .filename-preview {
       overflow-x: auto;
       word-break: break-all;
+      font-size: 0.8rem;
+      padding: 10px 12px;
     }
 
     .setting-description {
-      font-size: 0.8rem;
+      font-size: 0.75rem;
+    }
+
+    .toggle {
+      width: 46px;
+      height: 24px;
+    }
+
+    .toggle::after {
+      width: 18px;
+      height: 18px;
+      top: 2px;
+      left: 2px;
+    }
+
+    .toggle.active::after {
+      left: 22px;
+    }
+
+    .toggle-row {
+      gap: 12px;
+    }
+
+    .reset-btn {
+      padding: 12px 16px;
+      font-size: 0.85rem;
     }
   }
 </style>
