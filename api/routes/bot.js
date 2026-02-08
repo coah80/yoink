@@ -9,7 +9,7 @@ const archiver = require('archiver');
 
 const {
   TEMP_DIRS, SAFETY_LIMITS, CONTAINER_MIMES, AUDIO_MIMES,
-  BOT_SECRET, BOT_DOWNLOAD_EXPIRY, ASYNC_JOB_TIMEOUT
+  BOT_SECRET, BOT_DOWNLOAD_EXPIRY, ASYNC_JOB_TIMEOUT, PLAYLIST_DOWNLOAD_EXPIRY
 } = require('../config/constants');
 
 const { asyncJobs, botDownloads } = require('../services/state');
@@ -33,7 +33,8 @@ setInterval(() => {
     }
   }
   for (const [jobId, job] of asyncJobs.entries()) {
-    if (now - job.createdAt > ASYNC_JOB_TIMEOUT) {
+    const timeout = job.type === 'playlist' ? PLAYLIST_DOWNLOAD_EXPIRY : ASYNC_JOB_TIMEOUT;
+    if (now - job.createdAt > timeout) {
       console.log(`[Bot] Job ${jobId.slice(0, 8)}... expired (${job.status})`);
       asyncJobs.delete(jobId);
     }
