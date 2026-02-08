@@ -560,6 +560,7 @@
     align-items: center;
     justify-content: flex-start;
     padding: 40px 20px;
+    width: 100%;
   }
 
   .page-header {
@@ -819,6 +820,7 @@
   .estimate-value {
     font-weight: 600;
     color: var(--purple-400);
+    word-break: break-word;
   }
 
   .estimate-warning {
@@ -944,8 +946,10 @@
 
   .result-stats {
     display: flex;
-    gap: 24px;
+    gap: 16px;
     margin-bottom: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .result-stat {

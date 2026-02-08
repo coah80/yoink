@@ -364,6 +364,7 @@
 <style>
   main {
     max-width: 700px;
+    width: 100%;
     margin: 0 auto;
     padding: 32px 24px;
     flex: 1;
@@ -652,21 +653,14 @@
 
     .settings-nav {
       gap: 6px;
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      justify-content: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
       padding-bottom: 4px;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
-    }
-
-    .settings-nav::-webkit-scrollbar {
-      display: none;
     }
 
     .settings-nav-item {
-      padding: 10px 16px;
-      font-size: 0.85rem;
+      padding: 8px 14px;
+      font-size: 0.8rem;
       flex-shrink: 0;
     }
 
@@ -679,13 +673,22 @@
     }
 
     .segmented-control {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
+      flex-wrap: wrap;
     }
 
     .segment {
-      flex-shrink: 0;
+      min-width: auto;
+      padding: 10px 10px;
+      font-size: 0.8rem;
+    }
+
+    .filename-preview {
+      overflow-x: auto;
+      word-break: break-all;
+    }
+
+    .setting-description {
+      font-size: 0.8rem;
     }
   }
 </style>

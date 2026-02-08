@@ -77,6 +77,7 @@
 <style>
   main {
     max-width: 700px;
+    width: 100%;
     margin: 0 auto;
     padding: 32px 24px;
     flex: 1;
