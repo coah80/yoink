@@ -3,12 +3,13 @@ const { createApp } = require('./app');
 const { PORT } = require('./config/constants');
 const { clearTempDir, startCleanupInterval, cleanupJobFiles } = require('./utils/files');
 const { startRateLimitCleanup } = require('./middleware/rateLimit');
-const { checkDependencies } = require('./utils/dependencies');
-const { startSessionCleanup } = require('./services/state');
+const { checkDependencies, isGalleryDlAvailable } = require('./utils/dependencies');
+const { startSessionCleanup, setGalleryDlAvailable } = require('./services/state');
 
 clearTempDir();
 
 checkDependencies();
+setGalleryDlAvailable(isGalleryDlAvailable());
 
 const app = createApp();
 
