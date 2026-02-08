@@ -1157,12 +1157,110 @@
   }
 
   @media (max-width: 600px) {
-    .size-grid {
-      grid-template-columns: repeat(3, 1fr);
+    main {
+      padding: 24px 16px;
     }
 
     .page-header h1 {
       font-size: 2rem;
+    }
+
+    .size-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .size-option {
+      padding: 14px 6px;
+    }
+
+    .size-option-value {
+      font-size: 1.1rem;
+    }
+
+    .size-section {
+      padding: 16px;
+    }
+
+    .drop-zone {
+      padding: 32px 16px;
+    }
+
+    .drop-zone-icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .file-remove {
+      padding: 10px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .file-remove:active {
+      transform: scale(0.9);
+    }
+
+    .compress-btn {
+      padding: 18px 24px;
+    }
+
+    .result-stats {
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .result-stat-value {
+      font-size: 1.2rem;
+    }
+
+    .quality-modal {
+      padding: 24px 20px;
+      width: 94%;
+    }
+
+    .quality-gauge {
+      width: 150px;
+      height: 85px;
+    }
+
+    .quality-gauge-bg {
+      width: 150px;
+      height: 75px;
+      border-radius: 75px 75px 0 0;
+    }
+
+    .quality-gauge-mask {
+      width: 108px;
+      height: 54px;
+      border-radius: 54px 54px 0 0;
+    }
+
+    .quality-gauge-needle {
+      height: 58px;
+    }
+
+    .quality-modal-btn {
+      padding: 16px 16px;
+    }
+
+    .estimate {
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .custom-size-input {
+      font-size: 16px;
+    }
+
+    .checkbox-row span {
+      font-size: 0.85rem;
+    }
+  }
+
+  @media (max-width: 380px) {
+    .size-grid {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>

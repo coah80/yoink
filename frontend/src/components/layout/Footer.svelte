@@ -58,12 +58,17 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      gap: 12px;
-      padding: 20px 16px;
+      gap: 8px;
+      padding: 16px 16px 24px;
+      font-size: 0.75rem;
     }
 
     .footer-left {
       align-items: center;
+    }
+
+    .footer-right {
+      gap: 6px;
     }
   }
 </style>

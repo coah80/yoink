@@ -15,8 +15,8 @@
     padding: 12px 18px;
     color: var(--text);
     font-family: var(--font-body);
-    min-width: 250px;
-    max-width: 380px;
+    min-width: 200px;
+    max-width: 420px;
     animation: toast-in 0.3s ease forwards;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }

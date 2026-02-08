@@ -178,4 +178,34 @@
   .content-card a:hover {
     color: var(--purple-300);
   }
+
+  @media (max-width: 600px) {
+    main {
+      padding: 24px 16px;
+    }
+
+    .page-header h1 {
+      font-size: 2rem;
+    }
+
+    .content-card {
+      padding: 20px 16px;
+    }
+
+    .content-card h2 {
+      font-size: 1.1rem;
+    }
+
+    .content-card ul {
+      margin-left: 16px;
+    }
+
+    .tldr-box {
+      padding: 16px;
+    }
+
+    .content-card a {
+      word-break: break-word;
+    }
+  }
 </style>

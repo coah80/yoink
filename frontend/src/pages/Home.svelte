@@ -691,8 +691,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
     background: var(--surface-elevated);
     color: var(--text-secondary);
     border: none;
@@ -700,6 +700,7 @@
     cursor: pointer;
     transition: all 0.15s ease-out;
     flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .paste-btn:hover {
@@ -720,8 +721,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
     background: transparent;
     color: var(--text-muted);
     border: none;
@@ -729,6 +730,7 @@
     cursor: pointer;
     transition: all 0.15s ease-out;
     flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .clear-btn:hover {
@@ -1156,12 +1158,15 @@
 
     .segmented-control {
       padding: 3px;
+      width: 100%;
     }
 
     .segment {
-      padding: 10px 14px;
+      flex: 1;
+      padding: 12px 10px;
       font-size: 0.85rem;
       gap: 5px;
+      justify-content: center;
     }
 
     .segment svg {
@@ -1180,7 +1185,7 @@
     }
 
     .yoink-dropdown-toggle {
-      padding: 16px 14px;
+      padding: 16px 16px;
     }
 
     .url-input-wrapper {
@@ -1189,7 +1194,7 @@
 
     .url-input {
       padding: 10px 6px;
-      font-size: 0.95rem;
+      font-size: 16px;
     }
 
     .yoink-dropdown {
@@ -1203,11 +1208,42 @@
       from { opacity: 0; transform: translateY(-8px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
+    .modal {
+      width: 92%;
+      padding: 20px;
+    }
+
+    .batch-modal {
+      max-width: none;
+      width: 92%;
+    }
+
+    .batch-textarea {
+      height: 200px;
+      font-size: 16px;
+    }
+
+    .modal-btn {
+      padding: 16px 16px;
+    }
+
+    .yoink-dropdown-item {
+      padding: 14px 16px;
+    }
   }
 
   @media (max-width: 400px) {
     h1 {
       font-size: 2rem;
+    }
+
+    .segment span {
+      display: none;
+    }
+
+    .segment {
+      padding: 12px 16px;
     }
   }
 </style>
