@@ -266,8 +266,9 @@ function createQueueStore() {
           const res = await fetch(`${apiBase()}/api/playlist/status/${serverJobId}`);
           if (!res.ok) {
             if (res.status === 404) {
-              this.updateItem(itemId, { stage: 'error', status: 'playlist job not found on server' });
-              stopPolling(itemId);
+              this.updateItem(itemId, { stage: 'error', status: 'playlist expired — try again!' });
+              cleanupJob(itemId);
+              addToast('playlist expired — try again!', 'error');
             }
             return;
           }
@@ -343,10 +344,25 @@ function createQueueStore() {
       this.updateItem(itemId, patch);
     },
 
-    downloadReady(id) {
+    async downloadReady(id) {
       const q = getQueue();
       const item = q.find((i) => i.id === id);
       if (!item || !item.downloadToken) return;
+
+      if (item.serverJobId) {
+        try {
+          const res = await fetch(`${apiBase()}/api/playlist/status/${item.serverJobId}`);
+          if (!res.ok) {
+            this.updateItem(id, { stage: 'error', status: 'playlist expired — try again!' });
+            addToast('playlist expired — try again!', 'error');
+            return;
+          }
+        } catch {
+          this.updateItem(id, { stage: 'error', status: 'playlist expired — try again!' });
+          addToast('playlist expired — try again!', 'error');
+          return;
+        }
+      }
 
       triggerIframeDownload(`${apiBase()}/api/playlist/download/${item.downloadToken}`);
       addToast('downloading playlist zip...', 'success');
