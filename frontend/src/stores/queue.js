@@ -83,19 +83,6 @@ function createQueueStore() {
       });
     },
 
-    addLog(id, msg) {
-      update((q) => {
-        const next = q.map((item) => {
-          if (item.id !== id) return item;
-          const logs = [...(item.logs || []), { time: new Date().toLocaleTimeString(), msg }];
-          if (logs.length > 50) logs.shift();
-          return { ...item, logs };
-        });
-        save(next);
-        return next;
-      });
-    },
-
     clear() {
       const q = getQueue();
       q.forEach((item) => {
@@ -120,9 +107,8 @@ function createQueueStore() {
 
       this.updateItem(item.id, {
         stage: 'starting',
-        status: 'Starting download...',
+        status: 'starting download...',
         startTime: Date.now(),
-        logs: [{ time: new Date().toLocaleTimeString(), msg: 'Starting download...' }],
       });
 
       const sse = createSSEConnection(item.id, {
@@ -143,9 +129,6 @@ function createQueueStore() {
           if (data.failedCount !== undefined) patch.failedCount = data.failedCount;
 
           this.updateItem(item.id, patch);
-
-          if (data.log) this.addLog(item.id, data.log);
-          if (data.message) this.addLog(item.id, data.message);
 
           if (data.stage === 'complete') {
             patch.endTime = Date.now();
@@ -253,12 +236,6 @@ function createQueueStore() {
       }
     },
 
-    toggleLogs(id) {
-      update((q) => {
-        const next = q.map((item) => (item.id === id ? { ...item, logsExpanded: !item.logsExpanded } : item));
-        return next;
-      });
-    },
   };
 }
 

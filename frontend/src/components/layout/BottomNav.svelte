@@ -64,10 +64,10 @@
   }
 
   const navItems = [
-    { href: '/', label: 'Download', icon: 'download' },
-    { href: '/convert', label: 'Convert', icon: 'convert' },
-    { href: '/compress', label: 'Compress', icon: 'compress' },
-    { href: '/settings', label: 'Settings', icon: 'settings' },
+    { href: '/', label: 'download', icon: 'download' },
+    { href: '/convert', label: 'convert', icon: 'convert' },
+    { href: '/compress', label: 'compress', icon: 'compress' },
+    { href: '/settings', label: 'settings', icon: 'settings' },
   ];
 </script>
 
@@ -129,7 +129,7 @@
         <span class="nav-badge">{count}</span>
       {/if}
     </div>
-    <span class="nav-label">Queue</span>
+    <span class="nav-label">queue</span>
   </button>
 </nav>
 

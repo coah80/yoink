@@ -1,4 +1,4 @@
 module.exports = {
   ADMIN_PASSWORD: 'changeme',
-  ADMIN_TOKEN_SECRET: 'your-secret-key-here'
+  TOKEN_EXPIRY_MS: 86400000 // 24 hours (in milliseconds)
 };

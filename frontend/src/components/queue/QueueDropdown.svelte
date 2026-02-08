@@ -8,7 +8,7 @@
 </script>
 
 <div class="queue-dropdown-header">
-  <span class="queue-dropdown-title">Downloads</span>
+  <span class="queue-dropdown-title">downloads</span>
   <div class="queue-header-actions">
     <button class="queue-start-all" onclick={() => queue.startAllQueued()} title="Start all queued">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

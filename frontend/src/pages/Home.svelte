@@ -191,13 +191,11 @@
       url,
       format,
       stage: startImmediately ? 'starting' : 'queued',
-      status: startImmediately ? 'Initializing...' : 'In queue',
+      status: startImmediately ? 'initializing...' : 'in queue',
       progress: 0,
       isPlaylist: downloadPlaylist,
       formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
       startTime: startImmediately ? Date.now() : null,
-      logs: [],
-      logsExpanded: false,
       failedVideos: [],
     };
 
@@ -255,7 +253,7 @@
     const progressId = generateProgressId();
 
     try {
-      setStatus('loading', format === 'images' ? 'Fetching gallery info...' : 'Fetching video info...');
+      setStatus('loading', format === 'images' ? 'fetching gallery info...' : 'fetching video info...');
 
       let metadata;
       if (format === 'images') {
@@ -313,7 +311,7 @@
         url,
         format,
         stage: 'starting',
-        status: 'Initializing...',
+        status: 'initializing...',
         progress: 0,
         isPlaylist,
         isGallery,
@@ -323,8 +321,6 @@
         formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
         failedVideos: [],
         startTime: Date.now(),
-        logs: [],
-        logsExpanded: false,
       };
 
       queue.add(queueItem);
@@ -516,7 +512,7 @@
                 <line x1="3" y1="12" x2="3.01" y2="12"></line>
                 <line x1="3" y1="18" x2="3.01" y2="18"></line>
               </svg>
-              batch add URLs
+              batch add urls
             </button>
           </div>
         {/if}
@@ -573,7 +569,7 @@
 {#if showBatchModal}
   <div class="modal-overlay" onclick={(e) => { if (e.target === e.currentTarget) showBatchModal = false; }}>
     <div class="modal batch-modal">
-      <div class="modal-title">batch add URLs</div>
+      <div class="modal-title">batch add urls</div>
       <div class="modal-subtitle">paste multiple URLs, one per line</div>
       <textarea
         class="batch-textarea"
@@ -581,7 +577,7 @@
         placeholder={"https://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=..."}
       ></textarea>
       <div class="batch-count">
-        <span>{batchUrlCount}</span> URLs detected
+        <span>{batchUrlCount}</span> urls detected
       </div>
       <div class="modal-buttons">
         <button class="modal-btn" onclick={() => showBatchModal = false}>cancel</button>
