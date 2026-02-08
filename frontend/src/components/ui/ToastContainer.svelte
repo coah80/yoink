@@ -14,7 +14,7 @@
     position: fixed;
     bottom: 24px;
     right: 24px;
-    z-index: 1000;
+    z-index: 3000;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -23,5 +23,14 @@
 
   .toast-container :global(.toast) {
     pointer-events: auto;
+  }
+
+  @media (max-width: 600px) {
+    .toast-container {
+      bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+      left: 16px;
+      right: 16px;
+      align-items: stretch;
+    }
   }
 </style>

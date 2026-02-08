@@ -543,13 +543,44 @@
     border: 1px solid var(--success);
   }
 
-  @media (max-width: 500px) {
-    .drop-zone {
-      padding: 32px 16px;
+  @media (max-width: 600px) {
+    main {
+      padding: 24px 16px;
     }
 
     .page-header h1 {
       font-size: 2rem;
+    }
+
+    .drop-zone {
+      padding: 32px 16px;
+    }
+
+    .drop-zone-icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .file-info {
+      padding: 16px;
+    }
+
+    .segment {
+      padding: 12px 10px;
+      font-size: 0.85rem;
+    }
+
+    .convert-btn {
+      padding: 18px 24px;
+    }
+
+    .file-remove {
+      padding: 10px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .file-remove:active {
+      transform: scale(0.9);
     }
   }
 </style>

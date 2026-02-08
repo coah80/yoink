@@ -107,4 +107,29 @@
     color: var(--text-muted);
     font-size: 0.85rem;
   }
+
+  @media (max-width: 600px) {
+    .queue-dropdown-header {
+      padding: 10px 16px;
+    }
+
+    .queue-start-all {
+      width: 36px;
+      height: 36px;
+    }
+
+    .queue-start-all svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .queue-clear {
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+
+    .queue-list {
+      max-height: 50vh;
+    }
+  }
 </style>
