@@ -5,6 +5,10 @@
 
   let queueOpen = $state(false);
   let sheetRef;
+  let sheetTranslateY = $state(0);
+  let swiping = $state(false);
+  let touchStartY = 0;
+  let touchStartTime = 0;
 
   let items = $derived($queue);
   let count = $derived(items.length);
@@ -18,10 +22,45 @@
     e.preventDefault();
     e.stopPropagation();
     queueOpen = !queueOpen;
+    sheetTranslateY = 0;
   }
 
   function closeQueue() {
     queueOpen = false;
+    sheetTranslateY = 0;
+  }
+
+  function handleSheetTouchStart(e) {
+    const el = sheetRef;
+    if (!el) return;
+    // Only start swipe if at the top of scroll or touching the handle area
+    if (el.scrollTop > 0 && e.target.closest('.queue-sheet') && !e.target.closest('.sheet-handle')) return;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+    swiping = true;
+  }
+
+  function handleSheetTouchMove(e) {
+    if (!swiping) return;
+    const deltaY = e.touches[0].clientY - touchStartY;
+    if (deltaY > 0) {
+      sheetTranslateY = deltaY;
+      e.preventDefault();
+    } else {
+      sheetTranslateY = 0;
+    }
+  }
+
+  function handleSheetTouchEnd() {
+    if (!swiping) return;
+    swiping = false;
+    const velocity = sheetTranslateY / (Date.now() - touchStartTime);
+    // Close if dragged >80px or fast flick (>0.5px/ms)
+    if (sheetTranslateY > 80 || velocity > 0.5) {
+      closeQueue();
+    } else {
+      sheetTranslateY = 0;
+    }
   }
 
   const navItems = [
@@ -98,7 +137,15 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="queue-sheet-overlay" onclick={closeQueue}></div>
-  <div class="queue-sheet" bind:this={sheetRef}>
+  <div
+    class="queue-sheet"
+    class:swiping
+    bind:this={sheetRef}
+    style={sheetTranslateY > 0 ? `transform: translateY(${sheetTranslateY}px)` : ''}
+    ontouchstart={handleSheetTouchStart}
+    ontouchmove={handleSheetTouchMove}
+    ontouchend={handleSheetTouchEnd}
+  >
     <div class="sheet-handle"></div>
     <QueueDropdown />
   </div>
@@ -226,6 +273,13 @@
     z-index: 1001;
     animation: sheet-up 0.25s ease-out;
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease-out;
+    touch-action: pan-y;
+  }
+
+  .queue-sheet.swiping {
+    transition: none;
+    overflow-y: hidden;
   }
 
   @keyframes sheet-up {
