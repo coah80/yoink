@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const path = require('path');
 const { loadCorsConfig } = require('./middleware/cors');
 const { rateLimitMiddleware } = require('./middleware/rateLimit');
 const { isGalleryDlAvailable } = require('./utils/dependencies');
@@ -22,15 +21,6 @@ function createApp() {
   app.use(cors(corsConfig));
   app.use(cookieParser());
   app.use(express.json({ limit: '500mb' }));
-
-  app.get('/js/sw.js', (req, res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
-    res.sendFile(path.join(__dirname, '../public/js/sw.js'));
-  });
-
-  app.use(express.static(path.join(__dirname, '../public')));
 
   app.use('/api/download', rateLimitMiddleware);
   app.use('/api/download-playlist', rateLimitMiddleware);

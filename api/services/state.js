@@ -1,9 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const {
   JOB_LIMITS,
-  MAX_QUEUE_SIZE,
   HEARTBEAT_TIMEOUT_MS,
-  HEAVY_JOB_TYPES,
   SESSION_IDLE_TIMEOUT_MS
 } = require('../config/constants');
 
@@ -11,15 +9,11 @@ const activeDownloads = new Map();
 const activeProcesses = new Map();
 const pendingJobs = new Map();
 const resumedJobs = new Map();
-const finishEarlyRequests = new Set();
 const clientSessions = new Map();
 const jobToClient = new Map();
-const jobQueue = [];
-const rateLimitStore = new Map();
 const botDownloads = new Map();
 const asyncJobs = new Map();
 const uploadSessions = new Map();
-const expiringFiles = new Map();
 
 const activeJobsByType = {
   download: 0,
@@ -96,78 +90,10 @@ function getClientJobCount(clientId) {
   return session ? session.activeJobs.size : 0;
 }
 
-function canStartJob(jobType) {
-  if (HEAVY_JOB_TYPES.includes(jobType)) {
-    const totalActive = Object.values(activeJobsByType).reduce((a, b) => a + b, 0);
-    if (totalActive > 1) return false;
-  }
-  return activeJobsByType[jobType] < JOB_LIMITS[jobType];
-}
-
-function addToJobQueue(jobFn, jobType, jobId, clientId) {
-  return new Promise((resolve, reject) => {
-    const job = {
-      fn: jobFn,
-      resolve,
-      reject,
-      jobType,
-      jobId,
-      clientId,
-      addedAt: Date.now()
-    };
-
-    if (jobQueue.length >= MAX_QUEUE_SIZE) {
-      reject(new Error('Server is too busy. Please try again later.'));
-      return;
-    }
-
-    linkJobToClient(jobId, clientId);
-    jobQueue.push(job);
-    console.log(`[Queue] ${jobType} job ${jobId.slice(0, 8)}... added. Queue: ${jobQueue.length}`);
-    processQueue();
-  });
-}
-
-function processQueue() {
-  jobQueue.sort((a, b) => {
-    const aIsHeavy = HEAVY_JOB_TYPES.includes(a.jobType) ? 1 : 0;
-    const bIsHeavy = HEAVY_JOB_TYPES.includes(b.jobType) ? 1 : 0;
-    if (aIsHeavy !== bIsHeavy) return aIsHeavy - bIsHeavy;
-    return a.addedAt - b.addedAt;
-  });
-
-  for (let i = 0; i < jobQueue.length; i++) {
-    const job = jobQueue[i];
-
-    if (canStartJob(job.jobType)) {
-      jobQueue.splice(i, 1);
-      activeJobsByType[job.jobType]++;
-
-      console.log(`[Queue] Starting ${job.jobType} job ${job.jobId.slice(0, 8)}... Active: ${JSON.stringify(activeJobsByType)}`);
-
-      job.fn()
-        .then(result => {
-          activeJobsByType[job.jobType]--;
-          unlinkJobFromClient(job.jobId);
-          job.resolve(result);
-          processQueue();
-        })
-        .catch(err => {
-          activeJobsByType[job.jobType]--;
-          unlinkJobFromClient(job.jobId);
-          job.reject(err);
-          processQueue();
-        });
-
-      i = -1;
-    }
-  }
-}
-
 function getQueueStatus() {
   return {
     active: activeJobsByType,
-    queued: jobQueue.length,
+    queued: 0,
     limits: JOB_LIMITS
   };
 }
@@ -183,10 +109,10 @@ function sendProgress(downloadId, stage, message, progress = null, extra = null)
     data.queueStatus = getQueueStatus();
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
-  
+
   const lastProg = lastLoggedProgress.get(downloadId) || -1;
   const isProgressMessage = progress !== null && message.includes('%');
-  
+
   if (isProgressMessage) {
     if (progress >= 100 || progress - lastProg >= 25) {
       console.log(`[${downloadId.slice(0, 8)}] ${stage}: ${message}`);
@@ -196,16 +122,6 @@ function sendProgress(downloadId, stage, message, progress = null, extra = null)
   } else {
     console.log(`[${downloadId.slice(0, 8)}] ${stage}: ${message}`);
     lastLoggedProgress.delete(downloadId);
-  }
-}
-
-function sendQueuePosition(progressId) {
-  const position = jobQueue.findIndex(j => j.progressId === progressId);
-  if (position >= 0) {
-    sendProgress(progressId, 'queued', `You are #${position + 1} in queue`, 0, {
-      queuePosition: position + 1,
-      estimatedWait: (position + 1) * 30
-    });
   }
 }
 
@@ -226,18 +142,6 @@ function updatePendingJob(jobId, updates) {
 
 function removePendingJob(jobId) {
   pendingJobs.delete(jobId);
-}
-
-function incrementJobType(type) {
-  if (activeJobsByType[type] !== undefined) {
-    activeJobsByType[type]++;
-  }
-}
-
-function decrementJobType(type) {
-  if (activeJobsByType[type] !== undefined) {
-    activeJobsByType[type]--;
-  }
 }
 
 function startSessionCleanup(cleanupJobFiles) {
@@ -271,78 +175,18 @@ function startSessionCleanup(cleanupJobFiles) {
   }, 10000);
 }
 
-const PREVIEW_EXPIRY_MS = 5 * 60 * 1000;
-const DOWNLOAD_EXPIRY_MS = 20 * 60 * 1000;
-
-function createExpiringFile(filePath, filename, mimeType, fileSize, expiryMs = DOWNLOAD_EXPIRY_MS) {
-  const token = uuidv4();
-  const expiresAt = Date.now() + expiryMs;
-  
-  expiringFiles.set(token, {
-    filePath,
-    filename,
-    mimeType,
-    fileSize,
-    expiresAt,
-    createdAt: Date.now()
-  });
-  
-  setTimeout(() => {
-    const file = expiringFiles.get(token);
-    if (file) {
-      try {
-        const fs = require('fs');
-        if (fs.existsSync(file.filePath)) {
-          fs.unlinkSync(file.filePath);
-          console.log(`[Expiry] Deleted expired file: ${file.filename}`);
-        }
-      } catch (e) {}
-      expiringFiles.delete(token);
-    }
-  }, expiryMs);
-  
-  return { token, expiresAt };
-}
-
-function getExpiringFile(token) {
-  const file = expiringFiles.get(token);
-  if (!file) return null;
-  if (Date.now() > file.expiresAt) {
-    expiringFiles.delete(token);
-    return null;
-  }
-  return file;
-}
-
-function deleteExpiringFile(token) {
-  const file = expiringFiles.get(token);
-  if (file) {
-    try {
-      const fs = require('fs');
-      if (fs.existsSync(file.filePath)) {
-        fs.unlinkSync(file.filePath);
-      }
-    } catch (e) {}
-    expiringFiles.delete(token);
-  }
-}
-
 module.exports = {
   activeDownloads,
   activeProcesses,
   pendingJobs,
   resumedJobs,
-  finishEarlyRequests,
   clientSessions,
   jobToClient,
-  jobQueue,
-  rateLimitStore,
   botDownloads,
   asyncJobs,
   uploadSessions,
   activeJobsByType,
-  expiringFiles,
-  
+
   setGalleryDlAvailable,
   isGalleryDlAvailable,
   setUpdatePeakUsersCallback,
@@ -352,21 +196,10 @@ module.exports = {
   linkJobToClient,
   unlinkJobFromClient,
   getClientJobCount,
-  canStartJob,
-  addToJobQueue,
-  processQueue,
   getQueueStatus,
   sendProgress,
-  sendQueuePosition,
   registerPendingJob,
   updatePendingJob,
   removePendingJob,
-  incrementJobType,
-  decrementJobType,
-  startSessionCleanup,
-  createExpiringFile,
-  getExpiringFile,
-  deleteExpiringFile,
-  PREVIEW_EXPIRY_MS,
-  DOWNLOAD_EXPIRY_MS
+  startSessionCleanup
 };
