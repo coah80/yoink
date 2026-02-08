@@ -44,48 +44,6 @@ yoink is an all-in-one media tool. download videos from 1000+ sites, convert bet
 - **api** — node.js + express with modular route/service architecture
 - **tools** — yt-dlp, ffmpeg, gallery-dl, cobalt api
 
-## project structure
-
-```
-yoink/
-├── frontend/              svelte 5 frontend (SPA)
-│   ├── src/
-│   │   ├── pages/         Home, Download, Convert, Compress, Settings, Admin, etc.
-│   │   ├── components/    layout, queue, ui components
-│   │   ├── stores/        queue, settings, banner, analytics, session, toast
-│   │   └── lib/           api, router, sse, upload, constants, utils
-│   └── public/            icons, sw.js, manifest
-│
-├── api/                   express API server
-│   ├── index.js           entry point
-│   ├── app.js             express app factory
-│   ├── config/
-│   │   └── constants.js   all configuration (port, limits, paths)
-│   ├── routes/
-│   │   ├── download.js    single video downloads + metadata
-│   │   ├── playlist.js    playlist downloads (zip)
-│   │   ├── gallery.js     image gallery downloads
-│   │   ├── convert.js     format conversion
-│   │   ├── bot.js         discord bot API endpoints
-│   │   ├── admin.js       admin panel + analytics + banner API
-│   │   └── core.js        health, sse, session management
-│   ├── services/
-│   │   ├── cobalt.js      cobalt API integration (youtube fast path)
-│   │   ├── downloader.js  shared download logic (yt-dlp wrapper)
-│   │   ├── processor.js   ffmpeg processing + file streaming
-│   │   ├── state.js       in-memory state (sessions, jobs, connections)
-│   │   ├── banner.js      banner system with auto traffic warnings
-│   │   ├── analytics.js   JSON-based analytics tracking
-│   │   └── youtube.js     youtube URL helpers
-│   ├── middleware/
-│   │   ├── auth.js        admin authentication (token-based)
-│   │   ├── cors.js        CORS configuration
-│   │   └── rateLimit.js   rate limiting
-│   └── utils/             errors, files, ffmpeg, validation, cookies, helpers, ip
-│
-└── docs/                  example config files + self-hosting guide
-```
-
 ## self-hosting
 
 see [docs/self-hosting.md](docs/self-hosting.md) for full setup guide

@@ -1,6 +1,3 @@
-const { spawn } = require('child_process');
-const { getCookiesArgs } = require('../utils/cookies');
-
 async function parseYouTubeClip(clipUrl) {
   console.log(`[Clip] Parsing YouTube clip: ${clipUrl}`);
 
@@ -68,71 +65,6 @@ async function parseYouTubeClip(clipUrl) {
   };
 }
 
-async function downloadClipViaYtdlp(clipUrl, jobId, tempDir, onProgress) {
-  console.log(`[Clip] Falling back to yt-dlp for clip: ${clipUrl}`);
-
-  const outputTemplate = require('path').join(tempDir, `${jobId}-clip.%(ext)s`);
-  const args = [
-    ...getCookiesArgs(),
-    '--no-playlist',
-    '--newline',
-    '-o', outputTemplate,
-    clipUrl
-  ];
-
-  return new Promise((resolve, reject) => {
-    const ytdlp = spawn('yt-dlp', args);
-    let stderrOutput = '';
-
-    ytdlp.stderr.on('data', (data) => {
-      const msg = data.toString();
-      stderrOutput += msg;
-      if (msg.includes('%') && onProgress) {
-        const percentMatch = msg.match(/([\d.]+)%/);
-        if (percentMatch) onProgress(parseFloat(percentMatch[1]));
-      }
-    });
-
-    ytdlp.stdout.on('data', (data) => {
-      const msg = data.toString();
-      if (msg.includes('%') && onProgress) {
-        const percentMatch = msg.match(/([\d.]+)%/);
-        if (percentMatch) onProgress(parseFloat(percentMatch[1]));
-      }
-    });
-
-    ytdlp.on('close', (code) => {
-      if (code !== 0) {
-        const errorMatch = stderrOutput.match(/ERROR[:\s]+(.+?)(?:\n|$)/i);
-        reject(new Error(errorMatch ? errorMatch[1].trim() : 'yt-dlp clip download failed'));
-        return;
-      }
-
-      const fs = require('fs');
-      const path = require('path');
-      const files = fs.readdirSync(tempDir);
-      const clipFile = files.find(f =>
-        f.startsWith(`${jobId}-clip`) &&
-        !f.endsWith('.part') &&
-        !f.includes('.part-Frag')
-      );
-
-      if (!clipFile) {
-        reject(new Error('Clip file not found after download'));
-        return;
-      }
-
-      resolve({
-        path: path.join(tempDir, clipFile),
-        ext: path.extname(clipFile).slice(1)
-      });
-    });
-
-    ytdlp.on('error', reject);
-  });
-}
-
 module.exports = {
-  parseYouTubeClip,
-  downloadClipViaYtdlp
+  parseYouTubeClip
 };

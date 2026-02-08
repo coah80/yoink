@@ -10,7 +10,7 @@ const { validateUrl } = require('../utils/validation');
 const { toUserError } = require('../utils/errors');
 const { hasCookiesFile, getCookiesArgs, needsCookiesRetry } = require('../utils/cookies');
 const { cleanupJobFiles } = require('../utils/files');
-const { parseYouTubeClip, downloadClipViaYtdlp } = require('../services/youtube');
+const { parseYouTubeClip } = require('../services/youtube');
 const { fetchMetadataViaCobalt, downloadViaCobalt } = require('../services/cobalt');
 const { downloadViaYtdlp, handleClipDownload } = require('../services/downloader');
 const { processVideo, streamFile, probeForGif, getMimeType } = require('../services/processor');
@@ -212,28 +212,17 @@ router.get('/api/download', async (req, res) => {
       const isClip = url.includes('/clip/');
 
       if (isClip) {
-        try {
-          const clipData = await parseYouTubeClip(url);
-          sendProgress(downloadId, 'downloading', 'Trimming clip from stream...', 0);
-          const result = await handleClipDownload(clipData, downloadId, {
-            tempDir: TEMP_DIRS.download,
-            onProgress: (progress, speed, eta) => {
-              sendProgress(downloadId, 'downloading', `Trimming... ${progress}%`, progress, { speed, eta });
-              updatePendingJob(downloadId, { progress, status: 'downloading' });
-            }
-          });
-          downloadedPath = result.path;
-          downloadedExt = result.ext;
-        } catch (clipErr) {
-          console.log(`[${downloadId}] Clip parsing/trim failed: ${clipErr.message}, falling back to yt-dlp`);
-          sendProgress(downloadId, 'downloading', 'Downloading clip via yt-dlp...', 0);
-          const result = await downloadClipViaYtdlp(url, downloadId, TEMP_DIRS.download, (progress) => {
-            sendProgress(downloadId, 'downloading', `Downloading clip... ${progress.toFixed(0)}%`, progress);
+        const clipData = await parseYouTubeClip(url);
+        sendProgress(downloadId, 'downloading', 'Trimming clip from stream...', 0);
+        const result = await handleClipDownload(clipData, downloadId, {
+          tempDir: TEMP_DIRS.download,
+          onProgress: (progress, speed, eta) => {
+            sendProgress(downloadId, 'downloading', `Trimming... ${progress}%`, progress, { speed, eta });
             updatePendingJob(downloadId, { progress, status: 'downloading' });
-          });
-          downloadedPath = result.path;
-          downloadedExt = result.ext;
-        }
+          }
+        });
+        downloadedPath = result.path;
+        downloadedExt = result.ext;
       } else {
         sendProgress(downloadId, 'downloading', 'Downloading via Cobalt...', 0);
         const cobaltResult = await downloadViaCobalt(url, downloadId, isAudio, (progress, downloaded, total) => {
