@@ -24,7 +24,7 @@
 
   <div class="content-card">
     <h2>your files</h2>
-    <p>files are stored on a LUKS2 encrypted volume on the server. the encryption key is randomly generated at every boot, stored only in RAM, and never written to disk — so if the server ever powers off, the key is gone and the data is unrecoverable by design.</p>
+    <p>files are stored on a LUKS2 encrypted volume on the server. the encryption key is randomly generated at every boot, stored only in RAM, never written to disk, so if the server ever powers off the key is gone and the data is just unrecoverable.</p>
     <p>once your download or conversion is done, the file gets deleted immediately from that encrypted volume. there's also a cleanup job that runs every 5 minutes and wipes anything older than 20 minutes no matter what, just in case something slips through.</p>
     <p>we don't log what you download, what you convert, what you compress, or any filenames or URLs. none of that gets saved anywhere.</p>
   </div>
@@ -46,8 +46,8 @@
     <h2>encryption</h2>
     <p>two layers:</p>
     <ul>
-      <li><strong>in transit</strong> — everything goes through HTTPS, so your connection to yoink is encrypted end to end. nobody between you and the server can see what you're doing.</li>
-      <li><strong>at rest</strong> — all temporary files are stored on a LUKS2 encrypted volume (AES-256). the decryption key is generated fresh at every server boot using /dev/urandom and kept only in RAM. there's no way to recover files from the disk after a reboot, and no way to read them without the key that lives purely in memory.</li>
+      <li><strong>in transit</strong>: everything goes through HTTPS, so your connection to yoink is encrypted end to end, nobody between you and the server can see what you're doing.</li>
+      <li><strong>at rest</strong>: all temporary files go on a LUKS2 encrypted volume (AES-256). the decryption key is generated fresh at every server boot using /dev/urandom, kept only in RAM, never written anywhere. no way to recover files after a reboot, and no way to read them without the key that only exists in memory.</li>
     </ul>
   </div>
 
