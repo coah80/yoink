@@ -142,7 +142,11 @@ async function handleTranscribeAsync(req, jobId) {
     model = 'base',
     subtitleFormat = 'srt',
     language = '',
-    clientId
+    clientId,
+    maxWordsPerCaption = 0,
+    maxCharsPerLine = 0,
+    minDuration = 0,
+    captionGap = 0
   } = req.body;
 
   if (!ALLOWED_OUTPUT_MODES.includes(outputMode)) {
@@ -164,6 +168,36 @@ async function handleTranscribeAsync(req, jobId) {
     job.status = 'error';
     job.error = 'Invalid language code. Use 2-5 letter code (e.g. en, es, ja).';
     return;
+  }
+
+  // Parse caption formatting params once (FormData sends strings, JSON sends numbers)
+  const mwpc = Number(maxWordsPerCaption) || 0;
+  const mcpl = Number(maxCharsPerLine) || 0;
+  const md = Number(minDuration) || 0;
+  const cg = Number(captionGap) || 0;
+
+  // Validate caption formatting params (only relevant for subtitles/captions)
+  if (outputMode !== 'text') {
+    if (mwpc && (mwpc < 1 || mwpc > 20 || !Number.isInteger(mwpc))) {
+      job.status = 'error';
+      job.error = 'maxWordsPerCaption must be an integer between 1 and 20.';
+      return;
+    }
+    if (mcpl && (mcpl < 10 || mcpl > 80 || !Number.isInteger(mcpl))) {
+      job.status = 'error';
+      job.error = 'maxCharsPerLine must be an integer between 10 and 80.';
+      return;
+    }
+    if (md && (md < 0.1 || md > 5)) {
+      job.status = 'error';
+      job.error = 'minDuration must be between 0.1 and 5 seconds.';
+      return;
+    }
+    if (cg && (cg < 0 || cg > 1)) {
+      job.status = 'error';
+      job.error = 'captionGap must be between 0 and 1 seconds.';
+      return;
+    }
   }
 
   const transcribeCheck = canStartJob('transcribe');
@@ -258,6 +292,13 @@ async function handleTranscribeAsync(req, jobId) {
 
     if (language) {
       whisperArgs.push('--language', language);
+    }
+
+    if (outputMode !== 'text') {
+      if (mwpc > 0) whisperArgs.push('--max-words-per-caption', String(mwpc));
+      if (mcpl > 0) whisperArgs.push('--max-chars-per-line', String(mcpl));
+      if (md > 0) whisperArgs.push('--min-duration', String(md));
+      if (cg > 0) whisperArgs.push('--gap', String(cg));
     }
 
     const whisperResult = await new Promise((resolve, reject) => {
