@@ -4,7 +4,7 @@
 
 <header>
   <div class="header-center">
-    <a href="#/" class="logo-link">
+    <a href="/" class="logo-link">
       <span class="logo-text">yoink</span>
       <span class="logo-tld">.tools</span>
     </a>

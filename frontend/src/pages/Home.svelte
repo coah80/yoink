@@ -52,7 +52,7 @@
   function checkSharedUrl() {
     let sharedUrl = sessionStorage.getItem('yoink_shared_url');
 
-    // Detect PWA share target: browser loads /share?url=... but hash router sees /
+    // Detect PWA share target: browser loads /share?url=...
     if (!sharedUrl && window.location.pathname === '/share') {
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('url') || params.get('text') || '';
@@ -61,7 +61,7 @@
         sharedUrl = urlMatch[0].replace(/[.,!?;:)\]}>]+$/, '');
       }
       // Clean the address bar
-      history.replaceState(null, '', '/#/');
+      history.replaceState(null, '', '/');
     }
 
     if (sharedUrl) {
@@ -566,7 +566,7 @@
         <span class="modal-toggle-switch"></span>
         <span class="modal-toggle-label">remember this choice</span>
       </label>
-      <div class="modal-hint">this can be changed in <a href="#/settings">settings</a>!</div>
+      <div class="modal-hint">this can be changed in <a href="/settings">settings</a>!</div>
     </div>
   </div>
 {/if}

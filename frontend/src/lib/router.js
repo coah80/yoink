@@ -1,19 +1,37 @@
 import { writable, derived } from 'svelte/store';
 
-export const hash = writable(window.location.hash.slice(1) || '/');
+function getPathFromUrl() {
+  return window.location.pathname || '/';
+}
 
-window.addEventListener('hashchange', () => {
-  hash.set(window.location.hash.slice(1) || '/');
+function getQsFromUrl() {
+  return window.location.search ? window.location.search.slice(1) : '';
+}
+
+// support old hash-based URLs by redirecting to clean paths
+function migrateHashUrl() {
+  const hash = window.location.hash;
+  if (hash && hash.startsWith('#/')) {
+    const newPath = hash.slice(1);
+    history.replaceState(null, '', newPath);
+  }
+}
+
+migrateHashUrl();
+
+export const currentUrl = writable(getPathFromUrl());
+
+window.addEventListener('popstate', () => {
+  currentUrl.set(getPathFromUrl());
 });
 
-export const path = derived(hash, ($hash) => {
-  const p = $hash.split('?')[0];
+export const path = derived(currentUrl, ($url) => {
+  const p = $url.split('?')[0];
   return p || '/';
 });
 
-export const queryString = derived(hash, ($hash) => {
-  const idx = $hash.indexOf('?');
-  return idx >= 0 ? $hash.slice(idx + 1) : '';
+export const queryString = derived(currentUrl, () => {
+  return getQsFromUrl();
 });
 
 export const query = derived(queryString, ($qs) => {
@@ -21,12 +39,11 @@ export const query = derived(queryString, ($qs) => {
 });
 
 export function navigate(to) {
-  window.location.hash = '#' + to;
+  history.pushState(null, '', to);
+  currentUrl.set(to);
 }
 
 export function getQuery() {
-  const h = window.location.hash.slice(1) || '/';
-  const idx = h.indexOf('?');
-  const qs = idx >= 0 ? h.slice(idx + 1) : '';
+  const qs = getQsFromUrl();
   return Object.fromEntries(new URLSearchParams(qs));
 }

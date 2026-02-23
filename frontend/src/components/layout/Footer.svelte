@@ -3,14 +3,14 @@
     <div>this is a <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> wrapper</div>
     <div>inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt</a>, love u wukko</div>
     <div>youtube powered by <a href="https://patriick.dev/" target="_blank" rel="noopener">patrick</a> at <a href="https://cobalt.meowing.de" target="_blank" rel="noopener">cobalt.meowing.de</a></div>
-    <div class="legal">by using this site you agree to our <a href="#/privacy">privacy policy</a></div>
+    <div class="legal">by using this site you agree to our <a href="/privacy">privacy policy</a></div>
   </div>
   <div class="footer-right">
     <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>
     <span>·</span>
     <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a>
     <span>·</span>
-    <a href="#/privacy">privacy</a>
+    <a href="/privacy">privacy</a>
   </div>
 </footer>
 

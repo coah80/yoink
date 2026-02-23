@@ -6,7 +6,7 @@
 
 <header>
   <div class="header-left">
-    <a href="#/" class="logo-link">
+    <a href="/" class="logo-link">
       <span class="logo-text">yoink</span>
       <span class="logo-tld">.tools</span>
     </a>

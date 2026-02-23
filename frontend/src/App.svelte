@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { path } from './lib/router.js';
+  import { path, navigate } from './lib/router.js';
   import ToastContainer from './components/ui/ToastContainer.svelte';
   import BottomNav from './components/layout/BottomNav.svelte';
   import { initSession } from './stores/session.js';
@@ -27,6 +27,15 @@
   let currentPath = $derived($path);
   let CurrentPage = $derived(routes[currentPath] || NotFound);
 
+  function handleClick(e) {
+    const a = e.target.closest('a');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href || !href.startsWith('/') || a.target === '_blank') return;
+    e.preventDefault();
+    navigate(href);
+  }
+
   onMount(() => {
     initSession();
 
@@ -40,6 +49,10 @@
   });
 </script>
 
-<CurrentPage />
-<BottomNav />
-<ToastContainer />
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div onclick={handleClick}>
+  <CurrentPage />
+  <BottomNav />
+  <ToastContainer />
+</div>

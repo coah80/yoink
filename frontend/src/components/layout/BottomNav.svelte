@@ -76,7 +76,7 @@
     <a
       class="bottom-nav-item"
       class:active={currentPath === item.href}
-      href="#{item.href}"
+      href={item.href}
     >
       <div class="nav-icon">
         {#if item.icon === 'download'}
