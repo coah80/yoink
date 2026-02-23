@@ -498,7 +498,7 @@
           <div class="section-description">control how captions are split and timed</div>
 
           <div class="caption-preview">
-            <div class="caption-preview-text" style="font-size: calc({captionSize} / 1920 * 100 * 1%);">
+            <div class="caption-preview-text" style="font-size: calc({captionSize} / 19.2 * 1cqw);">
               {@html previewText.replace(/\n/g, '<br>')}
             </div>
           </div>
@@ -943,6 +943,7 @@
     justify-content: center;
     margin-bottom: 20px;
     overflow: hidden;
+    container-type: inline-size;
   }
 
   .caption-preview-text {
