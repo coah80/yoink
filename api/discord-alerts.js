@@ -38,11 +38,6 @@ async function sendAlert(type, title, description, context = {}) {
         fields.push({ name: 'Job ID', value: `\`${context.jobId}\``, inline: true });
     }
 
-    if (context.url) {
-        const truncatedUrl = context.url.length > 100 ? context.url.slice(0, 100) + '...' : context.url;
-        fields.push({ name: 'URL', value: truncatedUrl, inline: false });
-    }
-
     if (context.error) {
         const errorMsg = context.error.length > 500 ? context.error.slice(0, 500) + '...' : context.error;
         fields.push({ name: 'Error', value: `\`\`\`${errorMsg}\`\`\``, inline: false });
@@ -50,10 +45,6 @@ async function sendAlert(type, title, description, context = {}) {
 
     if (context.format) {
         fields.push({ name: 'Format', value: context.format, inline: true });
-    }
-
-    if (context.clientIp) {
-        fields.push({ name: 'Client IP', value: context.clientIp, inline: true });
     }
 
     const payload = {
@@ -115,7 +106,6 @@ const alerts = {
 
     test: () => sendAlert('SERVER_ERROR', 'Test Alert', 'This is a test notification from Yoink server.', {
         jobId: 'test-' + Date.now(),
-        url: 'https://example.com/test',
         error: 'No actual error - this is just a test!'
     }),
 

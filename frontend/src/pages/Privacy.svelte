@@ -13,7 +13,7 @@
 
   <div class="tldr-box">
     <h3>tl;dr</h3>
-    <p>i collect minimal anonymous stats, never your URLs or personal info. you can opt out anytime in <a href="#/settings">settings</a>.</p>
+    <p>we don't collect any data. no analytics, no tracking, no cookies. your files are processed in RAM and auto-deleted.</p>
   </div>
 
   <div class="content-card">
@@ -23,42 +23,32 @@
   </div>
 
   <div class="content-card">
-    <h2>what i collect</h2>
-    <p>when you have analytics enabled (on by default), i collect:</p>
-    <ul>
-      <li><strong>format preferences</strong> - which file formats are popular (mp4, mp3, etc.)</li>
-      <li><strong>download counts</strong> - how many downloads, conversions, and compressions happen</li>
-      <li><strong>country data</strong> - derived from your IP address, but i dont store the IP itself</li>
-      <li><strong>daily visitor counts</strong> - how many unique visitors per day</li>
-    </ul>
-    <p>that's it.</p>
+    <h2>how files are handled</h2>
+    <p>your files are processed entirely in RAM using a tmpfs mount — they never touch persistent disk storage. files are automatically deleted after processing, typically within seconds. the absolute maximum a file can exist on the server is 20 minutes, after which it's wiped regardless.</p>
+    <p>we don't log what you download, convert, or compress. no filenames, no URLs, no content information.</p>
   </div>
 
   <div class="content-card">
-    <h2>what i DON'T collect</h2>
-    <p>i never, ever collect:</p>
+    <h2>what we DON'T collect</h2>
+    <p>we don't collect anything. specifically:</p>
     <ul>
-      <li><strong>URLs you download</strong> - your browsing is your business</li>
-      <li><strong>video titles or content</strong> - nope</li>
-      <li><strong>your IP address</strong> - i use it to get country, then forget it</li>
-      <li><strong>cookies for tracking</strong> - only settings are stored locally</li>
-      <li><strong>anything identifying you personally</strong> - i literally cant tell users apart</li>
+      <li><strong>no analytics</strong> - zero tracking scripts, no usage stats</li>
+      <li><strong>no cookies</strong> - we don't set any cookies, period</li>
+      <li><strong>no IP logging</strong> - your IP address is not stored anywhere</li>
+      <li><strong>no URLs or filenames</strong> - we don't log what you download or process</li>
+      <li><strong>no user accounts</strong> - there's nothing to sign up for</li>
+      <li><strong>no third-party trackers</strong> - no google analytics, no facebook pixel, nothing</li>
     </ul>
   </div>
 
   <div class="content-card">
-    <h2>why collect anything?</h2>
-    <p>its useful to see what features people use so i can prioritize what to work on next. no monetization, no selling data, no ads.</p>
+    <h2>transport security</h2>
+    <p>all connections to yoink.tools are encrypted with HTTPS. your data is protected in transit between your browser and our server.</p>
   </div>
 
   <div class="content-card">
-    <h2>opting out</h2>
-    <p>dont want to be part of the stats? head to <a href="#/settings">settings</a>, click the privacy tab, and flip the toggle.</p>
-  </div>
-
-  <div class="content-card">
-    <h2>where data is stored</h2>
-    <p>analytics data is stored on my server in a JSON file. your settings (quality preferences, etc.) are stored in your browser's localStorage and never leave your device.</p>
+    <h2>open source</h2>
+    <p>yoink is open source. you can verify everything yourself on <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>. if you find something concerning, please let me know.</p>
   </div>
 
   <div class="content-card">
@@ -68,7 +58,7 @@
 
   <div class="content-card">
     <h2>updates</h2>
-    <p>if i change this policy, ill update it here. no sneaky changes. last updated: <strong>January 2026</strong>.</p>
+    <p>if i change this policy, ill update it here. no sneaky changes. last updated: <strong>February 2026</strong>.</p>
   </div>
 </main>
 

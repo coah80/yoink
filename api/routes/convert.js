@@ -46,12 +46,6 @@ const {
 } = require('../utils/ffmpeg');
 const discordAlerts = require('../discord-alerts');
 
-let trackConvert = () => {};
-let trackCompress = () => {};
-
-function setTrackConvert(fn) { trackConvert = fn; }
-function setTrackCompress(fn) { trackCompress = fn; }
-
 const upload = multer({
   dest: TEMP_DIRS.upload,
   limits: { fileSize: FILE_SIZE_LIMIT }
@@ -119,7 +113,7 @@ router.post('/api/upload/init', express.json(), (req, res) => {
     lastActivity: Date.now()
   });
 
-  console.log(`[Chunk] Initialized upload ${uploadId}: ${fileName} (${(fileSize / 1024 / 1024).toFixed(1)}MB, ${totalChunks} chunks)`);
+  console.log(`[Chunk] Initialized upload ${uploadId}: (${(fileSize / 1024 / 1024).toFixed(1)}MB, ${totalChunks} chunks)`);
   res.json({ uploadId });
 });
 
@@ -412,7 +406,7 @@ async function handleConvert(req, res) {
 
   activeJobsByType.convert++;
   console.log(`[Queue] Convert started. Active: ${JSON.stringify(activeJobsByType)}`);
-  console.log(`[${convertId}] Converting ${req.file.originalname} to ${format}`);
+  console.log(`[${convertId}] Converting to ${format}`);
 
   try {
     const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
@@ -533,12 +527,9 @@ async function handleConvert(req, res) {
     stream.pipe(res);
 
     stream.on('close', () => {
-      console.log(`[${convertId}] Conversion complete: ${outputFilename}`);
+      console.log(`[${convertId}] Conversion complete`);
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
-
-      const fromExt = path.extname(req.file.originalname).replace('.', '') || 'unknown';
-      trackConvert(fromExt, format);
 
       console.log(`[Queue] Convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => cleanupJobFiles(convertId), 2000);
@@ -589,7 +580,7 @@ async function handleConvertAsync(req, jobId) {
 
   activeJobsByType.convert++;
   console.log(`[Queue] Async convert started. Active: ${JSON.stringify(activeJobsByType)}`);
-  console.log(`[${convertId}] Converting ${req.file.originalname} to ${format} (async)`);
+  console.log(`[${convertId}] Converting to ${format} (async)`);
 
   if (startTime && !validateTimeParam(startTime)) {
     try { fs.unlinkSync(inputPath); } catch { }
@@ -723,7 +714,7 @@ async function handleConvertAsync(req, jobId) {
       ? (AUDIO_MIMES[format] || 'audio/mpeg')
       : (CONTAINER_MIMES[format] || 'video/mp4');
 
-    console.log(`[${convertId}] Async conversion complete: ${outputFilename}`);
+    console.log(`[${convertId}] Async conversion complete`);
 
     job.status = 'complete';
     job.progress = 100;
@@ -734,9 +725,6 @@ async function handleConvertAsync(req, jobId) {
 
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
-
-    const fromExt = path.extname(req.file.originalname).replace('.', '') || 'unknown';
-    trackConvert(fromExt, format);
 
     console.log(`[Queue] Async convert finished. Active: ${JSON.stringify(activeJobsByType)}`);
 
@@ -820,7 +808,7 @@ async function handleCompress(req, res) {
 
   activeJobsByType.compress++;
   console.log(`[Queue] Compress started. Active: ${JSON.stringify(activeJobsByType)}`);
-  console.log(`[${compressId}] Compressing ${req.file.originalname} | Mode: ${mode} | Preset: ${preset}`);
+  console.log(`[${compressId}] Compressing | Mode: ${mode} | Preset: ${preset}`);
 
   const processInfo = { cancelled: false, process: null, tempFile: outputPath };
   activeProcesses.set(compressId, processInfo);
@@ -927,7 +915,6 @@ async function handleCompress(req, res) {
       activeProcesses.delete(compressId);
       activeJobsByType.compress--;
       unlinkJobFromClient(compressId);
-      trackCompress();
       console.log(`[Queue] Compress finished. Active: ${JSON.stringify(activeJobsByType)}`);
       setTimeout(() => cleanupJobFiles(compressId), 2000);
     });
@@ -1453,5 +1440,3 @@ async function runTwoPassEncodeAsync({ inputPath, outputPath, passLogFile, video
 }
 
 module.exports = router;
-module.exports.setTrackConvert = setTrackConvert;
-module.exports.setTrackCompress = setTrackCompress;

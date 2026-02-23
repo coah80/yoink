@@ -15,7 +15,6 @@ const { fetchMetadataViaCobalt, downloadViaCobalt } = require('../services/cobal
 const { downloadViaYtdlp, handleClipDownload } = require('../services/downloader');
 const { processVideo, streamFile, probeForGif, getMimeType } = require('../services/processor');
 const discordAlerts = require('../discord-alerts');
-const { trackDownload } = require('../services/analyticsOptional');
 
 const {
   activeProcesses,
@@ -137,7 +136,7 @@ router.get('/api/metadata', async (req, res) => {
     if (code !== 0) {
       if (ytdlp.killed) return res.status(504).json({ error: 'Metadata fetch timed out (30s)' });
       if (needsCookiesRetry(errorOutput) && !usingCookies) {
-        discordAlerts.cookieIssue('YouTube Bot Detection', 'YouTube is blocking requests - cookies.txt may be stale or missing.', { url, error: errorOutput.slice(0, 500) });
+        discordAlerts.cookieIssue('YouTube Bot Detection', 'YouTube is blocking requests - cookies.txt may be stale or missing.', { error: errorOutput.slice(0, 500) });
         return res.status(500).json({ error: 'YouTube requires authentication. Please add cookies.txt to the server.' });
       }
       return res.status(500).json({ error: 'Failed to fetch metadata', details: errorOutput });
@@ -282,12 +281,11 @@ router.get('/api/download', async (req, res) => {
       filename, ext: actualOutputExt,
       mimeType: getMimeType(actualOutputExt, isAudio, isGif),
       downloadId, url, jobType: 'download',
-      trackFn: trackDownload
     });
 
   } catch (err) {
     console.error(`[${downloadId}] Error:`, err.message);
-    discordAlerts.downloadFailed('Download Error', 'Video download failed.', { jobId: downloadId, url, format: outputExt, error: err.message });
+    discordAlerts.downloadFailed('Download Error', 'Video download failed.', { jobId: downloadId, format: outputExt, error: err.message });
     sendProgress(downloadId, 'error', toUserError(err.message || 'Download failed'));
 
     activeProcesses.delete(downloadId);

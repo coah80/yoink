@@ -11,7 +11,6 @@ const playlistRoutes = require('./routes/playlist');
 const galleryRoutes = require('./routes/gallery');
 const convertRoutes = require('./routes/convert');
 const botRoutes = require('./routes/bot');
-const adminRoutes = require('./routes/admin');
 
 function createApp() {
   const app = express();
@@ -35,7 +34,6 @@ function createApp() {
   }
   app.use(convertRoutes);
   app.use(botRoutes);
-  app.use(adminRoutes);
 
   return app;
 }

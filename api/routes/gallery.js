@@ -23,15 +23,8 @@ const {
 const { validateUrl } = require('../utils/validation');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
 const { hasCookiesFile, COOKIES_FILE } = require('../utils/cookies');
-const { getClientIp, getCountryFromIP } = require('../utils/ip');
 const { rateLimitMiddleware } = require('../middleware/rateLimit');
 const discordAlerts = require('../discord-alerts');
-
-let trackDownload = () => {};
-
-function setTrackDownload(fn) {
-  trackDownload = fn;
-}
 
 router.use(rateLimitMiddleware);
 
@@ -193,17 +186,12 @@ router.get('/download', async (req, res) => {
       unlinkJobFromClient(downloadId);
       console.log(`[Queue] Gallery finished. Active: ${JSON.stringify(activeJobsByType)}`);
 
-      try {
-        const site = new URL(url).hostname.replace('www.', '');
-        trackDownload('images', site, getCountryFromIP(getClientIp(req)));
-      } catch { }
-
       setTimeout(() => cleanupJobFiles(downloadId), 2000);
     }
 
   } catch (err) {
     console.error(`[${downloadId}] Gallery error:`, err.message);
-    discordAlerts.galleryError('Gallery Download Error', 'Gallery download failed.', { jobId: downloadId, url, error: err.message });
+    discordAlerts.galleryError('Gallery Download Error', 'Gallery download failed.', { jobId: downloadId, error: err.message });
 
     if (!processInfo.cancelled) {
       sendProgress(downloadId, 'error', err.message || 'Gallery download failed');
@@ -234,7 +222,7 @@ async function runGalleryDl(url, galleryDir, downloadId, processInfo, req) {
     galleryArgs.unshift('--cookies', COOKIES_FILE);
   }
 
-  console.log(`[${downloadId}] gallery-dl command: gallery-dl ${galleryArgs.join(' ')}`);
+  console.log(`[${downloadId}] gallery-dl starting`);
 
   return new Promise((resolve, reject) => {
     const galleryDl = spawn('gallery-dl', galleryArgs);
@@ -385,4 +373,3 @@ async function sendZipFile(res, allFiles, filename, url, downloadId, cleanup) {
 }
 
 module.exports = router;
-module.exports.setTrackDownload = setTrackDownload;

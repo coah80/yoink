@@ -1,5 +1,5 @@
 async function parseYouTubeClip(clipUrl) {
-  console.log(`[Clip] Parsing YouTube clip: ${clipUrl}`);
+  console.log(`[Clip] Parsing YouTube clip`);
 
   const clipResponse = await fetch(clipUrl, {
     headers: {

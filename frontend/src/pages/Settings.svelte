@@ -4,7 +4,6 @@
   import FooterSimple from '../components/layout/FooterSimple.svelte';
   import { settings } from '../stores/settings.js';
   import { addToast } from '../stores/toast.js';
-  import { deleteUserAnalyticsData } from '../stores/analytics.js';
 
   let activeTab = $state('video');
   let s = $derived($settings);
@@ -14,7 +13,6 @@
     { id: 'audio', label: 'audio' },
     { id: 'downloads', label: 'downloads' },
     { id: 'advanced', label: 'advanced' },
-    { id: 'privacy', label: 'privacy' },
   ];
 
   const qualityOptions = ['best', '4k', '1440p', '1080p', '720p', '480p', '360p'];
@@ -82,30 +80,6 @@
     }
   }
 
-  async function toggleAnalytics() {
-    const wasEnabled = s.analytics !== false;
-
-    if (wasEnabled) {
-      const confirmed = confirm(
-        'This will delete ALL your tracking data from the server!\n\n' +
-        'When you opt out, all collected data is permanently deleted.\n\n' +
-        'Are you sure?'
-      );
-
-      if (confirmed) {
-        settings.setSetting('analytics', false);
-        const result = await deleteUserAnalyticsData();
-        if (result.deleted) {
-          addToast('Analytics disabled & data deleted', 'success');
-        } else {
-          addToast('Analytics disabled', 'info');
-        }
-      }
-    } else {
-      settings.setSetting('analytics', true);
-      addToast('Analytics enabled - thanks!', 'success');
-    }
-  }
 </script>
 
 <HeaderSimple />
@@ -314,49 +288,6 @@
     </section>
   {/if}
 
-  {#if activeTab === 'privacy'}
-    <section class="settings-section">
-      <h2 class="section-title">privacy</h2>
-
-      <div class="settings-card">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="setting-label">allow anonymous analytics</div>
-            <p class="setting-description">help improve yoink by sharing anonymous usage stats like download format preferences. no personal data or URLs are collected.</p>
-          </div>
-          <button
-            class="toggle"
-            class:active={s.analytics !== false}
-            onclick={toggleAnalytics}
-          ></button>
-        </div>
-      </div>
-
-      <div class="settings-card highlight">
-        <div class="setting-label">your data, your choice</div>
-        <p class="setting-description">
-          if you turn off analytics above, <strong>all data collected from you will be permanently deleted</strong>. no questions asked. if you don't want to be tracked, you shouldn't be - and that means wiping everything.
-        </p>
-      </div>
-
-      <div class="settings-card">
-        <div class="setting-label">what i collect</div>
-        <p class="setting-description">
-          when enabled: which file formats are popular, how many downloads happen daily, and general country data (from IP, not stored). i do <strong>not</strong> collect: URLs you download, video titles, your IP address, or any identifying information.
-        </p>
-      </div>
-
-      <div class="settings-card">
-        <div class="setting-label">why?</div>
-        <p class="setting-description">
-          honestly, just for fun! it's cool to see how people use the tool. if you'd rather not participate, flip the toggle above.
-        </p>
-        <p class="setting-description">
-          <a href="#/privacy">read the full privacy policy</a>
-        </p>
-      </div>
-    </section>
-  {/if}
 </main>
 
 <FooterSimple />

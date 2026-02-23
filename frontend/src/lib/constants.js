@@ -60,7 +60,6 @@ export const DEFAULT_SETTINGS = {
   filenameStyle: 'basic',
   playlistPreference: null,
   twitterGifs: true,
-  analytics: true,
 };
 
 export const ACTIVE_STAGES = [

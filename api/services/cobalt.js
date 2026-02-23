@@ -174,7 +174,7 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
           videoQuality: '1080'
         };
 
-        console.log(`[Cobalt] [${jobId}] Request: ${JSON.stringify(requestBody)}`);
+        console.log(`[Cobalt] [${jobId}] Request: (audio=${requestBody.downloadMode === 'audio'})`);
 
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -219,7 +219,7 @@ async function downloadViaCobalt(videoUrl, jobId, isAudio = false, progressCallb
         }
 
         if (!downloadUrl) {
-          console.log(`[Cobalt] [${jobId}] No URL in response: ${JSON.stringify(data).substring(0, 300)}`);
+          console.log(`[Cobalt] [${jobId}] No URL in response (status=${data.status})`);
           throw new Error('No download URL from Cobalt');
         }
 

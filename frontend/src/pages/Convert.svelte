@@ -34,10 +34,10 @@
 
   function handleFile(file) {
     if (!file) return;
-    const maxSize = 15 * 1024 * 1024 * 1024;
+    const maxSize = 8 * 1024 * 1024 * 1024;
     if (file.size > maxSize) {
       statusType = 'error';
-      statusMessage = 'File too large. Maximum size is 15GB.';
+      statusMessage = 'File too large. Maximum size is 8GB.';
       return;
     }
     selectedFile = file;
@@ -225,7 +225,7 @@
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
         <p class="drop-zone-text">drop a file here or click to browse</p>
-        <p class="drop-zone-hint">supports video and audio files (max 15GB)</p>
+        <p class="drop-zone-hint">supports video and audio files (max 8GB)</p>
         <input
           bind:this={inputEl}
           type="file"
@@ -297,6 +297,11 @@
     {#if statusType}
       <div class="status {statusType}">{statusMessage}</div>
     {/if}
+
+    <div class="privacy-notice">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>files processed in RAM only, auto-deleted after download</span>
+    </div>
   </div>
 </main>
 
@@ -542,6 +547,21 @@
     background: rgba(74, 222, 128, 0.1);
     color: var(--success);
     border: 1px solid var(--success);
+  }
+
+  .privacy-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .privacy-notice svg {
+    flex-shrink: 0;
+    opacity: 0.6;
   }
 
   @media (max-width: 600px) {

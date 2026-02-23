@@ -528,6 +528,11 @@
       </div>
     {/if}
   </div>
+
+  <div class="privacy-notice">
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <span>files processed in RAM only, auto-deleted after download</span>
+  </div>
 </main>
 
 <Footer />
@@ -967,6 +972,21 @@
     background: rgba(74, 222, 128, 0.1);
     color: var(--success);
     border: 1px solid var(--success);
+  }
+
+  .privacy-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 24px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .privacy-notice svg {
+    flex-shrink: 0;
+    opacity: 0.6;
   }
 
   .modal-overlay {

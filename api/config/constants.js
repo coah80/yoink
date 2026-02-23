@@ -13,7 +13,7 @@ const JOB_LIMITS = {
 };
 
 const MAX_QUEUE_SIZE = 50;
-const FILE_SIZE_LIMIT = 15 * 1024 * 1024 * 1024;
+const FILE_SIZE_LIMIT = 8 * 1024 * 1024 * 1024;
 const FILE_RETENTION_MS = 20 * 60 * 1000;
 const HEARTBEAT_TIMEOUT_MS = 30 * 1000;
 
