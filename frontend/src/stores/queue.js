@@ -223,9 +223,10 @@ function createQueueStore() {
     async _startPlaylistDownload(item) {
       const s = get(settings);
 
+      const isResuming = item.resumeFrom > 1;
       this.updateItem(item.id, {
         stage: 'starting',
-        status: 'starting playlist download...',
+        status: isResuming ? `resuming from video ${item.resumeFrom}...` : 'starting playlist download...',
         startTime: Date.now(),
       });
 
@@ -242,6 +243,7 @@ function createQueueStore() {
           audioFormat: s.audioFormat,
           audioBitrate: s.audioBitrate,
           clientId: cid || undefined,
+          resumeFrom: item.resumeFrom || 1,
         });
 
         const serverJobId = data.jobId;
@@ -401,16 +403,34 @@ function createQueueStore() {
       cleanupJob(id);
 
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-      this.updateItem(id, {
-        id: newId,
-        stage: 'queued',
-        progress: 0,
-        status: 'queued for retry',
-        logs: [],
-        endTime: null,
-        serverJobId: null,
-        downloadToken: null,
-      });
+
+      if (item.isPlaylist) {
+        const resumeFrom = (item.downloadedCount || 0) + 1;
+        const resumeStatus = resumeFrom > 1
+          ? `resuming from video ${resumeFrom}...`
+          : 'queued for retry';
+        this.updateItem(id, {
+          id: newId,
+          stage: 'queued',
+          progress: item.progress || 0,
+          status: resumeStatus,
+          endTime: null,
+          serverJobId: null,
+          downloadToken: null,
+          resumeFrom,
+        });
+      } else {
+        this.updateItem(id, {
+          id: newId,
+          stage: 'queued',
+          progress: 0,
+          status: 'queued for retry',
+          logs: [],
+          endTime: null,
+          serverJobId: null,
+          downloadToken: null,
+        });
+      }
 
       this.processNext();
     },
