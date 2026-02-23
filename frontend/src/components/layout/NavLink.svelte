@@ -9,7 +9,7 @@
 <a
   class="nav-link"
   class:active={isActive}
-  href="#{href}"
+  href={href}
 >
   {@render children()}
 </a>

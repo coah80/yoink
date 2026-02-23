@@ -8,57 +8,57 @@
 <main>
   <div class="page-header">
     <h1>privacy policy</h1>
-    <p>the human-readable version</p>
+    <p>no legal jargon, just the truth</p>
   </div>
 
   <div class="tldr-box">
     <h3>tl;dr</h3>
-    <p>we don't collect any data. no analytics, no tracking, no cookies. your files are processed in RAM and auto-deleted.</p>
+    <p>yoink doesn't collect anything. no tracking, no cookies, no analytics. your files only exist in RAM and get wiped automatically.</p>
   </div>
 
   <div class="content-card">
-    <h2>about</h2>
-    <p>hey, im just one person who hasn't even graduated high school yet. i made yoink.tools in my free time because i felt inspired by cool websites like <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt.tools</a> and <a href="https://vert.sh" target="_blank" rel="noopener">vert.sh</a>, and i wanted an all-in-one website combining all the awesome frickin aspects of them. im not a company, i dont have investors, and i dont want anything from you.</p>
-    <p>this privacy policy is written in plain english because legal jargon is annoying.</p>
+    <h2>who runs this</h2>
+    <p>just me, one person. i made yoink because i wanted a simple tool that does what it says without being weird about your data. i was inspired by <a href="https://cobalt.tools" target="_blank" rel="noopener">cobalt.tools</a> and <a href="https://vert.sh" target="_blank" rel="noopener">vert.sh</a>, and wanted to combine the best parts into one site.</p>
+    <p>im not a company, i have no investors, and i have no reason to collect your data.</p>
   </div>
 
   <div class="content-card">
-    <h2>how files are handled</h2>
-    <p>your files are processed entirely in RAM using a tmpfs mount — they never touch persistent disk storage. files are automatically deleted after processing, typically within seconds. the absolute maximum a file can exist on the server is 20 minutes, after which it's wiped regardless.</p>
-    <p>we don't log what you download, convert, or compress. no filenames, no URLs, no content information.</p>
+    <h2>your files</h2>
+    <p>everything runs in RAM. files never touch a hard drive, they live in a tmpfs mount that only exists in memory. once your download or conversion is done, the file gets deleted immediately. if something goes wrong and it doesn't get cleaned up, there's a hard limit of 20 minutes before it's wiped no matter what.</p>
+    <p>we don't log what you download, what you convert, what you compress, or any filenames or URLs. none of that gets saved anywhere.</p>
   </div>
 
   <div class="content-card">
-    <h2>what we DON'T collect</h2>
-    <p>we don't collect anything. specifically:</p>
+    <h2>what we collect</h2>
+    <p>nothing. literally zero.</p>
     <ul>
-      <li><strong>no analytics</strong> - zero tracking scripts, no usage stats</li>
-      <li><strong>no cookies</strong> - we don't set any cookies, period</li>
-      <li><strong>no IP logging</strong> - your IP address is not stored anywhere</li>
-      <li><strong>no URLs or filenames</strong> - we don't log what you download or process</li>
-      <li><strong>no user accounts</strong> - there's nothing to sign up for</li>
-      <li><strong>no third-party trackers</strong> - no google analytics, no facebook pixel, nothing</li>
+      <li><strong>no analytics</strong> - no tracking scripts, no usage stats, nothing</li>
+      <li><strong>no cookies</strong> - we don't set a single cookie</li>
+      <li><strong>no IP logging</strong> - your IP isn't stored or logged</li>
+      <li><strong>no content logging</strong> - URLs, filenames, and what you do here are not recorded</li>
+      <li><strong>no accounts</strong> - there's nothing to sign up for, no emails collected</li>
+      <li><strong>no third party stuff</strong> - no google analytics, no facebook pixel, no ad networks</li>
     </ul>
   </div>
 
   <div class="content-card">
-    <h2>transport security</h2>
-    <p>all connections to yoink.tools are encrypted with HTTPS. your data is protected in transit between your browser and our server.</p>
+    <h2>encryption</h2>
+    <p>everything goes through HTTPS, so your connection to yoink is encrypted. nobody between you and the server can see what you're doing.</p>
   </div>
 
   <div class="content-card">
     <h2>open source</h2>
-    <p>yoink is open source. you can verify everything yourself on <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>. if you find something concerning, please let me know.</p>
+    <p>the whole thing is on <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>. you can read every line of code yourself if you want to verify any of this. if you find something off, please tell me.</p>
   </div>
 
   <div class="content-card">
-    <h2>questions?</h2>
-    <p>if you have questions or concerns, hit me up at <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a> or check out the project on <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>.</p>
+    <h2>contact</h2>
+    <p>questions, concerns, or just want to say hi, reach me at <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a> or open an issue on <a href="https://github.com/coah80/yoink" target="_blank" rel="noopener">github</a>.</p>
   </div>
 
   <div class="content-card">
-    <h2>updates</h2>
-    <p>if i change this policy, ill update it here. no sneaky changes. last updated: <strong>February 2026</strong>.</p>
+    <h2>changes</h2>
+    <p>if this policy changes, it gets updated here. no sneaky edits. last updated: <strong>february 2026</strong>.</p>
   </div>
 </main>
 

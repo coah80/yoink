@@ -1,5 +1,5 @@
 <footer>
-  <a href="#/">yoink.tools</a> - powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> · <a href="#/privacy">privacy</a>
+  <a href="/">yoink.tools</a> - powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> · <a href="/privacy">privacy</a>
 </footer>
 
 <style>

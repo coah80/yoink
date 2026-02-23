@@ -8,7 +8,7 @@
   <div class="not-found">
     <h1>404</h1>
     <p>this page doesn't exist</p>
-    <a href="#/" class="back-link">go back home</a>
+    <a href="/" class="back-link">go back home</a>
   </div>
 </main>
 

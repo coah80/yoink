@@ -10,11 +10,9 @@
   let token = $derived($query.token || '');
 
   onMount(() => {
-    const hashToken = window.location.hash.includes('?')
-      ? ''
-      : window.location.hash.replace('#/download', '').replace(/^\//, '');
+    const pathToken = window.location.pathname.replace('/download', '').replace(/^\//, '');
 
-    const finalToken = token || hashToken;
+    const finalToken = token || pathToken;
 
     if (!finalToken) {
       stage = 'error';
