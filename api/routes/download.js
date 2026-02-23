@@ -291,7 +291,6 @@ router.get('/api/download', async (req, res) => {
     clientId, status: 'starting'
   });
 
-  activeJobsByType.download++;
   console.log(`[Queue] Download started. Active: ${JSON.stringify(activeJobsByType)}`);
   sendProgress(downloadId, 'starting', 'Initializing download...');
 

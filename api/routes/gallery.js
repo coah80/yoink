@@ -165,7 +165,6 @@ router.get('/download', async (req, res) => {
   const processInfo = { cancelled: false, process: null, tempDir: galleryDir };
   activeProcesses.set(downloadId, processInfo);
 
-  activeJobsByType.download++;
   console.log(`[Queue] Gallery download started. Active: ${JSON.stringify(activeJobsByType)}`);
 
   sendProgress(downloadId, 'starting', 'Starting gallery download...');

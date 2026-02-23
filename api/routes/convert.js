@@ -411,7 +411,6 @@ async function handleConvert(req, res) {
     linkJobToClient(convertId, clientId);
   }
 
-  activeJobsByType.convert++;
   console.log(`[Queue] Convert started. Active: ${JSON.stringify(activeJobsByType)}`);
   console.log(`[${convertId}] Converting to ${format}`);
 
@@ -593,7 +592,6 @@ async function handleConvertAsync(req, jobId) {
     linkJobToClient(convertId, clientId);
   }
 
-  activeJobsByType.convert++;
   console.log(`[Queue] Async convert started. Active: ${JSON.stringify(activeJobsByType)}`);
   console.log(`[${convertId}] Converting to ${format} (async)`);
 
@@ -827,7 +825,6 @@ async function handleCompress(req, res) {
     linkJobToClient(compressId, clientId);
   }
 
-  activeJobsByType.compress++;
   console.log(`[Queue] Compress started. Active: ${JSON.stringify(activeJobsByType)}`);
   console.log(`[${compressId}] Compressing | Mode: ${mode} | Preset: ${preset}`);
 
@@ -1016,7 +1013,6 @@ async function handleCompressAsync(req, jobId) {
     linkJobToClient(compressId, clientId);
   }
 
-  activeJobsByType.compress++;
   console.log(`[${compressId}] Async compress | Mode: ${mode} | Preset: ${preset}`);
 
   const processInfo = { cancelled: false, process: null, tempFile: outputPath };
@@ -1111,7 +1107,6 @@ async function handleCompressAsync(req, jobId) {
     activeProcesses.delete(compressId);
     activeJobsByType.compress--;
     unlinkJobFromClient(compressId);
-    trackCompress();
 
   } catch (err) {
     console.error(`[${compressId}] Error:`, err.message);

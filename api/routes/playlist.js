@@ -91,7 +91,6 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
 
   const processInfo = { cancelled: false, process: null, tempDir: playlistDir };
   activeProcesses.set(jobId, processInfo);
-  activeJobsByType.playlist++;
   console.log(`[Queue] Async playlist started. Active: ${JSON.stringify(activeJobsByType)}`);
 
   try {

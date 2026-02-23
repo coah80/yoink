@@ -58,10 +58,10 @@ const AUDIO_MIMES = {
 const TEMP_DIR = '/var/tmp/yoink';
 const TEMP_DIRS = {
   download: path.join(TEMP_DIR, 'downloads'),
-  convert: path.join(TEMP_DIR, 'converts'),
+  convert: path.join(TEMP_DIR, 'convert'),
   compress: path.join(TEMP_DIR, 'compress'),
   bot: path.join(TEMP_DIR, 'bot'),
-  gallery: path.join(TEMP_DIR, 'gallery'),
+  gallery: path.join(TEMP_DIR, 'galleries'),
   playlist: path.join(TEMP_DIR, 'playlists'),
   upload: path.join(TEMP_DIR, 'uploads')
 };
@@ -93,7 +93,10 @@ const COMPRESSION_CONFIG = {
 };
 
 // Bot Configuration
-const BOT_SECRET = process.env.BOT_SECRET || 'yoinky-bot-secret';
+const BOT_SECRET = process.env.BOT_SECRET;
+if (!BOT_SECRET) {
+  console.error('[FATAL] BOT_SECRET environment variable is not set — bot endpoints will be unprotected');
+}
 const BOT_DOWNLOAD_EXPIRY = 5 * 60 * 1000;
 const PLAYLIST_DOWNLOAD_EXPIRY = 12 * 60 * 60 * 1000;
 

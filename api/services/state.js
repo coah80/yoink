@@ -112,6 +112,8 @@ function canStartJob(type) {
   if (availableGB < DISK_SPACE_MIN_GB) {
     return { ok: false, reason: `Low disk space (${availableGB.toFixed(1)}GB free, need ${DISK_SPACE_MIN_GB}GB)` };
   }
+  // Atomically claim the slot to prevent race conditions between check and increment
+  activeJobsByType[type]++;
   return { ok: true };
 }
 
