@@ -59,6 +59,31 @@ export function startHeartbeat() {
   return jobId;
 }
 
+export function resumeHeartbeat() {
+  if (activeJobIds.size > 0 && !heartbeatInterval) {
+    heartbeatFailures = 0;
+    const id = get(clientId);
+    if (id && !id.startsWith('local-')) {
+      fetch(`${apiBase()}/api/heartbeat/${id}`, { method: 'POST' }).catch(() => {});
+    }
+    heartbeatInterval = setInterval(async () => {
+      const cid = get(clientId);
+      if (!cid || cid.startsWith('local-')) return;
+      try {
+        await fetch(`${apiBase()}/api/heartbeat/${cid}`, { method: 'POST' });
+        heartbeatFailures = 0;
+      } catch {
+        heartbeatFailures++;
+        if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
+          clearInterval(heartbeatInterval);
+          heartbeatInterval = null;
+          heartbeatFailures = 0;
+        }
+      }
+    }, 15000);
+  }
+}
+
 export function stopHeartbeat(jobId) {
   if (jobId) {
     activeJobIds.delete(jobId);

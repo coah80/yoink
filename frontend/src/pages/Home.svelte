@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import Header from '../components/layout/Header.svelte';
   import Footer from '../components/layout/Footer.svelte';
   import QueueToggle from '../components/queue/QueueToggle.svelte';
@@ -50,7 +51,21 @@
   }
 
   function checkSharedUrl() {
-    let sharedUrl = sessionStorage.getItem('yoink_shared_url');
+    let sharedUrl = null;
+
+    // read from localStorage (set by Share.svelte)
+    try {
+      const raw = localStorage.getItem('yoink_shared_url');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Date.now() - parsed.timestamp < 5 * 60 * 1000) {
+          sharedUrl = parsed.url;
+        }
+        localStorage.removeItem('yoink_shared_url');
+      }
+    } catch {
+      localStorage.removeItem('yoink_shared_url');
+    }
 
     // Detect PWA share target: browser loads /share?url=...
     if (!sharedUrl && window.location.pathname === '/share') {
@@ -60,19 +75,16 @@
       if (urlMatch) {
         sharedUrl = urlMatch[0].replace(/[.,!?;:)\]}>]+$/, '');
       }
-      // Clean the address bar
       history.replaceState(null, '', '/');
     }
 
     if (sharedUrl) {
-      sessionStorage.removeItem('yoink_shared_url');
       urlValue = sharedUrl;
-      // Auto-download after a tick so the UI renders first
       setTimeout(() => handleYoink(), 150);
     }
   }
 
-  $effect(() => {
+  onMount(() => {
     initSplash();
     checkSharedUrl();
   });

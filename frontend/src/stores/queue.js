@@ -383,6 +383,8 @@ function createQueueStore() {
       const item = q.find((i) => i.id === id);
       if (!item) return;
 
+      cleanupJob(id);
+
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       this.updateItem(id, {
         id: newId,
@@ -419,6 +421,18 @@ function createQueueStore() {
         this._connectPlaylistSSE(item.id, item.serverJobId);
         this._startPlaylistPolling(item.id, item.serverJobId);
       });
+    },
+
+    reconnectOnResume() {
+      const q = getQueue();
+      q.filter((item) => item.isPlaylist && item.serverJobId && ACTIVE_STAGES.includes(item.stage))
+        .forEach((item) => {
+          const existing = sseConnections.get(item.id);
+          if (existing) { existing.close(); sseConnections.delete(item.id); }
+          this._connectPlaylistSSE(item.id, item.serverJobId);
+          stopPolling(item.id);
+          this._startPlaylistPolling(item.id, item.serverJobId);
+        });
     },
   };
 

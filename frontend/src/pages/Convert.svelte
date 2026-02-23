@@ -8,6 +8,7 @@
   import { formatBytes } from '../lib/utils.js';
   import { addToast } from '../stores/toast.js';
   import { startHeartbeat, stopHeartbeat } from '../stores/session.js';
+  import { queue } from '../stores/queue.js';
 
   let selectedFile = $state(null);
   let targetFormat = $state('mp4');
@@ -81,6 +82,16 @@
 
     const useChunked = selectedFile.size > 90 * 1024 * 1024;
     let heartbeatJobId = null;
+    const queueId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    queue.add({
+      id: queueId,
+      title: `${selectedFile.name} → .${targetFormat}`,
+      type: 'convert',
+      stage: 'uploading',
+      status: 'uploading...',
+      progress: 0,
+      startTime: Date.now(),
+    });
 
     try {
       heartbeatJobId = startHeartbeat();
@@ -90,10 +101,12 @@
         const { filePath, fileName } = await uploadChunked(selectedFile, (p) => {
           progress = p;
           progressLabel = 'Uploading...';
+          queue.updateItem(queueId, { progress: p, status: 'uploading...' });
         });
 
         progress = 0;
         progressLabel = 'Converting...';
+        queue.updateItem(queueId, { stage: 'converting', status: 'converting...', progress: 0 });
 
         const initResponse = await fetch(`${apiBase()}/api/convert-chunked`, {
           method: 'POST',
@@ -131,6 +144,7 @@
           if (jobStatus.status === 'error') throw new Error(jobStatus.error || 'Conversion failed');
           progress = jobStatus.progress || 0;
           progressLabel = jobStatus.message || 'processing...';
+          queue.updateItem(queueId, { progress: jobStatus.progress || 0, status: jobStatus.message || 'converting...' });
           if (jobStatus.status === 'complete') break;
         }
 
@@ -145,12 +159,14 @@
               const percent = Math.round((e.loaded / e.total) * 90);
               progress = percent;
               progressLabel = `uploading... ${percent}%`;
+              queue.updateItem(queueId, { progress: percent, status: `uploading... ${percent}%` });
             }
           };
 
           xhr.onload = () => {
             progress = 95;
             progressLabel = 'processing...';
+            queue.updateItem(queueId, { stage: 'converting', status: 'converting...', progress: 95 });
             resolve(new Response(xhr.response, {
               status: xhr.status,
               statusText: xhr.statusText,
@@ -187,15 +203,17 @@
 
       statusType = 'success';
       statusMessage = 'conversion complete! download started.';
-      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
+      queue.updateItem(queueId, { stage: 'complete', status: 'complete!', progress: 100 });
+      setTimeout(() => queue.remove(queueId), 5000);
     } catch (err) {
       statusType = 'error';
       statusMessage = err.message || 'conversion failed';
       progress = 0;
       progressLabel = '';
-      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
+      queue.updateItem(queueId, { stage: 'error', status: err.message || 'conversion failed' });
     } finally {
       converting = false;
+      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
     }
   }
 </script>
