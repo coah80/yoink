@@ -216,12 +216,14 @@ router.get('/api/job/:jobId/status', (req, res) => {
     return res.status(404).json({ error: 'Job not found or expired' });
   }
 
-  res.json({
+  const response = {
     status: job.status,
     progress: job.progress || 0,
     message: job.message || '',
     error: job.error || null
-  });
+  };
+  if (job.textContent) response.textContent = job.textContent;
+  res.json(response);
 });
 
 router.get('/api/job/:jobId/download', (req, res) => {

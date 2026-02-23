@@ -8,7 +8,8 @@ const JOB_LIMITS = {
   download: 6,
   playlist: 2,
   convert: 2,
-  compress: 1
+  compress: 1,
+  transcribe: 1
 };
 
 const MAX_QUEUE_SIZE = 50;
@@ -63,7 +64,8 @@ const TEMP_DIRS = {
   bot: path.join(TEMP_DIR, 'bot'),
   gallery: path.join(TEMP_DIR, 'galleries'),
   playlist: path.join(TEMP_DIR, 'playlists'),
-  upload: path.join(TEMP_DIR, 'uploads')
+  upload: path.join(TEMP_DIR, 'uploads'),
+  transcribe: path.join(TEMP_DIR, 'transcribe')
 };
 
 // Compression Configuration
@@ -109,7 +111,7 @@ const COBALT_APIS = [
 ];
 
 // Heavy Job Types
-const HEAVY_JOB_TYPES = ['playlist', 'convert', 'compress'];
+const HEAVY_JOB_TYPES = ['playlist', 'convert', 'compress', 'transcribe'];
 const SESSION_IDLE_TIMEOUT_MS = 60 * 1000;
 
 // Upload Configuration
