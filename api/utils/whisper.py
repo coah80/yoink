@@ -105,21 +105,40 @@ def get_audio_duration(input_path):
 
 
 def split_by_word_count(segments, max_words):
-    """Split segments with more than max_words into sub-segments using word timestamps."""
+    """Split segments with more than max_words into sub-segments using word timestamps.
+    Falls back to proportional timing when word timestamps aren't available."""
     result = []
     for seg in segments:
         words = seg.get("words")
-        if not words or len(words) <= max_words:
-            result.append(seg)
-            continue
-        for i in range(0, len(words), max_words):
-            chunk = words[i:i + max_words]
-            text = "".join(w["word"] for w in chunk).strip()
-            result.append({
-                "start": chunk[0]["start"],
-                "end": chunk[-1]["end"],
-                "text": text,
-            })
+        if words:
+            if len(words) <= max_words:
+                result.append(seg)
+                continue
+            for i in range(0, len(words), max_words):
+                chunk = words[i:i + max_words]
+                text = "".join(w["word"] for w in chunk).strip()
+                result.append({
+                    "start": chunk[0]["start"],
+                    "end": chunk[-1]["end"],
+                    "text": text,
+                })
+        else:
+            # fallback: split by text words with proportional timing
+            text_words = seg["text"].strip().split()
+            if len(text_words) <= max_words:
+                result.append(seg)
+                continue
+            total_dur = seg["end"] - seg["start"]
+            word_dur = total_dur / len(text_words) if text_words else 0
+            for i in range(0, len(text_words), max_words):
+                chunk = text_words[i:i + max_words]
+                chunk_start = seg["start"] + i * word_dur
+                chunk_end = seg["start"] + min(i + max_words, len(text_words)) * word_dur
+                result.append({
+                    "start": chunk_start,
+                    "end": chunk_end,
+                    "text": " ".join(chunk),
+                })
     return result
 
 

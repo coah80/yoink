@@ -11,6 +11,8 @@
     <a href="https://coah80.com" target="_blank" rel="noopener">coah80.com</a>
     <span>·</span>
     <a href="/privacy">privacy</a>
+    <span>·</span>
+    <a href="/?updates">updates</a>
   </div>
 </footer>
 
@@ -19,7 +21,7 @@
     padding: 20px 24px;
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: flex-end;
     color: var(--text-muted);
     font-size: 0.8rem;
     line-height: 1.6;
@@ -28,7 +30,7 @@
   .footer-left {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
 
   .footer-right {
@@ -38,7 +40,7 @@
   }
 
   .legal {
-    margin-top: 8px;
+    margin-top: 4px;
     font-size: 0.75rem;
     color: var(--text-muted);
   }
