@@ -14,7 +14,9 @@
   import Privacy from './pages/Privacy.svelte';
   import Download from './pages/Download.svelte';
   import Share from './pages/Share.svelte';
+  import Updates from './pages/Updates.svelte';
   import NotFound from './pages/NotFound.svelte';
+  import UpdateBanner from './components/ui/UpdateBanner.svelte';
 
   const routes = {
     '/': Home,
@@ -25,6 +27,7 @@
     '/privacy': Privacy,
     '/download': Download,
     '/share': Share,
+    '/updates': Updates,
   };
 
   let currentPath = $derived($path);
@@ -60,3 +63,4 @@
 <CurrentPage />
 <BottomNav />
 <ToastContainer />
+<UpdateBanner />

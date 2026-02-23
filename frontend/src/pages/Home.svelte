@@ -11,6 +11,8 @@
   import { normalizeUrl, hasPlaylistParam, generateProgressId, isYouTubeUrl } from '../lib/utils.js';
   import { splashTexts, isPornSite } from '../lib/constants.js';
   import { triggerIframeDownload } from '../lib/download.js';
+  import { query, navigate } from '../lib/router.js';
+  import { changelog } from '../lib/changelog.js';
 
   let urlValue = $state('');
   let currentFormat = $state('auto');
@@ -397,6 +399,30 @@
   }
 
   let rememberChoice = $state(false);
+
+  let showUpdates = $derived('updates' in $query);
+  let updatesVisible = $state(false);
+  let updatesClosing = $state(false);
+  let closeTimer = null;
+
+  $effect(() => {
+    if (showUpdates) {
+      updatesVisible = true;
+      updatesClosing = false;
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    }
+  });
+
+  function closeUpdates() {
+    if (updatesClosing) return;
+    updatesClosing = true;
+    navigate('/');
+    closeTimer = setTimeout(() => {
+      updatesVisible = false;
+      updatesClosing = false;
+      closeTimer = null;
+    }, 350);
+  }
 </script>
 
 <Header>
@@ -607,6 +633,51 @@
           add to queue
         </button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if updatesVisible}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="updates-overlay" class:closing={updatesClosing} role="dialog" aria-modal="true" aria-label="Updates" onclick={(e) => { if (e.target === e.currentTarget) closeUpdates(); }} onkeydown={(e) => { if (e.key === 'Escape') closeUpdates(); }}>
+    <div class="updates-scroll">
+      <div class="updates-header">
+        <span class="updates-pill">updates</span>
+        <button class="updates-close" onclick={closeUpdates} aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      {#each changelog as entry}
+        <article class="update-card">
+          <div class="update-meta">
+            <span class="update-version">{entry.version}</span>
+            <span class="update-date">{entry.date}</span>
+          </div>
+          <h2 class="update-title">{entry.title}</h2>
+          <img class="update-image" src={entry.image} alt={entry.title} />
+          <div class="update-content">
+            {#each entry.content.split('\n\n') as block}
+              {#if block.startsWith('## ')}
+                <h3>{block.replace('## ', '')}</h3>
+              {:else if block.startsWith('- ')}
+                <ul>
+                  {#each block.split('\n') as line}
+                    {#if line.startsWith('- ')}
+                      <li>{line.replace('- ', '')}</li>
+                    {/if}
+                  {/each}
+                </ul>
+              {:else}
+                <p>{block}</p>
+              {/if}
+            {/each}
+          </div>
+        </article>
+      {/each}
     </div>
   </div>
 {/if}
@@ -1300,6 +1371,181 @@
 
     .yoink-dropdown-toggle {
       padding: 14px 12px;
+    }
+  }
+
+  .updates-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 15, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 2500;
+    animation: updates-slide-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .updates-overlay.closing {
+    animation: updates-slide-out 0.3s ease-in forwards;
+  }
+
+  @keyframes updates-slide-in {
+    0% { transform: translateY(100%); opacity: 0; }
+    60% { opacity: 1; }
+    85% { transform: translateY(-1.5%); }
+    100% { transform: translateY(0); }
+  }
+
+  @keyframes updates-slide-out {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(100%); opacity: 0; }
+  }
+
+  .updates-scroll {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 80px;
+  }
+
+  .updates-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .updates-pill {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.8rem;
+    color: var(--purple-400);
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 10px 36px;
+  }
+
+  .updates-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+  }
+
+  .updates-close:hover {
+    color: var(--text);
+    border-color: var(--purple-500);
+  }
+
+  .updates-close svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .update-card {
+    width: 100%;
+    max-width: 560px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    margin-bottom: 32px;
+  }
+
+  .update-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .update-version {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: var(--text);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+  }
+
+  .update-date {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .update-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.5rem;
+    color: var(--text);
+    margin: 0 0 16px 0;
+    line-height: 1.3;
+  }
+
+  .update-image {
+    width: 100%;
+    border-radius: var(--radius-md);
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+
+  .update-content {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .update-content h3 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text);
+    margin: 24px 0 8px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .update-content p {
+    margin: 0 0 12px 0;
+  }
+
+  .update-content ul {
+    margin: 0 0 12px 0;
+    padding-left: 20px;
+  }
+
+  .update-content li {
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 600px) {
+    .updates-scroll {
+      padding: 24px 12px 100px;
+    }
+
+    .updates-pill {
+      font-size: 1.3rem;
+      padding: 8px 24px;
+    }
+
+    .update-card {
+      padding: 20px;
+    }
+
+    .update-title {
+      font-size: 1.2rem;
     }
   }
 </style>
