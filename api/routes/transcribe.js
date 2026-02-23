@@ -143,6 +143,7 @@ async function handleTranscribeAsync(req, jobId) {
     subtitleFormat = 'srt',
     language = '',
     clientId,
+    captionSize = 72,
     maxWordsPerCaption = 0,
     maxCharsPerLine = 0,
     minDuration = 0,
@@ -171,6 +172,7 @@ async function handleTranscribeAsync(req, jobId) {
   }
 
   // Parse caption formatting params once (FormData sends strings, JSON sends numbers)
+  const cs = Number(captionSize) || 72;
   const mwpc = Number(maxWordsPerCaption) || 0;
   const mcpl = Number(maxCharsPerLine) || 0;
   const md = Number(minDuration) || 0;
@@ -178,6 +180,11 @@ async function handleTranscribeAsync(req, jobId) {
 
   // Validate caption formatting params (only relevant for subtitles/captions)
   if (outputMode !== 'text') {
+    if (cs !== 72 && (cs < 40 || cs > 120 || !Number.isInteger(cs))) {
+      job.status = 'error';
+      job.error = 'captionSize must be an integer between 40 and 120.';
+      return;
+    }
     if (mwpc && (mwpc < 1 || mwpc > 20 || !Number.isInteger(mwpc))) {
       job.status = 'error';
       job.error = 'maxWordsPerCaption must be an integer between 1 and 20.';
@@ -295,6 +302,7 @@ async function handleTranscribeAsync(req, jobId) {
     }
 
     if (outputMode !== 'text') {
+      if (cs !== 72) whisperArgs.push('--font-size', String(cs));
       if (mwpc > 0) whisperArgs.push('--max-words-per-caption', String(mwpc));
       if (mcpl > 0) whisperArgs.push('--max-chars-per-line', String(mcpl));
       if (md > 0) whisperArgs.push('--min-duration', String(md));

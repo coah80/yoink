@@ -17,6 +17,7 @@
   let selectedModel = $state('base');
   let subtitleFormat = $state('srt');
   let language = $state('');
+  let captionSize = $state(72);
   let maxWordsPerCaption = $state(0);
   let maxCharsPerLine = $state(0);
   let minDuration = $state(0);
@@ -46,6 +47,29 @@
   ];
 
   let showCaptionSettings = $derived(outputMode === 'subtitles' || outputMode === 'captions');
+
+  let previewText = $derived.by(() => {
+    let text = 'your captions will look like this';
+    if (maxWordsPerCaption > 0) {
+      text = text.split(' ').slice(0, maxWordsPerCaption).join(' ');
+    }
+    if (maxCharsPerLine > 0) {
+      const words = text.split(' ');
+      const lines = [];
+      let current = words[0] || '';
+      for (let i = 1; i < words.length; i++) {
+        if (current.length + 1 + words[i].length <= maxCharsPerLine) {
+          current += ' ' + words[i];
+        } else {
+          lines.push(current);
+          current = words[i];
+        }
+      }
+      lines.push(current);
+      text = lines.join('\n');
+    }
+    return text;
+  });
 
   const modelMultipliers = { tiny: 0.17, base: 0.33, small: 1.0, medium: 3.3 };
 
@@ -186,6 +210,7 @@
             model: selectedModel,
             subtitleFormat,
             language: language || undefined,
+            ...(captionSize !== 72 && { captionSize }),
             ...(maxWordsPerCaption > 0 && { maxWordsPerCaption }),
             ...(maxCharsPerLine > 0 && { maxCharsPerLine }),
             ...(minDuration > 0 && { minDuration }),
@@ -208,6 +233,7 @@
         formData.append('model', selectedModel);
         formData.append('subtitleFormat', subtitleFormat);
         if (language) formData.append('language', language);
+        if (captionSize !== 72) formData.append('captionSize', captionSize);
         if (maxWordsPerCaption > 0) formData.append('maxWordsPerCaption', maxWordsPerCaption);
         if (maxCharsPerLine > 0) formData.append('maxCharsPerLine', maxCharsPerLine);
         if (minDuration > 0) formData.append('minDuration', minDuration);
@@ -470,6 +496,21 @@
         <div class="section">
           <div class="section-label">caption formatting</div>
           <div class="section-description">control how captions are split and timed</div>
+
+          <div class="caption-preview">
+            <div class="caption-preview-text" style="font-size: calc({captionSize} / 1920 * 100 * 1%);">
+              {@html previewText.replace(/\n/g, '<br>')}
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">caption size</span>
+              <span class="slider-value">{captionSize}</span>
+            </div>
+            <input type="range" class="caption-slider" min="40" max="120" step="2" bind:value={captionSize} />
+            <div class="slider-hint">size of caption text</div>
+          </div>
 
           <div class="slider-group">
             <div class="slider-header">
@@ -890,6 +931,32 @@
 
   .language-input::placeholder {
     color: var(--text-muted);
+  }
+
+  .caption-preview {
+    aspect-ratio: 16 / 9;
+    background: #111;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .caption-preview-text {
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    color: #FFFF00;
+    text-align: center;
+    padding-bottom: 6%;
+    line-height: 1.3;
+    text-shadow:
+      -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+      -1px -2px 0 #000, 1px -2px 0 #000, -1px 2px 0 #000, 1px 2px 0 #000,
+      -2px -1px 0 #000, 2px -1px 0 #000, -2px 1px 0 #000, 2px 1px 0 #000,
+      3px 3px 4px rgba(0, 0, 0, 0.6);
   }
 
   .slider-group {

@@ -58,7 +58,7 @@ def write_srt(segments, output_path):
             f.write(f"{seg['text'].strip()}\n\n")
 
 
-def write_ass(segments, output_path):
+def write_ass(segments, output_path, font_size=72):
     """Write segments as ASS subtitle file with yellow captions styling."""
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("[Script Info]\n")
@@ -71,7 +71,7 @@ def write_ass(segments, output_path):
         f.write("\n")
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        f.write("Style: Default,Arial,72,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,40,40,60,1\n")
+        f.write(f"Style: Default,Arial,{font_size},&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,3,2,40,40,60,1\n")
         f.write("\n")
         f.write("[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
@@ -199,6 +199,8 @@ def main():
                         help="Minimum caption duration in seconds (0 = disabled)")
     parser.add_argument("--gap", type=float, default=0,
                         help="Gap between captions in seconds (0 = none)")
+    parser.add_argument("--font-size", type=int, default=72,
+                        help="ASS subtitle font size (default 72)")
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
@@ -282,7 +284,7 @@ def main():
         if args.output_format == "srt":
             write_srt(segments, args.output)
         elif args.output_format == "ass":
-            write_ass(segments, args.output)
+            write_ass(segments, args.output, font_size=args.font_size)
         elif args.output_format == "txt":
             write_txt(segments, args.output)
     except Exception as e:
