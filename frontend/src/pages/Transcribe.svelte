@@ -497,20 +497,25 @@
           <div class="section-label">caption formatting</div>
           <div class="section-description">control how captions are split and timed</div>
 
-          <div class="caption-preview">
-            <div class="caption-preview-text" style="font-size: calc({captionSize} / 19.2 * 1cqw);">
-              {@html previewText.replace(/\n/g, '<br>')}
+          {#if outputMode === 'captions' || subtitleFormat === 'ass'}
+            <div class="caption-preview">
+              <!-- font size maps to ASS PlayResX (1920), so /19.2 gives container-width % -->
+              <div class="caption-preview-text" style="font-size: calc({captionSize} / 19.2 * 1cqw); white-space: pre-line;">
+                {previewText}
+              </div>
             </div>
-          </div>
+          {/if}
 
-          <div class="slider-group">
-            <div class="slider-header">
-              <span class="slider-label">caption size</span>
-              <span class="slider-value">{captionSize}</span>
+          {#if outputMode === 'captions' || subtitleFormat === 'ass'}
+            <div class="slider-group">
+              <div class="slider-header">
+                <span class="slider-label">caption size</span>
+                <span class="slider-value">{captionSize}</span>
+              </div>
+              <input type="range" class="caption-slider" min="40" max="120" step="2" bind:value={captionSize} />
+              <div class="slider-hint">size of caption text</div>
             </div>
-            <input type="range" class="caption-slider" min="40" max="120" step="2" bind:value={captionSize} />
-            <div class="slider-hint">size of caption text</div>
-          </div>
+          {/if}
 
           <div class="slider-group">
             <div class="slider-header">
