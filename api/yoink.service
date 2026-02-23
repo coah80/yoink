@@ -1,6 +1,7 @@
 [Unit]
 Description=Yoink API Server
-After=network.target
+After=network.target tmp-yoink.mount
+Requires=tmp-yoink.mount
 
 [Service]
 Type=simple

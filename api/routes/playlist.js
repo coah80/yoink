@@ -199,7 +199,7 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
 
           downloadedFiles.push(videoFile);
           job.videosCompleted = downloadedFiles.length;
-          console.log(`[${jobId}] Video ${videoNum} complete: ${safeTitle}`);
+          console.log(`[${jobId}] Video ${videoNum} complete`);
         }
       } catch (err) {
         console.error(`[${jobId}] Error downloading video ${videoNum}:`, err.message);
@@ -269,7 +269,7 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
 
   } catch (err) {
     console.error(`[${jobId}] Async playlist error:`, err.message);
-    discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId, url, error: err.message });
+    discordAlerts.downloadFailed('Playlist Download Error', 'Playlist download failed.', { jobId, error: err.message });
 
     job.status = 'error';
     job.message = toUserError(err.message || 'Playlist download failed');

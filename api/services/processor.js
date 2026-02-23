@@ -4,7 +4,6 @@ const path = require('path');
 
 const { CONTAINER_MIMES, AUDIO_MIMES } = require('../config/constants');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
-const { getClientIp, getCountryFromIP } = require('../utils/ip');
 const {
   activeDownloads,
   activeProcesses,
@@ -102,7 +101,6 @@ async function streamFile(res, req, filePath, opts = {}) {
     downloadId,
     url = '',
     jobType = 'download',
-    trackFn = null,
     onCleanup = null
   } = opts;
 
@@ -131,13 +129,6 @@ async function streamFile(res, req, filePath, opts = {}) {
     removePendingJob(downloadId);
     activeJobsByType[jobType]--;
     unlinkJobFromClient(downloadId);
-
-    if (trackFn) {
-      try {
-        const site = new URL(url).hostname.replace('www.', '');
-        trackFn(ext, site, getCountryFromIP(getClientIp(req)));
-      } catch (e) {}
-    }
 
     console.log(`[Queue] ${jobType} finished. Active: ${JSON.stringify(activeJobsByType)}`);
     if (onCleanup) onCleanup();

@@ -108,9 +108,9 @@
       addToast('Please select a video file', 'error');
       return;
     }
-    const maxSize = 15 * 1024 * 1024 * 1024;
+    const maxSize = 8 * 1024 * 1024 * 1024;
     if (file.size > maxSize) {
-      addToast('File too large. Maximum size is 15GB.', 'error');
+      addToast('File too large. Maximum size is 8GB.', 'error');
       return;
     }
     selectedFile = file;
@@ -360,7 +360,7 @@
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
         <p class="drop-zone-text">drop a video here or click to browse</p>
-        <p class="drop-zone-hint">supports mp4, webm, mov, mkv, avi (max 15GB)</p>
+        <p class="drop-zone-hint">supports mp4, webm, mov, mkv, avi (max 8GB)</p>
         <input
           bind:this={inputEl}
           type="file"
@@ -476,6 +476,11 @@
       </div>
     {/if}
 
+    <div class="privacy-notice">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>files processed in RAM only, auto-deleted after download</span>
+    </div>
+
     {#if showResult}
       <div class="result-container">
         <div class="result-header">
@@ -587,6 +592,20 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+  }
+
+  .privacy-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .privacy-notice svg {
+    flex-shrink: 0;
+    opacity: 0.6;
   }
 
   .drop-zone {
