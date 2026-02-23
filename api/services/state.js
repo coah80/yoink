@@ -22,10 +22,12 @@ const activeJobsByType = {
   download: 0,
   playlist: 0,
   convert: 0,
-  compress: 0
+  compress: 0,
+  transcribe: 0
 };
 
 let galleryDlAvailable = false;
+let whisperAvailable = false;
 let updatePeakUsersCallback = () => {};
 
 function setGalleryDlAvailable(available) {
@@ -34,6 +36,14 @@ function setGalleryDlAvailable(available) {
 
 function isGalleryDlAvailable() {
   return galleryDlAvailable;
+}
+
+function setWhisperAvailable(available) {
+  whisperAvailable = available;
+}
+
+function isWhisperAvailable() {
+  return whisperAvailable;
 }
 
 function setUpdatePeakUsersCallback(cb) {
@@ -224,6 +234,8 @@ module.exports = {
 
   setGalleryDlAvailable,
   isGalleryDlAvailable,
+  setWhisperAvailable,
+  isWhisperAvailable,
   setUpdatePeakUsersCallback,
   registerClient,
   updateHeartbeat,

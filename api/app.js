@@ -3,13 +3,14 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { loadCorsConfig } = require('./middleware/cors');
 const { rateLimitMiddleware } = require('./middleware/rateLimit');
-const { isGalleryDlAvailable } = require('./utils/dependencies');
+const { isGalleryDlAvailable, isWhisperAvailable } = require('./utils/dependencies');
 
 const coreRoutes = require('./routes/core');
 const downloadRoutes = require('./routes/download');
 const playlistRoutes = require('./routes/playlist');
 const galleryRoutes = require('./routes/gallery');
 const convertRoutes = require('./routes/convert');
+const transcribeRoutes = require('./routes/transcribe');
 const botRoutes = require('./routes/bot');
 
 function createApp() {
@@ -25,6 +26,8 @@ function createApp() {
   app.use('/api/download-playlist', rateLimitMiddleware);
   app.use('/api/convert', rateLimitMiddleware);
   app.use('/api/compress', rateLimitMiddleware);
+  app.use('/api/transcribe', rateLimitMiddleware);
+  app.use('/api/transcribe-chunked', rateLimitMiddleware);
 
   app.use(coreRoutes);
   app.use(downloadRoutes);
@@ -33,6 +36,9 @@ function createApp() {
     app.use('/api/gallery', galleryRoutes);
   }
   app.use(convertRoutes);
+  if (isWhisperAvailable()) {
+    app.use(transcribeRoutes);
+  }
   app.use(botRoutes);
 
   return app;

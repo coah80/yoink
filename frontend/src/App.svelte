@@ -10,6 +10,7 @@
   import Settings from './pages/Settings.svelte';
   import Convert from './pages/Convert.svelte';
   import Compress from './pages/Compress.svelte';
+  import Transcribe from './pages/Transcribe.svelte';
   import Privacy from './pages/Privacy.svelte';
   import Download from './pages/Download.svelte';
   import Share from './pages/Share.svelte';
@@ -20,6 +21,7 @@
     '/settings': Settings,
     '/convert': Convert,
     '/compress': Compress,
+    '/transcribe': Transcribe,
     '/privacy': Privacy,
     '/download': Download,
     '/share': Share,

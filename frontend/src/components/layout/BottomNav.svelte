@@ -15,7 +15,7 @@
   let currentPath = $derived($path);
 
   let activeCount = $derived(
-    items.filter(i => ['starting', 'downloading', 'processing', 'zipping', 'sending'].includes(i.stage)).length
+    items.filter(i => ['starting', 'downloading', 'processing', 'zipping', 'sending', 'transcribing'].includes(i.stage)).length
   );
 
   function toggleQueue(e) {
@@ -67,6 +67,7 @@
     { href: '/', label: 'download', icon: 'download' },
     { href: '/convert', label: 'convert', icon: 'convert' },
     { href: '/compress', label: 'compress', icon: 'compress' },
+    { href: '/transcribe', label: 'transcribe', icon: 'transcribe' },
     { href: '/settings', label: 'settings', icon: 'settings' },
   ];
 </script>
@@ -98,6 +99,10 @@
             <polyline points="20 10 14 10 14 4"></polyline>
             <line x1="14" y1="10" x2="21" y2="3"></line>
             <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        {:else if item.icon === 'transcribe'}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
           </svg>
         {:else if item.icon === 'settings'}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -177,7 +182,7 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 6px 12px;
+    padding: 6px 8px;
     color: var(--text-muted);
     text-decoration: none;
     font-size: 0;

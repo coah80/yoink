@@ -2,6 +2,7 @@ const { execSync } = require('child_process');
 const { hasCookiesFile } = require('./cookies');
 
 let galleryDlAvailable = false;
+let whisperAvailable = false;
 
 function checkDependencies() {
   try {
@@ -28,6 +29,14 @@ function checkDependencies() {
     console.log('⚠ gallery-dl not found - image downloads disabled. Install: pip install gallery-dl');
   }
 
+  try {
+    execSync('python3 -c "from faster_whisper import WhisperModel"', { stdio: 'ignore' });
+    whisperAvailable = true;
+    console.log('✓ faster-whisper found');
+  } catch {
+    console.log('⚠ faster-whisper not found - transcription disabled. Install: pip3 install faster-whisper');
+  }
+
   if (hasCookiesFile()) {
     console.log('✓ cookies.txt found - YouTube authentication enabled');
   } else {
@@ -39,7 +48,12 @@ function isGalleryDlAvailable() {
   return galleryDlAvailable;
 }
 
+function isWhisperAvailable() {
+  return whisperAvailable;
+}
+
 module.exports = {
   checkDependencies,
-  isGalleryDlAvailable
+  isGalleryDlAvailable,
+  isWhisperAvailable
 };

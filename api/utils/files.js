@@ -10,7 +10,8 @@ const TEMP_DIRS = {
   playlist: path.join(TEMP_DIR, 'playlists'),
   gallery: path.join(TEMP_DIR, 'galleries'),
   upload: path.join(TEMP_DIR, 'uploads'),
-  bot: path.join(TEMP_DIR, 'bot')
+  bot: path.join(TEMP_DIR, 'bot'),
+  transcribe: path.join(TEMP_DIR, 'transcribe')
 };
 
 function clearTempDir() {
