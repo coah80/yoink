@@ -32,7 +32,7 @@ const discordAlerts = require('../discord-alerts');
 router.post('/api/playlist/start', express.json(), async (req, res) => {
   const {
     url, format = 'video', quality = '1080p', container = 'mp4',
-    audioFormat = 'mp3', audioBitrate = '320', clientId
+    audioFormat = 'mp3', audioBitrate = '320', clientId, resumeFrom = 1
   } = req.body;
 
   const urlCheck = validateUrl(url);
@@ -82,10 +82,10 @@ router.post('/api/playlist/start', express.json(), async (req, res) => {
   asyncJobs.set(jobId, job);
   res.json({ jobId });
 
-  processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate);
+  processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate, Math.max(1, parseInt(resumeFrom) || 1));
 });
 
-async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate) {
+async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outputExt, quality, container, audioBitrate, resumeFrom = 1) {
   const playlistDir = path.join(TEMP_DIRS.playlist, jobId);
   if (!fs.existsSync(playlistDir)) fs.mkdirSync(playlistDir, { recursive: true });
 
@@ -103,21 +103,23 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
 
     const totalVideos = playlistInfo.count;
     const playlistTitle = playlistInfo.title;
+    const startIdx = Math.min(resumeFrom - 1, playlistInfo.entries.length - 1);
+    const isResuming = startIdx > 0;
 
     job.status = 'downloading';
     job.playlistTitle = playlistTitle;
     job.totalVideos = totalVideos;
-    job.message = `found ${totalVideos} videos`;
+    job.message = isResuming ? `resuming from video ${resumeFrom}/${totalVideos}` : `found ${totalVideos} videos`;
 
-    sendProgress(jobId, 'playlist-info', `Found ${totalVideos} videos in playlist`, 0, {
-      playlistTitle, totalVideos, currentVideo: 0, currentVideoTitle: '',
+    sendProgress(jobId, 'playlist-info', isResuming ? `Resuming from video ${resumeFrom}/${totalVideos}` : `Found ${totalVideos} videos in playlist`, 0, {
+      playlistTitle, totalVideos, currentVideo: isResuming ? startIdx : 0, currentVideoTitle: '',
       format: isAudio ? audioFormat : `${quality} ${container}`
     });
 
     const downloadedFiles = [];
     const failedVideos = [];
 
-    for (let i = 0; i < playlistInfo.entries.length; i++) {
+    for (let i = startIdx; i < playlistInfo.entries.length; i++) {
       if (processInfo.cancelled) throw new Error('Download cancelled');
       if (processInfo.finishEarly) {
         console.log(`[${jobId}] Finishing early after ${downloadedFiles.length} videos`);
