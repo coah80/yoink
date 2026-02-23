@@ -1,0 +1,12 @@
+[Unit]
+Description=Yoink encrypted temp storage
+Before=yoink.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/yoink-crypt-setup.sh
+ExecStop=/usr/local/bin/yoink-crypt-teardown.sh
+
+[Install]
+WantedBy=multi-user.target
