@@ -92,6 +92,10 @@ function createQueueStore() {
         save(next);
         return next;
       });
+
+      if (item && !item.isPlaylist && ACTIVE_STAGES.includes(item.stage)) {
+        setTimeout(() => this.processNext(), 100);
+      }
     },
 
     updateItem(id, patch) {
@@ -170,12 +174,15 @@ function createQueueStore() {
               : `download complete! (${timeStr})`;
             addToast(msg, 'success');
 
+            this.processNext();
             setTimeout(() => this.remove(item.id), 5000);
           } else if (data.stage === 'error') {
             cleanupJob(item.id);
             addToast(data.message, 'error');
+            this.processNext();
           } else if (data.stage === 'cancelled') {
             cleanupJob(item.id);
+            this.processNext();
           }
         },
         onError: (err) => {
@@ -184,6 +191,7 @@ function createQueueStore() {
           } else {
             this.updateItem(item.id, { stage: 'error', status: err.message });
             cleanupJob(item.id);
+            this.processNext();
           }
         },
       });
@@ -370,12 +378,19 @@ function createQueueStore() {
       setTimeout(() => this.remove(id), 10000);
     },
 
-    startAllQueued() {
+    processNext() {
       const q = getQueue();
-      const queued = q.filter((item) => item.stage === 'queued');
-      queued.forEach((item, i) => {
-        setTimeout(() => this.startDownload(item), i * 500);
-      });
+      const hasActiveDirectDownload = q.some(
+        (item) => !item.isPlaylist && ACTIVE_STAGES.includes(item.stage)
+      );
+      if (hasActiveDirectDownload) return;
+
+      const next = q.find((item) => item.stage === 'queued');
+      if (next) this.startDownload(next);
+    },
+
+    startAllQueued() {
+      this.processNext();
     },
 
     retryDownload(id) {
@@ -397,11 +412,7 @@ function createQueueStore() {
         downloadToken: null,
       });
 
-      const updatedQ = getQueue();
-      const updatedItem = updatedQ.find((i) => i.id === newId);
-      if (updatedItem) {
-        this.startDownload(updatedItem);
-      }
+      this.processNext();
     },
 
     async finishPlaylistEarly(id) {

@@ -1,5 +1,4 @@
 const path = require('path');
-const os = require('os');
 
 // Server Configuration
 const PORT = process.env.PORT || 3001;
@@ -13,6 +12,7 @@ const JOB_LIMITS = {
 };
 
 const MAX_QUEUE_SIZE = 50;
+const DISK_SPACE_MIN_GB = 5;
 const FILE_SIZE_LIMIT = 8 * 1024 * 1024 * 1024;
 const FILE_RETENTION_MS = 20 * 60 * 1000;
 const HEARTBEAT_TIMEOUT_MS = 30 * 1000;
@@ -55,7 +55,7 @@ const AUDIO_MIMES = {
 };
 
 // Temporary Directories
-const TEMP_DIR = path.join(os.tmpdir(), 'yoink');
+const TEMP_DIR = '/var/tmp/yoink';
 const TEMP_DIRS = {
   download: path.join(TEMP_DIR, 'downloads'),
   convert: path.join(TEMP_DIR, 'converts'),
@@ -133,6 +133,7 @@ module.exports = {
   PORT,
   JOB_LIMITS,
   MAX_QUEUE_SIZE,
+  DISK_SPACE_MIN_GB,
   FILE_SIZE_LIMIT,
   FILE_RETENTION_MS,
   HEARTBEAT_TIMEOUT_MS,

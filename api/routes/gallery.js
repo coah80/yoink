@@ -13,6 +13,7 @@ const {
   activeProcesses,
   activeJobsByType,
   isGalleryDlAvailable,
+  canStartJob,
   registerClient,
   linkJobToClient,
   unlinkJobFromClient,
@@ -142,6 +143,11 @@ router.get('/download', async (req, res) => {
         error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
+  }
+
+  const jobCheck = canStartJob('download');
+  if (!jobCheck.ok) {
+    return res.status(503).json({ error: jobCheck.reason });
   }
 
   const downloadId = progressId || uuidv4();

@@ -136,6 +136,7 @@
   async function addUrlToQueue(rawUrl, startImmediately = false) {
     const url = normalizeUrl(rawUrl);
     const format = currentFormat === 'auto' ? 'video' : currentFormat;
+    let queueFormat = format;
 
     if (format === 'images' && isYouTubeUrl(url)) {
       addToast('YouTube doesn\'t support image downloads', 'error');
@@ -175,6 +176,9 @@
         if (metaRes.ok && ct?.includes('application/json')) {
           const metadata = await metaRes.json();
           title = metadata.title || 'Unknown';
+          if (metadata.isGallery === true) {
+            queueFormat = 'images';
+          }
           if (metadata.usingCookies) {
             addToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
           }
@@ -201,12 +205,12 @@
       id: progressId,
       title,
       url,
-      format,
+      format: queueFormat,
       stage: startImmediately ? 'starting' : 'queued',
       status: startImmediately ? 'initializing...' : 'in queue',
       progress: 0,
       isPlaylist: downloadPlaylist,
-      formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
+      formatDisplay: queueFormat === 'images' ? 'images' : (queueFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
       startTime: startImmediately ? Date.now() : null,
       failedVideos: [],
     };
@@ -310,7 +314,8 @@
 
       const title = metadata.title;
       const isPlaylist = metadata.isPlaylist && downloadPlaylist;
-      const isGallery = format === 'images';
+      const isGallery = format === 'images' || metadata.isGallery === true;
+      const actualFormat = metadata.isGallery === true ? 'images' : format;
       const videoCount = metadata.videoCount || metadata.imageCount || 0;
 
       if (metadata.usingCookies) {
@@ -321,7 +326,7 @@
         id: progressId,
         title,
         url,
-        format,
+        format: actualFormat,
         stage: 'starting',
         status: 'initializing...',
         progress: 0,
@@ -330,7 +335,7 @@
         videoCount,
         currentVideo: 0,
         currentVideoTitle: '',
-        formatDisplay: format === 'images' ? 'images' : (format === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
+        formatDisplay: isGallery ? 'images' : (actualFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
         failedVideos: [],
         startTime: Date.now(),
       };

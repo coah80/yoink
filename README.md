@@ -36,7 +36,6 @@ yoink is an all-in-one media tool. download videos from 1000+ sites, convert bet
 - **clips** download specific youtube clips with timestamps
 - **gifs** auto-detect and download as gif from twitter/x
 - **pwa** install as a mobile app, share links directly from your phone
-- **admin panel** built-in dashboard for analytics, banners, and server status
 
 ## tech stack
 
@@ -52,7 +51,6 @@ see [docs/self-hosting.md](docs/self-hosting.md) for full setup guide
 git clone https://github.com/coah80/yoink.git
 cd yoink/api
 npm install
-cp ../docs/admin-config.example.js admin-config.js
 node index.js
 ```
 

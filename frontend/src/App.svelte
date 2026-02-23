@@ -40,10 +40,6 @@
   onMount(() => {
     initSession();
 
-    // One-time cleanup of old analytics localStorage
-    localStorage.removeItem('yoink_trackingId');
-    localStorage.removeItem('yoink_last_daily_report');
-
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }

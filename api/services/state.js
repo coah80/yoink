@@ -1,8 +1,11 @@
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const {
   JOB_LIMITS,
   HEARTBEAT_TIMEOUT_MS,
-  SESSION_IDLE_TIMEOUT_MS
+  SESSION_IDLE_TIMEOUT_MS,
+  DISK_SPACE_MIN_GB,
+  TEMP_DIR
 } = require('../config/constants');
 
 const activeDownloads = new Map();
@@ -90,11 +93,35 @@ function getClientJobCount(clientId) {
   return session ? session.activeJobs.size : 0;
 }
 
+function getDiskSpace() {
+  try {
+    const stats = fs.statfsSync(TEMP_DIR);
+    const availableGB = (stats.bavail * stats.bsize) / (1024 * 1024 * 1024);
+    return { availableGB: Math.round(availableGB * 100) / 100 };
+  } catch {
+    return { availableGB: Infinity };
+  }
+}
+
+function canStartJob(type) {
+  const limit = JOB_LIMITS[type];
+  if (limit !== undefined && activeJobsByType[type] >= limit) {
+    return { ok: false, reason: `Too many active ${type} jobs (limit: ${limit})` };
+  }
+  const { availableGB } = getDiskSpace();
+  if (availableGB < DISK_SPACE_MIN_GB) {
+    return { ok: false, reason: `Low disk space (${availableGB.toFixed(1)}GB free, need ${DISK_SPACE_MIN_GB}GB)` };
+  }
+  return { ok: true };
+}
+
 function getQueueStatus() {
+  const { availableGB } = getDiskSpace();
   return {
     active: activeJobsByType,
     queued: 0,
-    limits: JOB_LIMITS
+    limits: JOB_LIMITS,
+    diskSpaceGB: availableGB
   };
 }
 
@@ -202,6 +229,8 @@ module.exports = {
   linkJobToClient,
   unlinkJobFromClient,
   getClientJobCount,
+  getDiskSpace,
+  canStartJob,
   getQueueStatus,
   sendProgress,
   registerPendingJob,
