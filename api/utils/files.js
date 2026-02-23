@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { FILE_RETENTION_MS } = require('../config/constants');
+const { FILE_RETENTION_MS, DISK_SPACE_MIN_GB } = require('../config/constants');
 
-const TEMP_DIR = path.join(os.tmpdir(), 'yoink');
+const TEMP_DIR = '/var/tmp/yoink';
 const TEMP_DIRS = {
   download: path.join(TEMP_DIR, 'downloads'),
   convert: path.join(TEMP_DIR, 'convert'),
@@ -15,20 +14,26 @@ const TEMP_DIRS = {
 };
 
 function clearTempDir() {
-  try {
-    if (fs.existsSync(TEMP_DIR)) {
-      fs.rmSync(TEMP_DIR, { recursive: true });
-      console.log('✓ Cleared temp directory');
+  Object.values(TEMP_DIRS).forEach(dir => {
+    try {
+      if (fs.existsSync(dir)) {
+        const items = fs.readdirSync(dir);
+        items.forEach(item => {
+          const itemPath = path.join(dir, item);
+          try {
+            const stat = fs.statSync(itemPath);
+            if (stat.isDirectory()) fs.rmSync(itemPath, { recursive: true });
+            else fs.unlinkSync(itemPath);
+          } catch {}
+        });
+      } else {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch {
+      fs.mkdirSync(dir, { recursive: true });
     }
-    Object.values(TEMP_DIRS).forEach(dir => {
-      fs.mkdirSync(dir, { recursive: true });
-    });
-  } catch (err) {
-    console.error('Failed to clear temp directory:', err);
-    Object.values(TEMP_DIRS).forEach(dir => {
-      fs.mkdirSync(dir, { recursive: true });
-    });
-  }
+  });
+  console.log('✓ Cleared temp directories');
 }
 
 function cleanupTempFiles() {
@@ -52,6 +57,16 @@ function cleanupTempFiles() {
         } catch { }
       });
     });
+    try {
+      const stats = fs.statfsSync(TEMP_DIR);
+      const availableGB = (stats.bavail * stats.bsize) / (1024 * 1024 * 1024);
+      const totalGB = (stats.blocks * stats.bsize) / (1024 * 1024 * 1024);
+      const usedGB = totalGB - availableGB;
+      console.log(`[DiskSpace] ${availableGB.toFixed(1)}GB free / ${totalGB.toFixed(1)}GB total (${usedGB.toFixed(1)}GB used)`);
+      if (availableGB < DISK_SPACE_MIN_GB) {
+        console.warn(`[DiskSpace] WARNING: Only ${availableGB.toFixed(1)}GB free, below ${DISK_SPACE_MIN_GB}GB threshold!`);
+      }
+    } catch {}
   } catch (err) {
     console.error('Cleanup error:', err);
   }

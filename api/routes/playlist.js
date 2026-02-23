@@ -13,6 +13,7 @@ const {
   activeJobsByType,
   asyncJobs,
   botDownloads,
+  canStartJob,
   registerClient,
   linkJobToClient,
   unlinkJobFromClient,
@@ -42,6 +43,11 @@ router.post('/api/playlist/start', express.json(), async (req, res) => {
     if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
       return res.status(429).json({ error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` });
     }
+  }
+
+  const playlistJobCheck = canStartJob('playlist');
+  if (!playlistJobCheck.ok) {
+    return res.status(503).json({ error: playlistJobCheck.reason });
   }
 
   const jobId = uuidv4();

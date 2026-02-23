@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const { TEMP_DIRS, SAFETY_LIMITS } = require('../config/constants');
 const { validateUrl } = require('../utils/validation');
 const { toUserError } = require('../utils/errors');
-const { hasCookiesFile, getCookiesArgs, needsCookiesRetry } = require('../utils/cookies');
+const { hasCookiesFile, getCookiesArgs, needsCookiesRetry, COOKIES_FILE } = require('../utils/cookies');
 const { cleanupJobFiles } = require('../utils/files');
 const { parseYouTubeClip } = require('../services/youtube');
 const { fetchMetadataViaCobalt, downloadViaCobalt } = require('../services/cobalt');
@@ -19,6 +19,8 @@ const discordAlerts = require('../discord-alerts');
 const {
   activeProcesses,
   activeJobsByType,
+  isGalleryDlAvailable,
+  canStartJob,
   registerClient,
   linkJobToClient,
   unlinkJobFromClient,
@@ -28,6 +30,86 @@ const {
   removePendingJob,
   sendProgress
 } = require('../services/state');
+
+function tryGalleryDlMetadata(url) {
+  return new Promise((resolve, reject) => {
+    if (!isGalleryDlAvailable()) {
+      return reject(new Error('gallery-dl not available'));
+    }
+
+    const args = ['--dump-json', '--range', '1-10'];
+    if (fs.existsSync(COOKIES_FILE)) {
+      args.unshift('--cookies', COOKIES_FILE);
+    }
+    args.push(url);
+
+    const proc = spawn('gallery-dl', args);
+    let stdout = '';
+    let stderr = '';
+
+    const timeout = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('gallery-dl metadata timeout'));
+    }, 30000);
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+      if (stdout.length > 10 * 1024 * 1024) {
+        proc.kill('SIGTERM');
+        reject(new Error('Output too large'));
+      }
+    });
+
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0 && !stdout.trim()) {
+        return reject(new Error(`gallery-dl failed: ${stderr.slice(0, 200)}`));
+      }
+
+      const lines = stdout.trim().split('\n').filter(l => l.trim());
+      let imageCount = 0;
+      let title = 'Gallery';
+      let images = [];
+
+      for (const line of lines) {
+        try {
+          const item = JSON.parse(line);
+          imageCount++;
+          if (item.filename) {
+            images.push({
+              filename: item.filename,
+              extension: item.extension || 'jpg',
+              url: item.url
+            });
+          }
+          if (title === 'Gallery') {
+            title = item.subcategory || item.category || item.gallery || 'Gallery';
+          }
+        } catch {}
+      }
+
+      if (imageCount === 0) {
+        return reject(new Error('No images found'));
+      }
+
+      const hostname = new URL(url).hostname.replace('www.', '');
+      resolve({
+        title,
+        imageCount,
+        images: images.slice(0, 10),
+        site: hostname,
+        isGallery: true
+      });
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
 
 router.get('/api/metadata', async (req, res) => {
   const { url, playlist } = req.query;
@@ -131,13 +213,22 @@ router.get('/api/metadata', async (req, res) => {
   ytdlp.stdout.on('data', (data) => { output += data.toString(); });
   ytdlp.stderr.on('data', (data) => { errorOutput += data.toString(); });
 
-  ytdlp.on('close', (code) => {
+  ytdlp.on('close', async (code) => {
     clearTimeout(timeoutId);
     if (code !== 0) {
       if (ytdlp.killed) return res.status(504).json({ error: 'Metadata fetch timed out (30s)' });
       if (needsCookiesRetry(errorOutput) && !usingCookies) {
         discordAlerts.cookieIssue('YouTube Bot Detection', 'YouTube is blocking requests - cookies.txt may be stale or missing.', { error: errorOutput.slice(0, 500) });
         return res.status(500).json({ error: 'YouTube requires authentication. Please add cookies.txt to the server.' });
+      }
+      if (!downloadPlaylist) {
+        try {
+          console.log(`[Metadata] yt-dlp failed, trying gallery-dl fallback for ${url}`);
+          const galleryMeta = await tryGalleryDlMetadata(url);
+          return res.json(galleryMeta);
+        } catch (galleryErr) {
+          console.log(`[Metadata] gallery-dl fallback also failed: ${galleryErr.message}`);
+        }
       }
       return res.status(500).json({ error: 'Failed to fetch metadata', details: errorOutput });
     }
@@ -173,6 +264,11 @@ router.get('/api/download', async (req, res) => {
     if (getClientJobCount(clientId) >= SAFETY_LIMITS.maxJobsPerClient) {
       return res.status(429).json({ error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` });
     }
+  }
+
+  const jobCheck = canStartJob('download');
+  if (!jobCheck.ok) {
+    return res.status(503).json({ error: jobCheck.reason });
   }
 
   const downloadId = progressId || uuidv4();

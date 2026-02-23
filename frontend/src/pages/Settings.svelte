@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import HeaderSimple from '../components/layout/HeaderSimple.svelte';
   import FooterSimple from '../components/layout/FooterSimple.svelte';
+  import QueueToggle from '../components/queue/QueueToggle.svelte';
   import { settings } from '../stores/settings.js';
   import { addToast } from '../stores/toast.js';
 
@@ -82,7 +83,9 @@
 
 </script>
 
-<HeaderSimple />
+<HeaderSimple>
+  {#snippet extraContent()}<QueueToggle />{/snippet}
+</HeaderSimple>
 
 <main>
   <div class="page-header">

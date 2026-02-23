@@ -45,7 +45,6 @@ cd yoink/api
 npm install
 
 # copy example configs
-cp ../docs/admin-config.example.js admin-config.js
 cp ../docs/cors-origins.example.js cors-origins.js
 cp ../docs/discord-config.example.js discord-config.js
 
@@ -76,28 +75,6 @@ this starts vite at `http://localhost:5173` with hot reload.
 ## configuration
 
 all config files go in the `api/` folder. example files are in `docs/`. all of these are gitignored so your secrets never get committed.
-
-### admin-config.js (optional)
-
-enables the admin dashboard at `#/admin` with password authentication.
-
-```js
-module.exports = {
-  ADMIN_PASSWORD: 'your-password-here',
-  TOKEN_EXPIRY_MS: 86400000 // 24 hours
-};
-```
-
-to set up:
-1. copy `docs/admin-config.example.js` to `api/admin-config.js`
-2. set `ADMIN_PASSWORD` to something secure
-3. optionally adjust `TOKEN_EXPIRY_MS` (default: 24 hours)
-
-the admin panel gives you:
-- download/convert/compress analytics
-- server status (memory, uptime, active jobs)
-- banner management (maintenance notices, traffic warnings)
-- connected client count and peak users
 
 ### cookies.txt (optional)
 
@@ -246,13 +223,10 @@ if your frontend is on a different domain (e.g. cloudflare pages for frontend, V
 ## security notes
 
 these files are all gitignored and should **never** be committed:
-- `api/admin-config.js` — admin password
 - `api/cors-origins.js` — CORS whitelist
 - `api/discord-config.js` — webhook credentials
 - `api/.env` — environment secrets
 - `api/cookies.txt` — youtube session cookies
-- `api/analytics.json` — analytics data
-- `api/banner.json` — current banner state
 
 if you fork the repo, double-check your `.gitignore` before pushing.
 
@@ -268,21 +242,6 @@ if you fork the repo, double-check your `.gitignore` before pushing.
 | POST | `/api/gallery/download` | download an image gallery |
 | POST | `/api/convert` | convert a file between formats |
 | POST | `/api/compress` | compress a video to target size |
-| GET | `/api/banner` | get current site banner |
-| POST | `/api/analytics/track` | track a page view |
-| POST | `/api/analytics/delete` | delete user analytics (GDPR) |
-
-### admin (requires auth)
-| method | endpoint | description |
-|--------|----------|-------------|
-| POST | `/api/admin/login` | login with password, get token |
-| POST | `/api/admin/logout` | revoke token |
-| GET | `/api/admin/verify` | check if token is valid |
-| GET | `/api/admin/analytics` | get full analytics data |
-| GET | `/api/admin/status` | server status (memory, uptime, jobs) |
-| POST | `/api/admin/banner` | set site banner |
-| DELETE | `/api/admin/banner` | clear site banner |
-
 ### bot (requires BOT_SECRET)
 | method | endpoint | description |
 |--------|----------|-------------|

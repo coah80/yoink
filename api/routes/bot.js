@@ -346,22 +346,21 @@ router.get('/api/download/:token', (req, res) => {
   const data = botDownloads.get(token);
 
   if (!data) {
-    return res.status(404).send(`<!DOCTYPE html><html><head><title>Download Not Found</title>
-      <style>body{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:linear-gradient(135deg,#667eea,#764ba2);color:white}
-      .container{text-align:center;padding:2rem}h1{font-size:3rem;margin:0}p{font-size:1.2rem;opacity:0.9}</style></head>
-      <body><div class="container"><h1>X</h1><h2>Download Not Found</h2><p>This download link has expired or is invalid.</p></div></body></html>`);
+    return res.status(404).send(`<!DOCTYPE html><html><head><title>download not found</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@800&family=Poppins:wght@400;500&display=swap" rel="stylesheet">
+      <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Poppins',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0f;color:#fafafa;padding:24px}
+      .container{text-align:center;max-width:500px;width:100%}h1{font-family:'Montserrat',sans-serif;font-weight:800;font-size:2rem;margin-bottom:12px;letter-spacing:-0.03em;color:#f87171}p{color:#a1a1aa;font-size:1rem;margin-bottom:8px}.status{margin-top:24px;padding:16px;background:#12121a;border-radius:12px;border:1px solid #2a2a3a;font-size:0.9rem;color:#f87171}</style></head>
+      <body><div class="container"><h1>download failed</h1><p>this file is no longer available</p><div class="status">the download link has expired (5 minute limit)</div></div></body></html>`);
   }
 
   const downloadUrl = `/api/bot/download/${token}`;
-  res.send(`<!DOCTYPE html><html><head><title>Downloading...</title><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>body{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:linear-gradient(135deg,#667eea,#764ba2);color:white}
-    .container{text-align:center;padding:2rem}.spinner{border:4px solid rgba(255,255,255,0.3);border-radius:50%;border-top:4px solid white;width:50px;height:50px;animation:spin 1s linear infinite;margin:0 auto 1.5rem}
-    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}h1{font-size:2rem;margin:0 0 0.5rem}p{font-size:1.1rem;opacity:0.9;margin:0.5rem 0}
-    .filename{font-size:0.9rem;opacity:0.7;margin-top:1rem;word-break:break-all;max-width:400px;margin-left:auto;margin-right:auto}</style></head>
-    <body><div class="container"><div class="spinner"></div><h1>Downloading...</h1><p>Your download should start automatically.</p>
-    <p class="filename">${data.fileName}</p><p style="margin-top:2rem;font-size:0.85rem">This page will close automatically.</p></div>
+  res.send(`<!DOCTYPE html><html><head><title>downloading...</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@800&family=Poppins:wght@400;500&display=swap" rel="stylesheet">
+    <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Poppins',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0f;color:#fafafa;padding:24px}
+    .container{text-align:center;max-width:500px;width:100%}.spinner-wrap{display:flex;justify-content:center;margin-bottom:24px}.spinner{width:60px;height:60px;border:4px solid #2a2a3a;border-top:4px solid #8b5cf6;border-radius:50%;animation:spin 0.8s linear infinite}
+    @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}h1{font-family:'Montserrat',sans-serif;font-weight:800;font-size:2rem;margin-bottom:12px;letter-spacing:-0.03em}p{color:#a1a1aa;font-size:1rem;margin-bottom:8px}
+    .status{margin-top:24px;padding:16px;background:#12121a;border-radius:12px;border:1px solid #2a2a3a;font-size:0.9rem;color:#a1a1aa;word-break:break-all}.success h1{color:#4ade80}.success .status{color:#4ade80}</style></head>
+    <body><div class="container"><div class="spinner-wrap"><div class="spinner"></div></div><h1>downloading...</h1><p>your download should start automatically</p><div class="status">${data.fileName}</div></div>
     <iframe id="downloadFrame" style="display:none"></iframe>
-    <script>document.getElementById('downloadFrame').src='${downloadUrl}';setTimeout(()=>{window.close();setTimeout(()=>{document.body.innerHTML='<div class="container"><h1>Done</h1><h2>Download Started</h2><p>You can close this page now.</p></div>'},100)},2000)</script></body></html>`);
+    <script>document.getElementById('downloadFrame').src='${downloadUrl}';setTimeout(()=>{window.close();setTimeout(()=>{document.body.innerHTML='<div class="container success"><h1>done</h1><p>download started successfully</p><div class="status">you can close this page now</div></div>'},100)},2000)</script></body></html>`);
 });
 
 router.get('/api/bot/download/:token', (req, res) => {

@@ -26,6 +26,7 @@ const {
   activeProcesses,
   activeJobsByType,
   asyncJobs,
+  canStartJob,
   registerClient,
   linkJobToClient,
   unlinkJobFromClient,
@@ -395,6 +396,12 @@ async function handleConvert(req, res) {
     }
   }
 
+  const convertJobCheck = canStartJob('convert');
+  if (!convertJobCheck.ok) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(503).json({ error: convertJobCheck.reason });
+  }
+
   const convertId = uuidv4();
   const inputPath = req.file.path;
   const outputPath = path.join(TEMP_DIRS.convert, `${convertId}-converted.${format}`);
@@ -572,6 +579,14 @@ async function handleConvertAsync(req, jobId) {
   const convertId = jobId;
   const inputPath = req.file.path;
   const outputPath = path.join(TEMP_DIRS.convert, `${convertId}-converted.${format}`);
+
+  const asyncConvertCheck = canStartJob('convert');
+  if (!asyncConvertCheck.ok) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    job.status = 'error';
+    job.error = asyncConvertCheck.reason;
+    return;
+  }
 
   if (clientId) {
     registerClient(clientId);
@@ -796,6 +811,12 @@ async function handleCompress(req, res) {
     }
   }
 
+  const compressJobCheck = canStartJob('compress');
+  if (!compressJobCheck.ok) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(503).json({ error: compressJobCheck.reason });
+  }
+
   const compressId = progressId || uuidv4();
   const inputPath = req.file.path;
   const outputPath = path.join(TEMP_DIRS.compress, `${compressId}-compressed.mp4`);
@@ -979,6 +1000,14 @@ async function handleCompressAsync(req, jobId) {
     try { fs.unlinkSync(inputPath); } catch { }
     job.status = 'error';
     job.error = 'Invalid video duration';
+    return;
+  }
+
+  const asyncCompressCheck = canStartJob('compress');
+  if (!asyncCompressCheck.ok) {
+    try { fs.unlinkSync(inputPath); } catch {}
+    job.status = 'error';
+    job.error = asyncCompressCheck.reason;
     return;
   }
 
