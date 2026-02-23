@@ -48,11 +48,11 @@
 
   let showCaptionSettings = $derived(outputMode === 'subtitles' || outputMode === 'captions');
 
+  const loremWords = 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua'.split(' ');
+
   let previewText = $derived.by(() => {
-    let text = 'your captions will look like this';
-    if (maxWordsPerCaption > 0) {
-      text = text.split(' ').slice(0, maxWordsPerCaption).join(' ');
-    }
+    const count = maxWordsPerCaption > 0 ? maxWordsPerCaption : 7;
+    let text = loremWords.slice(0, count).join(' ');
     if (maxCharsPerLine > 0) {
       const words = text.split(' ');
       const lines = [];
