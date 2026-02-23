@@ -14,7 +14,10 @@
       try {
         const validated = new URL(extractedUrl);
         if (validated.protocol === 'http:' || validated.protocol === 'https:') {
-          sessionStorage.setItem('yoink_shared_url', extractedUrl);
+          localStorage.setItem('yoink_shared_url', JSON.stringify({
+            url: extractedUrl,
+            timestamp: Date.now()
+          }));
         }
       } catch {}
     }

@@ -10,6 +10,7 @@
   import { formatBytes } from '../lib/utils.js';
   import { addToast } from '../stores/toast.js';
   import { startHeartbeat, stopHeartbeat } from '../stores/session.js';
+  import { queue } from '../stores/queue.js';
 
   let selectedFile = $state(null);
   let videoDuration = $state(0);
@@ -193,6 +194,16 @@
     showResult = false;
 
     const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const queueId = progressId;
+    queue.add({
+      id: queueId,
+      title: `${selectedFile.name} → ${selectedSize}MB`,
+      type: 'compress',
+      stage: 'uploading',
+      status: 'uploading...',
+      progress: 0,
+      startTime: Date.now(),
+    });
     const useChunked = selectedFile.size > 90 * 1024 * 1024;
     let heartbeatJobId = null;
     let sseConnection = null;
@@ -206,6 +217,7 @@
             progressLabel = 'compressing...';
             if (data.progress !== undefined) progress = data.progress;
             if (data.message) progressDetail = data.message;
+            queue.updateItem(queueId, { stage: 'compressing', progress: data.progress || 0, status: data.message || 'compressing...' });
           }
         },
         onError: () => {},
@@ -220,12 +232,14 @@
         const uploadResult = await uploadChunked(selectedFile, (p) => {
           progress = p;
           progressDetail = 'uploading chunks...';
+          queue.updateItem(queueId, { progress: p, status: 'uploading...' });
         });
 
         const { filePath, fileName } = uploadResult;
         progress = 0;
         progressLabel = 'compressing...';
         progressDetail = 'starting compression...';
+        queue.updateItem(queueId, { stage: 'compressing', status: 'compressing...', progress: 0 });
 
         const initResponse = await fetch(`${apiBase()}/api/compress-chunked`, {
           method: 'POST',
@@ -241,8 +255,9 @@
         });
 
         if (!initResponse.ok) {
-          const err = await initResponse.json();
-          throw new Error(err.error || 'Failed to start compression');
+          let errMsg = 'Failed to start compression';
+          try { const err = await initResponse.json(); errMsg = err.error || errMsg; } catch {}
+          throw new Error(errMsg);
         }
 
         const { jobId } = await initResponse.json();
@@ -270,6 +285,7 @@
             if (status.status === 'error') throw new Error(status.error || 'Compression failed');
             if (status.progress !== undefined) progress = status.progress;
             if (status.message) progressDetail = status.message;
+            queue.updateItem(queueId, { progress: status.progress || 0, status: status.message || 'compressing...' });
             if (status.status === 'complete') break;
           } catch (fetchErr) {
             consecutiveErrors++;
@@ -300,8 +316,9 @@
       if (sseConnection) sseConnection.close();
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Compression failed');
+        let errMsg = 'Compression failed';
+        try { const err = await response.json(); errMsg = err.error || errMsg; } catch {}
+        throw new Error(errMsg);
       }
 
       const blob = await response.blob();
@@ -321,16 +338,18 @@
       downloadBlob(blob, `${baseName}_compressed.mp4`);
 
       addToast('Compression complete!', 'success');
-      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
+      queue.updateItem(queueId, { stage: 'complete', status: 'complete!', progress: 100 });
+      setTimeout(() => queue.remove(queueId), 5000);
     } catch (err) {
       addToast(err.message || 'Compression failed', 'error');
+      queue.updateItem(queueId, { stage: 'error', status: err.message || 'compression failed' });
       if (sseConnection) sseConnection.close();
-      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
     } finally {
       compressing = false;
       progress = 0;
       progressLabel = '';
       progressDetail = '';
+      if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
     }
   }
 </script>

@@ -3,7 +3,8 @@
   import { path, navigate } from './lib/router.js';
   import ToastContainer from './components/ui/ToastContainer.svelte';
   import BottomNav from './components/layout/BottomNav.svelte';
-  import { initSession } from './stores/session.js';
+  import { initSession, resumeHeartbeat } from './stores/session.js';
+  import { queue } from './stores/queue.js';
 
   import Home from './pages/Home.svelte';
   import Settings from './pages/Settings.svelte';
@@ -46,6 +47,13 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        queue.reconnectOnResume();
+        resumeHeartbeat();
+      }
+    });
   });
 </script>
 
