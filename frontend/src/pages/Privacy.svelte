@@ -13,7 +13,7 @@
 
   <div class="tldr-box">
     <h3>tl;dr</h3>
-    <p>yoink doesn't collect anything. no tracking, no cookies, no analytics. your files only exist in RAM and get wiped automatically.</p>
+    <p>yoink doesn't collect anything. no tracking, no cookies, no analytics. your files are stored on an encrypted volume with a key that only exists in RAM, and get wiped automatically.</p>
   </div>
 
   <div class="content-card">
@@ -24,7 +24,8 @@
 
   <div class="content-card">
     <h2>your files</h2>
-    <p>everything runs in RAM. files never touch a hard drive, they live in a tmpfs mount that only exists in memory. once your download or conversion is done, the file gets deleted immediately. if something goes wrong and it doesn't get cleaned up, there's a hard limit of 20 minutes before it's wiped no matter what.</p>
+    <p>files are stored on a LUKS2 encrypted volume on the server. the encryption key is randomly generated at every boot, stored only in RAM, and never written to disk — so if the server ever powers off, the key is gone and the data is unrecoverable by design.</p>
+    <p>once your download or conversion is done, the file gets deleted immediately from that encrypted volume. there's also a cleanup job that runs every 5 minutes and wipes anything older than 20 minutes no matter what, just in case something slips through.</p>
     <p>we don't log what you download, what you convert, what you compress, or any filenames or URLs. none of that gets saved anywhere.</p>
   </div>
 
@@ -43,7 +44,11 @@
 
   <div class="content-card">
     <h2>encryption</h2>
-    <p>everything goes through HTTPS, so your connection to yoink is encrypted. nobody between you and the server can see what you're doing.</p>
+    <p>two layers:</p>
+    <ul>
+      <li><strong>in transit</strong> — everything goes through HTTPS, so your connection to yoink is encrypted end to end. nobody between you and the server can see what you're doing.</li>
+      <li><strong>at rest</strong> — all temporary files are stored on a LUKS2 encrypted volume (AES-256). the decryption key is generated fresh at every server boot using /dev/urandom and kept only in RAM. there's no way to recover files from the disk after a reboot, and no way to read them without the key that lives purely in memory.</li>
+    </ul>
   </div>
 
   <div class="content-card">
@@ -58,7 +63,7 @@
 
   <div class="content-card">
     <h2>changes</h2>
-    <p>if this policy changes, it gets updated here. no sneaky edits. last updated: <strong>february 2026</strong>.</p>
+    <p>if this policy changes, it gets updated here. no sneaky edits. last updated: <strong>february 23, 2026</strong>.</p>
   </div>
 </main>
 
