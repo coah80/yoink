@@ -17,6 +17,10 @@
   let selectedModel = $state('base');
   let subtitleFormat = $state('srt');
   let language = $state('');
+  let maxWordsPerCaption = $state(0);
+  let maxCharsPerLine = $state(0);
+  let minDuration = $state(0);
+  let captionGap = $state(0);
   let showAdvanced = $state(false);
   let transcribing = $state(false);
   let progress = $state(0);
@@ -40,6 +44,8 @@
     { id: 'small', label: 'small', sublabel: 'slower, more accurate' },
     { id: 'medium', label: 'medium', sublabel: 'slowest, best quality' },
   ];
+
+  let showCaptionSettings = $derived(outputMode === 'subtitles' || outputMode === 'captions');
 
   const modelMultipliers = { tiny: 0.17, base: 0.33, small: 1.0, medium: 3.3 };
 
@@ -180,6 +186,10 @@
             model: selectedModel,
             subtitleFormat,
             language: language || undefined,
+            ...(maxWordsPerCaption > 0 && { maxWordsPerCaption }),
+            ...(maxCharsPerLine > 0 && { maxCharsPerLine }),
+            ...(minDuration > 0 && { minDuration }),
+            ...(captionGap > 0 && { captionGap }),
           }),
         });
 
@@ -198,6 +208,10 @@
         formData.append('model', selectedModel);
         formData.append('subtitleFormat', subtitleFormat);
         if (language) formData.append('language', language);
+        if (maxWordsPerCaption > 0) formData.append('maxWordsPerCaption', maxWordsPerCaption);
+        if (maxCharsPerLine > 0) formData.append('maxCharsPerLine', maxCharsPerLine);
+        if (minDuration > 0) formData.append('minDuration', minDuration);
+        if (captionGap > 0) formData.append('captionGap', captionGap);
 
         const response = await fetch(`${apiBase()}/api/transcribe`, {
           method: 'POST',
@@ -451,6 +465,49 @@
           oninput={(e) => language = e.target.value.trim()}
         />
       </div>
+
+      {#if showCaptionSettings}
+        <div class="section">
+          <div class="section-label">caption formatting</div>
+          <div class="section-description">control how captions are split and timed</div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">max words per caption</span>
+              <span class="slider-value">{maxWordsPerCaption === 0 ? 'off' : maxWordsPerCaption}</span>
+            </div>
+            <input type="range" class="caption-slider" min="0" max="20" step="1" bind:value={maxWordsPerCaption} />
+            <div class="slider-hint">split long captions into smaller chunks</div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">max characters per line</span>
+              <span class="slider-value">{maxCharsPerLine === 0 ? 'off' : maxCharsPerLine}</span>
+            </div>
+            <input type="range" class="caption-slider" min="0" max="80" step="1" bind:value={maxCharsPerLine} />
+            <div class="slider-hint">wrap long lines to fit on screen</div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">minimum duration</span>
+              <span class="slider-value">{minDuration === 0 ? 'off' : minDuration.toFixed(1) + 's'}</span>
+            </div>
+            <input type="range" class="caption-slider" min="0" max="5" step="0.1" bind:value={minDuration} />
+            <div class="slider-hint">keep captions on screen longer</div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">gap between captions</span>
+              <span class="slider-value">{captionGap === 0 ? 'off' : captionGap.toFixed(2) + 's'}</span>
+            </div>
+            <input type="range" class="caption-slider" min="0" max="1" step="0.05" bind:value={captionGap} />
+            <div class="slider-hint">add breathing room between captions</div>
+          </div>
+        </div>
+      {/if}
     {/if}
 
     <div class="estimate-row">
@@ -833,6 +890,86 @@
 
   .language-input::placeholder {
     color: var(--text-muted);
+  }
+
+  .slider-group {
+    margin-bottom: 20px;
+  }
+
+  .slider-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .slider-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .slider-value {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--purple-400);
+    min-width: 40px;
+    text-align: right;
+  }
+
+  .caption-slider {
+    width: 100%;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--surface-elevated);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .caption-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--purple-500);
+    cursor: pointer;
+    border: 2px solid var(--surface);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: transform 0.1s ease-out;
+  }
+
+  .caption-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+
+  .caption-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--purple-500);
+    cursor: pointer;
+    border: 2px solid var(--surface);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  .caption-slider::-moz-range-track {
+    height: 6px;
+    background: var(--surface-elevated);
+    border-radius: 3px;
+    border: none;
+  }
+
+  .slider-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 6px;
   }
 
   .estimate-row {

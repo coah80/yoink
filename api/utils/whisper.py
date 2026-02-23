@@ -104,6 +104,66 @@ def get_audio_duration(input_path):
         return 0
 
 
+def split_by_word_count(segments, max_words):
+    """Split segments with more than max_words into sub-segments using word timestamps."""
+    result = []
+    for seg in segments:
+        words = seg.get("words")
+        if not words or len(words) <= max_words:
+            result.append(seg)
+            continue
+        for i in range(0, len(words), max_words):
+            chunk = words[i:i + max_words]
+            text = "".join(w["word"] for w in chunk).strip()
+            result.append({
+                "start": chunk[0]["start"],
+                "end": chunk[-1]["end"],
+                "text": text,
+            })
+    return result
+
+
+def enforce_min_duration(segments, min_dur):
+    """Extend short segments so they last at least min_dur seconds."""
+    for i, seg in enumerate(segments):
+        if seg["end"] - seg["start"] < min_dur:
+            desired = seg["start"] + min_dur
+            # clamp to not overlap next segment
+            if i + 1 < len(segments):
+                desired = min(desired, segments[i + 1]["start"])
+            if desired > seg["start"]:
+                seg["end"] = desired
+    return segments
+
+
+def apply_gap(segments, gap):
+    """Shrink each segment's end time so there's at least gap seconds before the next."""
+    for i in range(len(segments) - 1):
+        space = segments[i + 1]["start"] - segments[i]["end"]
+        if space < gap:
+            segments[i]["end"] = max(segments[i]["start"], segments[i + 1]["start"] - gap)
+    return segments
+
+
+def wrap_lines(segments, max_chars):
+    """Insert \\n line breaks via greedy word-wrap."""
+    for seg in segments:
+        words = seg["text"].strip().split()
+        if not words:
+            continue
+        lines = []
+        current = words[0]
+        for w in words[1:]:
+            if len(current) + 1 + len(w) <= max_chars:
+                current += " " + w
+            else:
+                lines.append(current)
+                current = w
+        lines.append(current)
+        seg["text"] = "\n".join(lines)
+    return segments
+
+
 def main():
     parser = argparse.ArgumentParser(description="Whisper transcription helper")
     parser.add_argument("--input", required=True, help="Input audio file path")
@@ -112,6 +172,14 @@ def main():
                         help="Output format")
     parser.add_argument("--output", required=True, help="Output file path")
     parser.add_argument("--language", default=None, help="Language hint (e.g. en, es, ja)")
+    parser.add_argument("--max-words-per-caption", type=int, default=0,
+                        help="Max words per caption segment (0 = unlimited)")
+    parser.add_argument("--max-chars-per-line", type=int, default=0,
+                        help="Max characters per line before wrapping (0 = unlimited)")
+    parser.add_argument("--min-duration", type=float, default=0,
+                        help="Minimum caption duration in seconds (0 = disabled)")
+    parser.add_argument("--gap", type=float, default=0,
+                        help="Gap between captions in seconds (0 = none)")
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
@@ -136,6 +204,8 @@ def main():
 
     total_duration = get_audio_duration(args.input)
 
+    need_word_timestamps = args.max_words_per_caption > 0
+
     try:
         transcribe_kwargs = {
             "vad_filter": True,
@@ -143,6 +213,8 @@ def main():
         }
         if args.language:
             transcribe_kwargs["language"] = args.language
+        if need_word_timestamps:
+            transcribe_kwargs["word_timestamps"] = True
 
         segments_iter, info = model.transcribe(args.input, **transcribe_kwargs)
         detected_language = info.language
@@ -151,11 +223,17 @@ def main():
 
         segments = []
         for segment in segments_iter:
-            segments.append({
+            seg_dict = {
                 "start": segment.start,
                 "end": segment.end,
                 "text": segment.text,
-            })
+            }
+            if need_word_timestamps and segment.words:
+                seg_dict["words"] = [
+                    {"start": w.start, "end": w.end, "word": w.word}
+                    for w in segment.words
+                ]
+            segments.append(seg_dict)
 
             if total_duration > 0:
                 progress = min(85, int(5 + (segment.end / total_duration) * 80))
@@ -168,6 +246,16 @@ def main():
     if not segments:
         write_result(False, error="No speech detected in audio")
         sys.exit(1)
+
+    # Post-processing: split → min duration → gap → wrap lines
+    if args.max_words_per_caption > 0:
+        segments = split_by_word_count(segments, args.max_words_per_caption)
+    if args.min_duration > 0:
+        segments = enforce_min_duration(segments, args.min_duration)
+    if args.gap > 0:
+        segments = apply_gap(segments, args.gap)
+    if args.max_chars_per_line > 0:
+        segments = wrap_lines(segments, args.max_chars_per_line)
 
     write_progress(88, "Writing output file...")
 
