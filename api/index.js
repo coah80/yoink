@@ -4,7 +4,7 @@ const { PORT } = require('./config/constants');
 const { clearTempDir, startCleanupInterval, cleanupJobFiles } = require('./utils/files');
 const { startRateLimitCleanup } = require('./middleware/rateLimit');
 const { checkDependencies, isGalleryDlAvailable, isWhisperAvailable } = require('./utils/dependencies');
-const { startSessionCleanup, setGalleryDlAvailable, setWhisperAvailable } = require('./services/state');
+const { startSessionCleanup, startCounterReconciliation, setGalleryDlAvailable, setWhisperAvailable } = require('./services/state');
 
 clearTempDir();
 
@@ -17,6 +17,7 @@ const app = createApp();
 startCleanupInterval();
 startRateLimitCleanup();
 startSessionCleanup(cleanupJobFiles);
+startCounterReconciliation();
 
 const server = app.listen(PORT, () => {
   console.log(`

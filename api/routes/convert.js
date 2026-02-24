@@ -33,6 +33,7 @@ const {
   linkJobToClient,
   unlinkJobFromClient,
   getClientJobCount,
+  releaseJob,
   sendProgress
 } = require('../services/state');
 
@@ -1202,7 +1203,7 @@ async function handleCompress(req, res) {
   console.log(`[Queue] Compress started. Active: ${JSON.stringify(activeJobsByType)}`);
   console.log(`[${compressId}] Compressing | Mode: ${mode} | Preset: ${preset}`);
 
-  const processInfo = { cancelled: false, process: null, tempFile: outputPath };
+  const processInfo = { cancelled: false, process: null, tempFile: outputPath, jobType: 'compress' };
   activeProcesses.set(compressId, processInfo);
 
   try {
@@ -1304,25 +1305,20 @@ async function handleCompress(req, res) {
 
     stream.on('close', () => {
       sendProgress(compressId, 'complete', 'Compression complete!', 100);
-      activeProcesses.delete(compressId);
-      activeJobsByType.compress--;
-      unlinkJobFromClient(compressId);
-      console.log(`[Queue] Compress finished. Active: ${JSON.stringify(activeJobsByType)}`);
+      releaseJob(compressId);
+      console.log(`[Queue] Compress finished.`);
       setTimeout(() => cleanupJobFiles(compressId), 2000);
     });
 
     stream.on('error', () => {
-      activeJobsByType.compress--;
-      unlinkJobFromClient(compressId);
+      releaseJob(compressId);
       setTimeout(() => cleanupJobFiles(compressId), 2000);
     });
 
   } catch (err) {
     console.error(`[${compressId}] Error:`, err.message);
     discordAlerts.compressionError('Compression Error', 'Video compression failed.', { jobId: compressId, error: err.message });
-    activeProcesses.delete(compressId);
-    activeJobsByType.compress--;
-    unlinkJobFromClient(compressId);
+    releaseJob(compressId);
 
     setTimeout(() => cleanupJobFiles(compressId), 2000);
 
@@ -1389,7 +1385,7 @@ async function handleCompressAsync(req, jobId) {
 
   console.log(`[${compressId}] Async compress | Mode: ${mode} | Preset: ${preset}`);
 
-  const processInfo = { cancelled: false, process: null, tempFile: outputPath };
+  const processInfo = { cancelled: false, process: null, tempFile: outputPath, jobType: 'compress' };
   activeProcesses.set(compressId, processInfo);
 
   try {
@@ -1478,15 +1474,11 @@ async function handleCompressAsync(req, jobId) {
     job.outputFilename = outputFilename;
     job.mimeType = 'video/mp4';
 
-    activeProcesses.delete(compressId);
-    activeJobsByType.compress--;
-    unlinkJobFromClient(compressId);
+    releaseJob(compressId);
 
   } catch (err) {
     console.error(`[${compressId}] Error:`, err.message);
-    activeProcesses.delete(compressId);
-    activeJobsByType.compress--;
-    unlinkJobFromClient(compressId);
+    releaseJob(compressId);
 
     try { fs.unlinkSync(inputPath); } catch { }
     try { fs.unlinkSync(outputPath); } catch { }

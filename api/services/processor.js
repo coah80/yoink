@@ -6,10 +6,7 @@ const { CONTAINER_MIMES, AUDIO_MIMES } = require('../config/constants');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
 const {
   activeDownloads,
-  activeProcesses,
-  activeJobsByType,
-  removePendingJob,
-  unlinkJobFromClient,
+  releaseJob,
   sendProgress
 } = require('./state');
 
@@ -125,12 +122,7 @@ async function streamFile(res, req, filePath, opts = {}) {
     finished = true;
     sendProgress(downloadId, 'complete', 'Download complete!');
     activeDownloads.delete(downloadId);
-    activeProcesses.delete(downloadId);
-    removePendingJob(downloadId);
-    activeJobsByType[jobType]--;
-    unlinkJobFromClient(downloadId);
-
-    console.log(`[Queue] ${jobType} finished. Active: ${JSON.stringify(activeJobsByType)}`);
+    releaseJob(downloadId);
     if (onCleanup) onCleanup();
     setTimeout(() => cleanupJobFiles(downloadId), 2000);
   };
@@ -143,10 +135,7 @@ async function streamFile(res, req, filePath, opts = {}) {
     finished = true;
     console.error(`[${downloadId}] Stream error:`, err);
     sendProgress(downloadId, 'error', 'Failed to send file');
-    activeProcesses.delete(downloadId);
-    removePendingJob(downloadId);
-    activeJobsByType[jobType]--;
-    unlinkJobFromClient(downloadId);
+    releaseJob(downloadId);
     setTimeout(() => cleanupJobFiles(downloadId), 2000);
   });
 
@@ -154,11 +143,7 @@ async function streamFile(res, req, filePath, opts = {}) {
     if (finished) return;
     finished = true;
     stream.destroy();
-    activeProcesses.delete(downloadId);
-    removePendingJob(downloadId);
-    activeJobsByType[jobType]--;
-    unlinkJobFromClient(downloadId);
-    console.log(`[Queue] ${jobType} cancelled. Active: ${JSON.stringify(activeJobsByType)}`);
+    releaseJob(downloadId);
     setTimeout(() => {
       try { fs.unlinkSync(filePath); } catch {}
     }, 1000);

@@ -206,10 +206,14 @@ function startSessionCleanup(cleanupJobFiles) {
             if (processInfo.process) {
               processInfo.process.kill('SIGTERM');
             }
+            if (processInfo.abortController) {
+              processInfo.abortController.abort();
+            }
             sendProgress(jobId, 'cancelled', 'Connection lost - task cancelled');
-            activeProcesses.delete(jobId);
+            releaseJob(jobId);
           }
           cleanupJobFiles(jobId);
+          jobToClient.delete(jobId);
         }
 
         clientSessions.delete(clientId);
@@ -219,6 +223,36 @@ function startSessionCleanup(cleanupJobFiles) {
       }
     }
   }, 10000);
+}
+
+function releaseJob(jobId) {
+  const processInfo = activeProcesses.get(jobId);
+  if (!processInfo) return false;
+  activeProcesses.delete(jobId);
+  if (processInfo.jobType && activeJobsByType[processInfo.jobType] !== undefined) {
+    activeJobsByType[processInfo.jobType]--;
+  }
+  removePendingJob(jobId);
+  unlinkJobFromClient(jobId);
+  return true;
+}
+
+function startCounterReconciliation() {
+  setInterval(() => {
+    if (activeProcesses.size > 0) return;
+
+    let leaked = false;
+    for (const type of Object.keys(activeJobsByType)) {
+      if (activeJobsByType[type] > 0) {
+        console.log(`[Queue] Counter leak detected: ${type}=${activeJobsByType[type]} with no active processes. Resetting.`);
+        activeJobsByType[type] = 0;
+        leaked = true;
+      }
+    }
+    if (leaked) {
+      console.log(`[Queue] Counters reset: ${JSON.stringify(activeJobsByType)}`);
+    }
+  }, 30000);
 }
 
 module.exports = {
@@ -251,5 +285,7 @@ module.exports = {
   registerPendingJob,
   updatePendingJob,
   removePendingJob,
-  startSessionCleanup
+  releaseJob,
+  startSessionCleanup,
+  startCounterReconciliation
 };
