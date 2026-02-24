@@ -23,11 +23,10 @@ const {
   canStartJob,
   registerClient,
   linkJobToClient,
-  unlinkJobFromClient,
   getClientJobCount,
   registerPendingJob,
   updatePendingJob,
-  removePendingJob,
+  releaseJob,
   sendProgress
 } = require('../services/state');
 
@@ -68,26 +67,56 @@ function tryGalleryDlMetadata(url) {
         return reject(new Error(`gallery-dl failed: ${stderr.slice(0, 200)}`));
       }
 
-      const lines = stdout.trim().split('\n').filter(l => l.trim());
       let imageCount = 0;
       let title = 'Gallery';
       let images = [];
 
-      for (const line of lines) {
-        try {
-          const item = JSON.parse(line);
-          imageCount++;
-          if (item.filename) {
-            images.push({
-              filename: item.filename,
-              extension: item.extension || 'jpg',
-              url: item.url
-            });
+      // try parsing as a JSON array first (twitter/x and some other extractors)
+      // gallery-dl outputs: [[2, {dir_meta}], [3, "url", {file_meta}], ...]
+      try {
+        const data = JSON.parse(stdout);
+        if (Array.isArray(data)) {
+          for (const entry of data) {
+            if (!Array.isArray(entry) || entry.length < 2) continue;
+            // file entries: [3, "url", {metadata}]
+            if (typeof entry[1] === 'string' && entry[1].startsWith('http')) {
+              const meta = (entry.length >= 3 && entry[2] && typeof entry[2] === 'object') ? entry[2] : {};
+              imageCount++;
+              images.push({
+                filename: meta.filename || `image_${imageCount}`,
+                extension: meta.extension || 'jpg',
+                url: entry[1]
+              });
+              if (title === 'Gallery') {
+                title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+              }
+            }
+            // directory entries: [2, {metadata}]
+            else if (entry[1] && typeof entry[1] === 'object') {
+              const meta = entry[1];
+              if (title === 'Gallery') {
+                title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+              }
+            }
           }
-          if (title === 'Gallery') {
-            title = item.subcategory || item.category || item.gallery || 'Gallery';
-          }
-        } catch {}
+        }
+      } catch {}
+
+      // fall back to line-by-line parsing (most extractors)
+      if (imageCount === 0) {
+        const lines = stdout.trim().split('\n').filter(l => l.trim());
+        for (const line of lines) {
+          try {
+            const item = JSON.parse(line);
+            imageCount++;
+            if (item.filename) {
+              images.push({ filename: item.filename, extension: item.extension || 'jpg', url: item.url });
+            }
+            if (title === 'Gallery') {
+              title = item.subcategory || item.category || item.gallery || 'Gallery';
+            }
+          } catch {}
+        }
       }
 
       if (imageCount === 0) {
@@ -257,21 +286,23 @@ router.get('/api/download', async (req, res) => {
   const convertTwitterGifs = twitterGifs === 'true';
   const downloadPlaylist = playlist === 'true';
 
+  const downloadId = progressId || uuidv4();
+
   const urlCheck = validateUrl(url);
   if (!urlCheck.valid) return res.status(400).json({ error: urlCheck.error });
 
   if (clientId) {
     if (getClientJobCount(clientId) >= SAFETY_LIMITS.maxJobsPerClient) {
+      sendProgress(downloadId, 'error', `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`);
       return res.status(429).json({ error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.` });
     }
   }
 
   const jobCheck = canStartJob('download');
   if (!jobCheck.ok) {
+    sendProgress(downloadId, 'error', jobCheck.reason);
     return res.status(503).json({ error: jobCheck.reason });
   }
-
-  const downloadId = progressId || uuidv4();
   if (clientId) {
     registerClient(clientId);
     linkJobToClient(downloadId, clientId);
@@ -282,7 +313,7 @@ router.get('/api/download', async (req, res) => {
   const finalFile = path.join(TEMP_DIRS.download, `${downloadId}-final.${outputExt}`);
 
   const abortController = new AbortController();
-  const processInfo = { cancelled: false, process: null, tempFile: finalFile, abortController };
+  const processInfo = { cancelled: false, process: null, tempFile: finalFile, abortController, jobType: 'download' };
   activeProcesses.set(downloadId, processInfo);
 
   registerPendingJob(downloadId, {
@@ -295,6 +326,16 @@ router.get('/api/download', async (req, res) => {
   sendProgress(downloadId, 'starting', 'Initializing download...');
 
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+
+  req.on('close', () => {
+    if (!processInfo.cancelled && !res.headersSent) {
+      processInfo.cancelled = true;
+      if (processInfo.abortController) processInfo.abortController.abort();
+      if (processInfo.process) {
+        try { processInfo.process.kill('SIGTERM'); } catch {}
+      }
+    }
+  });
 
   try {
     sendProgress(downloadId, 'downloading', 'Downloading from source...', 0);
@@ -372,6 +413,10 @@ router.get('/api/download', async (req, res) => {
       throw new Error('Processing failed - output file not created');
     }
 
+    if (processInfo.cancelled) {
+      throw new Error('Download cancelled');
+    }
+
     await streamFile(res, req, streamPath, {
       filename, ext: actualOutputExt,
       mimeType: getMimeType(actualOutputExt, isAudio, isGif),
@@ -383,10 +428,7 @@ router.get('/api/download', async (req, res) => {
     discordAlerts.downloadFailed('Download Error', 'Video download failed.', { jobId: downloadId, format: outputExt, error: err.message });
     sendProgress(downloadId, 'error', toUserError(err.message || 'Download failed'));
 
-    activeProcesses.delete(downloadId);
-    removePendingJob(downloadId);
-    activeJobsByType.download--;
-    unlinkJobFromClient(downloadId);
+    releaseJob(downloadId);
 
     const files = fs.readdirSync(TEMP_DIRS.download);
     files.filter(f => f.startsWith(downloadId)).forEach(f => {

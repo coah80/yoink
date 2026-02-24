@@ -11,13 +11,12 @@ const { TEMP_DIRS, SAFETY_LIMITS } = require('../config/constants');
 const {
   activeDownloads,
   activeProcesses,
-  activeJobsByType,
   isGalleryDlAvailable,
   canStartJob,
   registerClient,
   linkJobToClient,
-  unlinkJobFromClient,
   getClientJobCount,
+  releaseJob,
   sendProgress
 } = require('../services/state');
 
@@ -87,26 +86,56 @@ router.get('/metadata', async (req, res) => {
       });
     }
 
-    const lines = stdout.trim().split('\n').filter(l => l.trim());
     let imageCount = 0;
     let title = 'Gallery';
     let images = [];
 
-    for (const line of lines) {
-      try {
-        const item = JSON.parse(line);
-        imageCount++;
-        if (item.filename) {
-          images.push({
-            filename: item.filename,
-            extension: item.extension || 'jpg',
-            url: item.url
-          });
+    // try parsing as a JSON array first (twitter/x and some other extractors)
+    try {
+      const data = JSON.parse(stdout);
+      if (Array.isArray(data)) {
+        for (const entry of data) {
+          if (!Array.isArray(entry) || entry.length < 2) continue;
+          if (typeof entry[1] === 'string' && entry[1].startsWith('http')) {
+            const meta = (entry.length >= 3 && entry[2] && typeof entry[2] === 'object') ? entry[2] : {};
+            imageCount++;
+            images.push({
+              filename: meta.filename || `image_${imageCount}`,
+              extension: meta.extension || 'jpg',
+              url: entry[1]
+            });
+            if (title === 'Gallery') {
+              title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+            }
+          } else if (entry[1] && typeof entry[1] === 'object') {
+            const meta = entry[1];
+            if (title === 'Gallery') {
+              title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+            }
+          }
         }
-        if (!title || title === 'Gallery') {
-          title = item.subcategory || item.category || item.gallery || 'Gallery';
-        }
-      } catch { }
+      }
+    } catch {}
+
+    // fall back to line-by-line parsing (most extractors)
+    if (imageCount === 0) {
+      const lines = stdout.trim().split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        try {
+          const item = JSON.parse(line);
+          imageCount++;
+          if (item.filename) {
+            images.push({
+              filename: item.filename,
+              extension: item.extension || 'jpg',
+              url: item.url
+            });
+          }
+          if (title === 'Gallery') {
+            title = item.subcategory || item.category || item.gallery || 'Gallery';
+          }
+        } catch { }
+      }
     }
 
     const hostname = new URL(url).hostname.replace('www.', '');
@@ -145,12 +174,13 @@ router.get('/download', async (req, res) => {
     }
   }
 
+  const downloadId = progressId || uuidv4();
+
   const jobCheck = canStartJob('download');
   if (!jobCheck.ok) {
+    sendProgress(downloadId, 'error', jobCheck.reason);
     return res.status(503).json({ error: jobCheck.reason });
   }
-
-  const downloadId = progressId || uuidv4();
   const galleryDir = path.join(TEMP_DIRS.gallery, `gallery-${downloadId}`);
 
   if (!fs.existsSync(galleryDir)) {
@@ -162,7 +192,7 @@ router.get('/download', async (req, res) => {
     linkJobToClient(downloadId, clientId);
   }
 
-  const processInfo = { cancelled: false, process: null, tempDir: galleryDir };
+  const processInfo = { cancelled: false, process: null, tempDir: galleryDir, jobType: 'download' };
   activeProcesses.set(downloadId, processInfo);
 
   console.log(`[Queue] Gallery download started. Active: ${JSON.stringify(activeJobsByType)}`);
@@ -186,11 +216,8 @@ router.get('/download', async (req, res) => {
 
     function cleanup() {
       activeDownloads.delete(downloadId);
-      activeProcesses.delete(downloadId);
-      activeJobsByType.download--;
-      unlinkJobFromClient(downloadId);
-      console.log(`[Queue] Gallery finished. Active: ${JSON.stringify(activeJobsByType)}`);
-
+      releaseJob(downloadId);
+      console.log(`[Queue] Gallery finished.`);
       setTimeout(() => cleanupJobFiles(downloadId), 2000);
     }
 
@@ -202,11 +229,8 @@ router.get('/download', async (req, res) => {
       sendProgress(downloadId, 'error', err.message || 'Gallery download failed');
     }
 
-    activeProcesses.delete(downloadId);
-    activeJobsByType.download--;
-    unlinkJobFromClient(downloadId);
-    console.log(`[Queue] Gallery error. Active: ${JSON.stringify(activeJobsByType)}`);
-
+    releaseJob(downloadId);
+    console.log(`[Queue] Gallery error.`);
     setTimeout(() => cleanupJobFiles(downloadId), 2000);
 
     if (!res.headersSent) {

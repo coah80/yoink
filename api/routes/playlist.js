@@ -16,8 +16,8 @@ const {
   canStartJob,
   registerClient,
   linkJobToClient,
-  unlinkJobFromClient,
   getClientJobCount,
+  releaseJob,
   sendProgress
 } = require('../services/state');
 
@@ -89,7 +89,7 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
   const playlistDir = path.join(TEMP_DIRS.playlist, jobId);
   if (!fs.existsSync(playlistDir)) fs.mkdirSync(playlistDir, { recursive: true });
 
-  const processInfo = { cancelled: false, process: null, tempDir: playlistDir };
+  const processInfo = { cancelled: false, process: null, tempDir: playlistDir, jobType: 'playlist' };
   activeProcesses.set(jobId, processInfo);
   console.log(`[Queue] Async playlist started. Active: ${JSON.stringify(activeJobsByType)}`);
 
@@ -269,10 +269,8 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
       downloadToken
     });
 
-    activeProcesses.delete(jobId);
-    activeJobsByType.playlist--;
-    unlinkJobFromClient(jobId);
-    console.log(`[Queue] Async playlist complete. Active: ${JSON.stringify(activeJobsByType)}`);
+    releaseJob(jobId);
+    console.log(`[Queue] Async playlist complete.`);
 
   } catch (err) {
     console.error(`[${jobId}] Async playlist error:`, err.message);
@@ -285,10 +283,8 @@ async function processPlaylistAsync(jobId, job, url, isAudio, audioFormat, outpu
       sendProgress(jobId, 'error', toUserError(err.message || 'Playlist download failed'));
     }
 
-    activeProcesses.delete(jobId);
-    activeJobsByType.playlist--;
-    unlinkJobFromClient(jobId);
-    console.log(`[Queue] Async playlist error. Active: ${JSON.stringify(activeJobsByType)}`);
+    releaseJob(jobId);
+    console.log(`[Queue] Async playlist error.`);
 
     try {
       if (fs.existsSync(playlistDir)) fs.rmSync(playlistDir, { recursive: true, force: true });
