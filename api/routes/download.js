@@ -70,6 +70,7 @@ function tryGalleryDlMetadata(url) {
       let imageCount = 0;
       let title = 'Image';
       let images = [];
+      let dirMeta = null;
 
       // try parsing as a JSON array first (twitter/x and some other extractors)
       // gallery-dl outputs: [[2, {dir_meta}], [3, "url", {file_meta}], ...]
@@ -96,6 +97,7 @@ function tryGalleryDlMetadata(url) {
             // directory entries: [2, {metadata}]
             else if (entry[1] && typeof entry[1] === 'object') {
               const meta = entry[1];
+              if (!dirMeta) dirMeta = meta;
               if (title === 'Image') {
                 title = meta.subcategory || meta.category || meta.gallery || 'Image';
               }
@@ -126,13 +128,24 @@ function tryGalleryDlMetadata(url) {
       }
 
       const hostname = new URL(url).hostname.replace('www.', '');
-      resolve({
+      const result = {
         title,
         imageCount,
         images: images.slice(0, 10),
         site: hostname,
         isGallery: true
-      });
+      };
+
+      // detect tiktok carousel (photo post with audio)
+      if (dirMeta && dirMeta.category === 'tiktok' && dirMeta.post_type === 'image') {
+        result.isTikTokCarousel = true;
+        const music = dirMeta.music || {};
+        result.hasAudio = !!(music.playUrl || music.play_url);
+        result.musicTitle = music.title || null;
+        result.musicDuration = music.duration || null;
+      }
+
+      resolve(result);
     });
 
     proc.on('error', (err) => {

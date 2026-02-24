@@ -89,6 +89,7 @@ router.get('/metadata', async (req, res) => {
     let imageCount = 0;
     let title = 'Image';
     let images = [];
+    let dirMeta = null;
 
     // try parsing as a JSON array first (twitter/x and some other extractors)
     try {
@@ -111,6 +112,7 @@ router.get('/metadata', async (req, res) => {
             }
           } else if (entry[1] && typeof entry[1] === 'object') {
             const meta = entry[1];
+            if (!dirMeta) dirMeta = meta;
             if (title === 'Image') {
               title = meta.subcategory || meta.category || meta.gallery || 'Image';
             }
@@ -146,13 +148,24 @@ router.get('/metadata', async (req, res) => {
 
     const hostname = new URL(url).hostname.replace('www.', '');
 
-    res.json({
+    const result = {
       title,
       imageCount: imageCount || images.length,
       images: images.slice(0, 10),
       site: hostname,
       isGallery: true
-    });
+    };
+
+    // detect tiktok carousel (photo post with audio)
+    if (dirMeta && dirMeta.category === 'tiktok' && dirMeta.post_type === 'image') {
+      result.isTikTokCarousel = true;
+      const music = dirMeta.music || {};
+      result.hasAudio = !!(music.playUrl || music.play_url);
+      result.musicTitle = music.title || null;
+      result.musicDuration = music.duration || null;
+    }
+
+    res.json(result);
   } catch (err) {
     console.error('[gallery-dl] metadata error:', err);
     res.status(500).json({ error: 'Failed to get gallery info' });
@@ -404,6 +417,273 @@ async function sendZipFile(res, allFiles, filename, url, downloadId, cleanup) {
   stream.on('error', () => {
     sendProgress(downloadId, 'error', 'Failed to send zip');
     cleanup();
+  });
+}
+
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff']);
+const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.wav', '.ogg', '.aac', '.opus']);
+
+function getAudioDuration(filePath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', filePath
+    ]);
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('close', (code) => {
+      if (code !== 0) return reject(new Error('ffprobe failed'));
+      const dur = parseFloat(out.trim());
+      if (isNaN(dur)) return reject(new Error('Could not parse duration'));
+      resolve(dur);
+    });
+    proc.on('error', reject);
+  });
+}
+
+function getImageDimensions(filePath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error', '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0:s=x', filePath
+    ]);
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('close', (code) => {
+      if (code !== 0) return resolve({ width: 1080, height: 1920 });
+      const [w, h] = out.trim().split('x').map(Number);
+      resolve({ width: w || 1080, height: h || 1920 });
+    });
+    proc.on('error', () => resolve({ width: 1080, height: 1920 }));
+  });
+}
+
+router.get('/slideshow', async (req, res) => {
+  const { url, progressId, clientId, filename } = req.query;
+
+  if (!isGalleryDlAvailable()) {
+    return res.status(503).json({ error: 'gallery-dl not installed on server' });
+  }
+
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    return res.status(400).json({ error: urlCheck.error });
+  }
+
+  if (clientId) {
+    const clientJobs = getClientJobCount(clientId);
+    if (clientJobs >= SAFETY_LIMITS.maxJobsPerClient) {
+      return res.status(429).json({
+        error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
+      });
+    }
+  }
+
+  const downloadId = progressId || uuidv4();
+
+  const jobCheck = canStartJob('download');
+  if (!jobCheck.ok) {
+    sendProgress(downloadId, 'error', jobCheck.reason);
+    return res.status(503).json({ error: jobCheck.reason });
+  }
+
+  const galleryDir = path.join(TEMP_DIRS.gallery, `gallery-${downloadId}`);
+  if (!fs.existsSync(galleryDir)) {
+    fs.mkdirSync(galleryDir, { recursive: true });
+  }
+
+  if (clientId) {
+    registerClient(clientId);
+    linkJobToClient(downloadId, clientId);
+  }
+
+  const processInfo = { cancelled: false, process: null, tempDir: galleryDir, jobType: 'download' };
+  activeProcesses.set(downloadId, processInfo);
+
+  console.log(`[Queue] Slideshow download started.`);
+  sendProgress(downloadId, 'starting', 'Starting slideshow download...');
+
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      processInfo.cancelled = true;
+      if (processInfo.process) {
+        try { processInfo.process.kill('SIGTERM'); } catch {}
+      }
+    }
+  });
+
+  function cleanup() {
+    activeDownloads.delete(downloadId);
+    releaseJob(downloadId);
+    console.log(`[Queue] Slideshow finished.`);
+    setTimeout(() => cleanupJobFiles(downloadId), 2000);
+  }
+
+  try {
+    // step 1: download all files via gallery-dl
+    await runGalleryDl(url, galleryDir, downloadId, processInfo, req);
+
+    const allFiles = collectDownloadedFiles(galleryDir);
+    if (allFiles.length === 0) {
+      throw new Error('No files were downloaded');
+    }
+
+    // step 2: separate images and audio
+    const imageFiles = allFiles.filter(f => IMAGE_EXTS.has(path.extname(f).toLowerCase()));
+    const audioFiles = allFiles.filter(f => AUDIO_EXTS.has(path.extname(f).toLowerCase()));
+
+    if (imageFiles.length === 0) {
+      throw new Error('No images found in download');
+    }
+
+    // no audio? fall back to regular gallery download (photos only)
+    if (audioFiles.length === 0) {
+      console.log(`[${downloadId}] No audio found, falling back to gallery download`);
+      if (allFiles.length === 1) {
+        await sendSingleFile(res, allFiles[0], filename, downloadId, url, req, cleanup);
+      } else {
+        await sendZipFile(res, allFiles, filename, url, downloadId, cleanup);
+      }
+      return;
+    }
+
+    // step 3: get audio duration
+    const audioFile = audioFiles[0];
+    sendProgress(downloadId, 'processing', 'Analyzing audio...', 30);
+    const audioDuration = await getAudioDuration(audioFile);
+    console.log(`[${downloadId}] Audio duration: ${audioDuration}s, Images: ${imageFiles.length}`);
+
+    // step 4: determine orientation from first image
+    const firstDims = await getImageDimensions(imageFiles[0]);
+    const isVertical = firstDims.height >= firstDims.width;
+    const targetW = isVertical ? 1080 : 1920;
+    const targetH = isVertical ? 1920 : 1080;
+
+    // step 5: build ffmpeg command
+    const outputFile = path.join(galleryDir, `${downloadId}-slideshow.mp4`);
+    sendProgress(downloadId, 'processing', 'Creating slideshow video...', 50);
+
+    const crossfadeDur = 0.5;
+
+    if (imageFiles.length === 1) {
+      // single image: loop for audio duration
+      const ffArgs = [
+        '-loop', '1', '-t', String(audioDuration),
+        '-i', imageFiles[0],
+        '-i', audioFile,
+        '-filter_complex',
+        `[0]scale=w='if(gt(iw,ih),${targetW},-2)':h='if(gt(iw,ih),-2,${targetH})',pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v]`,
+        '-map', '[v]', '-map', '1:a',
+        '-shortest', '-r', '30', '-pix_fmt', 'yuv420p',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+        '-c:a', 'aac', '-b:a', '192k',
+        outputFile
+      ];
+
+      await runFfmpeg(ffArgs, downloadId, processInfo);
+    } else {
+      // multiple images: crossfade slideshow
+      const secPerImage = audioDuration / imageFiles.length;
+      const imgDuration = Math.max(secPerImage, crossfadeDur + 0.1);
+
+      const ffArgs = [];
+      // input args: each image looped for imgDuration
+      for (const img of imageFiles) {
+        ffArgs.push('-loop', '1', '-t', String(imgDuration), '-i', img);
+      }
+      // audio input
+      ffArgs.push('-i', audioFile);
+      const audioIdx = imageFiles.length;
+
+      // build filter_complex
+      let filterParts = [];
+      // scale each image
+      for (let i = 0; i < imageFiles.length; i++) {
+        filterParts.push(
+          `[${i}]scale=w='if(gt(iw,ih),${targetW},-2)':h='if(gt(iw,ih),-2,${targetH})',pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[s${i}]`
+        );
+      }
+
+      // chain xfade transitions
+      let prevLabel = 's0';
+      for (let i = 1; i < imageFiles.length; i++) {
+        const offset = Math.max(0, imgDuration * i - crossfadeDur * i);
+        const outLabel = i === imageFiles.length - 1 ? 'v' : `x${i}`;
+        filterParts.push(
+          `[${prevLabel}][s${i}]xfade=transition=fade:duration=${crossfadeDur}:offset=${offset.toFixed(3)}[${outLabel}]`
+        );
+        prevLabel = outLabel;
+      }
+
+      ffArgs.push('-filter_complex', filterParts.join(';'));
+      ffArgs.push('-map', '[v]', '-map', `${audioIdx}:a`);
+      ffArgs.push('-shortest', '-r', '30', '-pix_fmt', 'yuv420p');
+      ffArgs.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
+      ffArgs.push('-c:a', 'aac', '-b:a', '192k');
+      ffArgs.push(outputFile);
+
+      await runFfmpeg(ffArgs, downloadId, processInfo);
+    }
+
+    if (!fs.existsSync(outputFile)) {
+      throw new Error('Slideshow creation failed - output file not found');
+    }
+
+    // step 6: send the mp4
+    await sendSingleFile(res, outputFile, filename, downloadId, url, req, cleanup);
+
+  } catch (err) {
+    console.error(`[${downloadId}] Slideshow error:`, err.message);
+    discordAlerts.galleryError('Slideshow Error', 'Slideshow creation failed.', { jobId: downloadId, error: err.message });
+
+    if (!processInfo.cancelled) {
+      sendProgress(downloadId, 'error', err.message || 'Slideshow creation failed');
+    }
+
+    releaseJob(downloadId);
+    console.log(`[Queue] Slideshow error.`);
+    setTimeout(() => cleanupJobFiles(downloadId), 2000);
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Slideshow creation failed' });
+    }
+  }
+});
+
+function runFfmpeg(args, downloadId, processInfo) {
+  return new Promise((resolve, reject) => {
+    console.log(`[${downloadId}] ffmpeg starting slideshow render`);
+    const proc = spawn('ffmpeg', ['-y', ...args]);
+    processInfo.process = proc;
+
+    let stderr = '';
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+      if (stderr.length > 10000) stderr = stderr.slice(-5000);
+    });
+
+    const timeout = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('ffmpeg slideshow timeout (5 min)'));
+    }, 300000);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      if (processInfo.cancelled) {
+        reject(new Error('Download cancelled'));
+      } else if (code === 0) {
+        resolve();
+      } else {
+        console.error(`[${downloadId}] ffmpeg error: ${stderr.slice(-500)}`);
+        reject(new Error('Failed to create slideshow video'));
+      }
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 
