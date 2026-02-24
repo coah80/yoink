@@ -67,6 +67,7 @@
     { href: '/', label: 'download', icon: 'download' },
     { href: '/convert', label: 'convert', icon: 'convert' },
     { href: '/compress', label: 'compress', icon: 'compress' },
+    { href: '/trim', label: 'trim', icon: 'trim' },
     { href: '/transcribe', label: 'transcribe', icon: 'transcribe' },
     { href: '/settings', label: 'settings', icon: 'settings' },
   ];
@@ -99,6 +100,14 @@
             <polyline points="20 10 14 10 14 4"></polyline>
             <line x1="14" y1="10" x2="21" y2="3"></line>
             <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        {:else if item.icon === 'trim'}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="3"></circle>
+            <circle cx="6" cy="18" r="3"></circle>
+            <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+            <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+            <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
           </svg>
         {:else if item.icon === 'transcribe'}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -1,13 +1,36 @@
-export const CURRENT_VERSION = '2.0';
+export const CURRENT_VERSION = '2.1';
 
 export const changelog = [
+  {
+    version: '2.1',
+    date: 'february 23, 2026',
+    title: 'trim & crop tool, cobalt for youtube across all tools',
+    image: '/updates/v2.1.png',
+    summary: `new trim & crop tool for cutting videos and changing aspect ratios. youtube links now use cobalt across convert, compress, transcribe, and trim for faster, more reliable downloads.`,
+    content: `new tool and a big quality-of-life fix for youtube links.
+
+## trim & crop
+
+new tool for cutting and cropping videos. upload a file or paste a link, set your start and end times with a video preview, pick an aspect ratio if you want to crop (16:9, 9:16, 1:1, etc.), and download the result. good for clipping highlights or reformatting videos for different platforms.
+
+## cobalt everywhere
+
+pasting youtube links into convert, compress, transcribe, and trim now uses cobalt instead of yt-dlp. same fast downloads you get on the main download page, now everywhere. non-youtube links still use yt-dlp as before.
+
+## other stuff
+
+- crop aspect ratios: 16:9, 9:16, 1:1, 4:3, 4:5
+- trim shows a video preview with set start/end buttons
+- crop overlay preview shows what gets cut
+- manual time inputs for URL mode (no preview)`,
+  },
   {
     version: '2.0',
     date: 'february 23, 2026',
     title: 'transcription, encryption, and fixes',
     image: '/updates/v2.png',
-    summary: `yoink can now transcribe your videos and audio files into text, subtitles, or burned-in captions. all files on the server are encrypted at rest, gallery-dl auto-fallback for stuff yt-dlp can't handle, and a ton of fixes across the board.`,
-    content: `big update. yoink can now transcribe your videos and audio files, everything on the server is encrypted, and a bunch of stuff got cleaned up.
+    summary: `transcription, server-side encryption, gallery-dl auto-fallback, and a ton of fixes across the board.`,
+    content: `big update. transcription, server encryption, and a bunch of stuff got cleaned up.
 
 ## transcribe
 
