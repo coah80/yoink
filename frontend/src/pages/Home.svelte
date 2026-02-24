@@ -168,7 +168,7 @@
         const ct = metaRes.headers.get('content-type');
         if (metaRes.ok && ct?.includes('application/json')) {
           const metadata = await metaRes.json();
-          title = metadata.title || 'Gallery';
+          title = metadata.title || 'Image';
         } else {
           title = url.substring(0, 50);
         }
@@ -290,7 +290,7 @@
           throw new Error(errorMsg);
         }
         metadata = await metaRes.json();
-        metadata.title = metadata.title || 'Gallery';
+        metadata.title = metadata.title || 'Image';
       } else {
         const metaRes = await fetch(`${apiBase()}/api/metadata?url=${encodeURIComponent(url)}&playlist=${downloadPlaylist}`);
         const ct = metaRes.headers.get('content-type');

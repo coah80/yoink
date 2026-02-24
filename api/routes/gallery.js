@@ -87,7 +87,7 @@ router.get('/metadata', async (req, res) => {
     }
 
     let imageCount = 0;
-    let title = 'Gallery';
+    let title = 'Image';
     let images = [];
 
     // try parsing as a JSON array first (twitter/x and some other extractors)
@@ -96,6 +96,8 @@ router.get('/metadata', async (req, res) => {
       if (Array.isArray(data)) {
         for (const entry of data) {
           if (!Array.isArray(entry) || entry.length < 2) continue;
+          // skip error entries (e.g. [-1, {error: "KeyError"}])
+          if (entry[0] < 0) continue;
           if (typeof entry[1] === 'string' && entry[1].startsWith('http')) {
             const meta = (entry.length >= 3 && entry[2] && typeof entry[2] === 'object') ? entry[2] : {};
             imageCount++;
@@ -104,13 +106,13 @@ router.get('/metadata', async (req, res) => {
               extension: meta.extension || 'jpg',
               url: entry[1]
             });
-            if (title === 'Gallery') {
-              title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+            if (title === 'Image') {
+              title = meta.subcategory || meta.category || meta.gallery || 'Image';
             }
           } else if (entry[1] && typeof entry[1] === 'object') {
             const meta = entry[1];
-            if (title === 'Gallery') {
-              title = meta.subcategory || meta.category || meta.gallery || 'Gallery';
+            if (title === 'Image') {
+              title = meta.subcategory || meta.category || meta.gallery || 'Image';
             }
           }
         }
@@ -131,11 +133,15 @@ router.get('/metadata', async (req, res) => {
               url: item.url
             });
           }
-          if (title === 'Gallery') {
-            title = item.subcategory || item.category || item.gallery || 'Gallery';
+          if (title === 'Image') {
+            title = item.subcategory || item.category || item.gallery || 'Image';
           }
         } catch { }
       }
+    }
+
+    if (imageCount === 0) {
+      return res.status(500).json({ error: 'No images found in this link' });
     }
 
     const hostname = new URL(url).hostname.replace('www.', '');
@@ -195,7 +201,7 @@ router.get('/download', async (req, res) => {
   const processInfo = { cancelled: false, process: null, tempDir: galleryDir, jobType: 'download' };
   activeProcesses.set(downloadId, processInfo);
 
-  console.log(`[Queue] Gallery download started. Active: ${JSON.stringify(activeJobsByType)}`);
+  console.log(`[Queue] Gallery download started.`);
 
   sendProgress(downloadId, 'starting', 'Starting gallery download...');
 
