@@ -276,9 +276,9 @@ function createQueueStore() {
           const res = await fetch(`${apiBase()}/api/playlist/status/${serverJobId}`);
           if (!res.ok) {
             if (res.status === 404) {
-              this.updateItem(itemId, { stage: 'error', status: 'playlist expired — try again!' });
+              this.updateItem(itemId, { stage: 'error', status: 'playlist expired, try again!' });
               cleanupJob(itemId);
-              addToast('playlist expired — try again!', 'error');
+              addToast('playlist expired, try again!', 'error');
             }
             return;
           }
@@ -326,7 +326,7 @@ function createQueueStore() {
         patch.fileName = data.fileName;
         patch.fileSize = data.fileSize;
         patch.endTime = Date.now();
-        patch.status = 'playlist ready — tap to download';
+        patch.status = 'playlist ready, tap to download';
 
         this.updateItem(itemId, patch);
         cleanupJob(itemId);
@@ -363,13 +363,13 @@ function createQueueStore() {
         try {
           const res = await fetch(`${apiBase()}/api/playlist/status/${item.serverJobId}`);
           if (!res.ok) {
-            this.updateItem(id, { stage: 'error', status: 'playlist expired — try again!' });
-            addToast('playlist expired — try again!', 'error');
+            this.updateItem(id, { stage: 'error', status: 'playlist expired, try again!' });
+            addToast('playlist expired, try again!', 'error');
             return;
           }
         } catch {
-          this.updateItem(id, { stage: 'error', status: 'playlist expired — try again!' });
-          addToast('playlist expired — try again!', 'error');
+          this.updateItem(id, { stage: 'error', status: 'playlist expired, try again!' });
+          addToast('playlist expired, try again!', 'error');
           return;
         }
       }

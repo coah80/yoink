@@ -381,7 +381,6 @@
           placeholder="https://youtube.com/watch?v=..."
           bind:value={urlInput}
         />
-        <p class="url-hint">paste a link to any video or audio — youtube, twitter, tiktok, etc.</p>
       </div>
 
       <div class="convert-options">
