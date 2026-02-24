@@ -162,7 +162,7 @@
   }
 
   async function resolveCarouselFormat(metadata, s) {
-    if (!metadata.isTikTokCarousel || !metadata.hasAudio) return null;
+    if (!metadata.isTikTokCarousel || !metadata.hasAudio) return 'skip';
     if (s.tiktokCarouselPreference === 'photos') return 'photos';
     if (s.tiktokCarouselPreference === 'video') return 'video';
     return await askCarouselChoice();
