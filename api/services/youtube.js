@@ -18,7 +18,7 @@ async function parseYouTubeClip(clipUrl) {
   const canonicalMatch = clipHtml.match(/<link[^>]*rel="canonical"[^>]*href="([^"]+)"/);
   if (canonicalMatch && canonicalMatch[1] === 'https://www.youtube.com/') {
     if (clipHtml.includes('Clip not available') || clipHtml.includes('clip can be unavailable')) {
-      throw new Error('This clip is no longer available — it may have been deleted');
+      throw new Error('This clip is no longer available,it may have been deleted');
     }
     throw new Error('This clip is unavailable');
   }
@@ -132,7 +132,7 @@ async function parseYouTubeClip(clipUrl) {
   }
 
   if (startTimeMs === null || endTimeMs === null) {
-    throw new Error('Could not extract clip timestamps — the clip data may have changed');
+    throw new Error('Could not extract clip timestamps,the clip data may have changed');
   }
 
   if (startTimeMs < 0 || endTimeMs <= startTimeMs || (endTimeMs - startTimeMs) >= 600000) {
