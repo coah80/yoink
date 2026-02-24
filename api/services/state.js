@@ -23,7 +23,8 @@ const activeJobsByType = {
   playlist: 0,
   convert: 0,
   compress: 0,
-  transcribe: 0
+  transcribe: 0,
+  fetchUrl: 0
 };
 
 let galleryDlAvailable = false;

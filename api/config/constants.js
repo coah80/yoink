@@ -9,7 +9,8 @@ const JOB_LIMITS = {
   playlist: 2,
   convert: 2,
   compress: 1,
-  transcribe: 1
+  transcribe: 1,
+  fetchUrl: 2
 };
 
 const MAX_QUEUE_SIZE = 50;

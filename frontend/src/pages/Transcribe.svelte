@@ -10,9 +10,20 @@
   import { addToast } from '../stores/toast.js';
   import { startHeartbeat, stopHeartbeat } from '../stores/session.js';
   import { queue } from '../stores/queue.js';
+  import { getQuery } from '../lib/router.js';
 
   let selectedFile = $state(null);
   let mediaDuration = $state(0);
+  let urlInput = $state('');
+  let inputMode = $state('file');
+  let fetchedFile = $state(null);
+
+  // Check for ?url= query param on mount
+  const initialQuery = getQuery();
+  if (initialQuery.url) {
+    urlInput = initialQuery.url;
+    inputMode = 'url';
+  }
   let outputMode = $state('text');
   let selectedModel = $state('base');
   let subtitleFormat = $state('srt');
@@ -75,7 +86,11 @@
   const modelMultipliers = { tiny: 0.17, base: 0.33, small: 1.0, medium: 3.3, large: 1.5 };
 
   let estimateText = $derived.by(() => {
-    if (!selectedFile || !mediaDuration) return 'select a file to see estimate';
+    if (inputMode === 'url' && !fetchedFile && !selectedFile) {
+      return urlInput ? 'paste a link and transcribe to see estimate' : 'paste a link to see estimate';
+    }
+    if (!selectedFile && !fetchedFile) return 'select a file to see estimate';
+    if (!mediaDuration) return 'select a file to see estimate';
     const minutes = mediaDuration / 60;
     const mult = modelMultipliers[selectedModel];
     const est = Math.ceil(minutes * mult);
@@ -155,7 +170,8 @@
   }
 
   async function transcribe() {
-    if (!selectedFile || transcribing) return;
+    const isUrlMode = inputMode === 'url' && urlInput.trim();
+    if ((!selectedFile && !isUrlMode) || transcribing) return;
 
     if (estimateWarning) {
       addToast('This may take over 30 minutes. Consider using a faster model.', 'warning');
@@ -163,28 +179,89 @@
 
     transcribing = true;
     progress = 0;
-    progressLabel = 'uploading...';
-    progressDetail = 'sending file to server...';
     showResult = false;
     resultText = '';
 
+    const queueTitle = isUrlMode ? `URL → ${outputMode}` : `${selectedFile.name} → ${outputMode}`;
     const queueId = Date.now().toString() + Math.random().toString(36).slice(2, 11);
     queue.add({
       id: queueId,
-      title: `${selectedFile.name} → ${outputMode}`,
+      title: queueTitle,
       type: 'transcribe',
-      stage: 'uploading',
-      status: 'uploading...',
+      stage: isUrlMode ? 'downloading' : 'uploading',
+      status: isUrlMode ? 'downloading media...' : 'uploading...',
       progress: 0,
       startTime: Date.now(),
     });
 
-    const useChunked = selectedFile.size > 90 * 1024 * 1024;
     let heartbeatJobId = null;
 
     try {
       heartbeatJobId = startHeartbeat();
       let jobId;
+
+      if (isUrlMode) {
+        progressLabel = 'downloading media...';
+        progressDetail = 'fetching media from URL...';
+        queue.updateItem(queueId, { status: 'downloading media...' });
+
+        const fetchRes = await fetch(`${apiBase()}/api/fetch-url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: urlInput.trim() }),
+        });
+
+        if (!fetchRes.ok) {
+          let errMsg = 'Failed to download from URL';
+          try { const err = await fetchRes.json(); errMsg = err.error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        const fetchData = await fetchRes.json();
+        fetchedFile = fetchData;
+        mediaDuration = fetchData.duration || 0;
+
+        queue.updateItem(queueId, {
+          title: `${fetchData.fileName} → ${outputMode}`,
+          stage: 'transcribing',
+          status: 'transcribing...',
+          progress: 0
+        });
+
+        progress = 0;
+        progressLabel = 'transcribing...';
+        progressDetail = 'starting transcription...';
+
+        const initResponse = await fetch(`${apiBase()}/api/transcribe-chunked`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filePath: fetchData.filePath,
+            fileName: fetchData.fileName,
+            outputMode,
+            model: selectedModel,
+            subtitleFormat,
+            language: language || undefined,
+            ...(captionSize !== 72 && { captionSize }),
+            ...(maxWordsPerCaption > 0 && { maxWordsPerCaption }),
+            ...(maxCharsPerLine > 0 && { maxCharsPerLine }),
+            ...(minDuration > 0 && { minDuration }),
+            ...(captionGap > 0 && { captionGap }),
+          }),
+        });
+
+        if (!initResponse.ok) {
+          let errMsg = 'Failed to start transcription';
+          try { const err = await initResponse.json(); errMsg = err.error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        const result = await initResponse.json();
+        jobId = result.jobId;
+      } else {
+      const useChunked = selectedFile.size > 90 * 1024 * 1024;
+      progressLabel = 'uploading...';
+      progressDetail = 'sending file to server...';
 
       if (useChunked) {
         progressLabel = 'uploading...';
@@ -253,6 +330,7 @@
 
         const result = await response.json();
         jobId = result.jobId;
+      }
       }
 
       // Poll for job completion
@@ -361,31 +439,74 @@
   </div>
 
   <div class="transcribe-container">
-    {#if !selectedFile}
-      <button
-        type="button"
-        class="drop-zone"
-        class:dragover={dragging}
-        ondragover={(e) => { e.preventDefault(); dragging = true; }}
-        ondragleave={(e) => { e.preventDefault(); dragging = false; }}
-        ondrop={(e) => { e.preventDefault(); dragging = false; handleFile(e.dataTransfer?.files?.[0]); }}
-        onclick={() => inputEl?.click()}
-      >
-        <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        <p class="drop-zone-text">drop a video or audio file here</p>
-        <p class="drop-zone-hint">supports mp4, webm, mov, mkv, mp3, wav, flac, m4a (max 8GB)</p>
-        <input
-          bind:this={inputEl}
-          type="file"
-          accept="video/*,audio/*"
-          onchange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }}
-          style="display: none;"
-        />
-      </button>
+    {#if !selectedFile && !fetchedFile}
+      <div class="input-tabs">
+        <button class="input-tab" class:active={inputMode === 'file'} onclick={() => inputMode = 'file'}>upload file</button>
+        <button class="input-tab" class:active={inputMode === 'url'} onclick={() => inputMode = 'url'}>paste link</button>
+      </div>
+
+      {#if inputMode === 'file'}
+        <button
+          type="button"
+          class="drop-zone"
+          class:dragover={dragging}
+          ondragover={(e) => { e.preventDefault(); dragging = true; }}
+          ondragleave={(e) => { e.preventDefault(); dragging = false; }}
+          ondrop={(e) => { e.preventDefault(); dragging = false; handleFile(e.dataTransfer?.files?.[0]); }}
+          onclick={() => inputEl?.click()}
+        >
+          <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <p class="drop-zone-text">drop a video or audio file here</p>
+          <p class="drop-zone-hint">supports mp4, webm, mov, mkv, mp3, wav, flac, m4a (max 8GB)</p>
+          <input
+            bind:this={inputEl}
+            type="file"
+            accept="video/*,audio/*"
+            onchange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }}
+            style="display: none;"
+          />
+        </button>
+      {:else}
+        <div class="url-input-section">
+          <input
+            type="url"
+            class="url-input"
+            placeholder="https://youtube.com/watch?v=..."
+            bind:value={urlInput}
+          />
+          <p class="url-hint">paste a link to any video or audio — youtube, twitter, tiktok, etc.</p>
+        </div>
+      {/if}
+    {:else if fetchedFile}
+      <div class="file-info">
+        <div class="file-header">
+          <div class="file-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+              <line x1="7" y1="2" x2="7" y2="22"></line>
+              <line x1="17" y1="2" x2="17" y2="22"></line>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+            </svg>
+          </div>
+          <div class="file-details">
+            <div class="file-name" title={fetchedFile.fileName}>{fetchedFile.fileName}</div>
+            <div class="file-size">{formatBytes(fetchedFile.fileSize)}</div>
+          </div>
+          <button class="file-remove" onclick={() => { fetchedFile = null; mediaDuration = 0; }} aria-label="Remove file">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="file-meta">
+          <span>duration: {mediaDuration ? durationText : 'unknown'}</span>
+        </div>
+      </div>
     {:else}
       <div class="file-info">
         <div class="file-header">
@@ -562,7 +683,7 @@
       <span class="estimate-value" class:estimate-warning={estimateWarning}>{estimateText}</span>
     </div>
 
-    <button class="transcribe-btn" onclick={transcribe} disabled={!selectedFile || transcribing}>
+    <button class="transcribe-btn" onclick={transcribe} disabled={(!selectedFile && !(inputMode === 'url' && urlInput.trim())) || transcribing}>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
       </svg>
@@ -719,6 +840,74 @@
   .drop-zone-hint {
     font-size: 0.85rem;
     color: var(--text-muted);
+  }
+
+  .input-tabs {
+    display: flex;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    gap: 4px;
+  }
+
+  .input-tab {
+    flex: 1;
+    padding: 10px 16px;
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    text-align: center;
+  }
+
+  .input-tab:hover:not(.active) {
+    color: var(--text);
+    background: var(--border);
+  }
+
+  .input-tab.active {
+    background: var(--purple-500);
+    color: white;
+  }
+
+  .url-input-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .url-input {
+    width: 100%;
+    padding: 16px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease-out;
+    box-sizing: border-box;
+  }
+
+  .url-input:focus {
+    border-color: var(--purple-500);
+    border-style: solid;
+  }
+
+  .url-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .url-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 
   .file-info {
