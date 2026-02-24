@@ -125,6 +125,7 @@ const ASYNC_JOB_TIMEOUT = 60 * 60 * 1000;
 // Allowed Formats
 const ALLOWED_FORMATS = ['mp4', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'opus', 'wav', 'flac'];
 const ALLOWED_REENCODES = ['auto', 'always', 'never'];
+const ALLOWED_CROP_RATIOS = ['16:9', '9:16', '1:1', '4:3', '4:5'];
 
 // Error Messages
 const BOT_DETECTION_ERRORS = [
@@ -166,5 +167,6 @@ module.exports = {
   ASYNC_JOB_TIMEOUT,
   ALLOWED_FORMATS,
   ALLOWED_REENCODES,
+  ALLOWED_CROP_RATIOS,
   BOT_DETECTION_ERRORS
 };

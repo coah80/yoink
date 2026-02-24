@@ -18,6 +18,7 @@ const {
   ALLOWED_DENOISE,
   ALLOWED_FORMATS,
   ALLOWED_REENCODES,
+  ALLOWED_CROP_RATIOS,
   ASYNC_JOB_TIMEOUT,
   CHUNK_TIMEOUT
 } = require('../config/constants');
@@ -46,6 +47,7 @@ const {
   formatETA
 } = require('../utils/ffmpeg');
 const discordAlerts = require('../discord-alerts');
+const { downloadViaCobalt } = require('../services/cobalt');
 
 const upload = multer({
   dest: TEMP_DIRS.upload,
@@ -279,41 +281,52 @@ router.post('/api/fetch-url', express.json(), async (req, res) => {
   }
 
   const id = `fetch-${uuidv4()}`;
-  console.log(`[${id}] Fetching URL: ${url}`);
+  const trimmedUrl = url.trim();
+  const isYouTube = trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be');
+  console.log(`[${id}] Fetching URL: ${trimmedUrl}${isYouTube ? ' (via cobalt)' : ''}`);
 
   try {
-    const filePath = await new Promise((resolve, reject) => {
-      const args = [
-        '--no-playlist',
-        '-f', 'bv*+ba/b',
-        '-o', `${TEMP_DIRS.upload}/${id}-%(title)s.%(ext)s`,
-        '--print', 'after_move:filepath',
-        '--no-warnings',
-        url.trim()
-      ];
+    let filePath;
 
-      const proc = spawn('yt-dlp', args);
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (d) => { stdout += d.toString(); });
-      proc.stderr.on('data', (d) => { stderr += d.toString(); });
-
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(stderr.trim().split('\n').pop() || 'yt-dlp failed'));
-          return;
-        }
-        const outputPath = stdout.trim().split('\n').pop();
-        if (!outputPath || !fs.existsSync(outputPath)) {
-          reject(new Error('yt-dlp did not produce a file'));
-          return;
-        }
-        resolve(outputPath);
+    if (isYouTube) {
+      const cobaltResult = await downloadViaCobalt(trimmedUrl, id, false, null, null, {
+        outputDir: TEMP_DIRS.upload
       });
+      filePath = cobaltResult.filePath;
+    } else {
+      filePath = await new Promise((resolve, reject) => {
+        const args = [
+          '--no-playlist',
+          '-f', 'bv*+ba/b',
+          '-o', `${TEMP_DIRS.upload}/${id}-%(title)s.%(ext)s`,
+          '--print', 'after_move:filepath',
+          '--no-warnings',
+          trimmedUrl
+        ];
 
-      proc.on('error', (err) => reject(new Error(`Failed to run yt-dlp: ${err.message}`)));
-    });
+        const proc = spawn('yt-dlp', args);
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', (d) => { stdout += d.toString(); });
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(stderr.trim().split('\n').pop() || 'yt-dlp failed'));
+            return;
+          }
+          const outputPath = stdout.trim().split('\n').pop();
+          if (!outputPath || !fs.existsSync(outputPath)) {
+            reject(new Error('yt-dlp did not produce a file'));
+            return;
+          }
+          resolve(outputPath);
+        });
+
+        proc.on('error', (err) => reject(new Error(`Failed to run yt-dlp: ${err.message}`)));
+      });
+    }
 
     const stat = fs.statSync(filePath);
     if (stat.size > FILE_SIZE_LIMIT) {
@@ -414,7 +427,8 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
     reencode = 'auto',
     startTime,
     endTime,
-    audioBitrate = '192'
+    audioBitrate = '192',
+    cropRatio
   } = req.body;
 
   const validPath = validateChunkedFilePath(filePath);
@@ -438,6 +452,10 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
     fs.unlink(validPath, () => { });
     return res.status(400).json({ error: `Invalid quality. Allowed: ${ALLOWED_QUALITIES.join(', ')}` });
   }
+  if (cropRatio && !ALLOWED_CROP_RATIOS.includes(cropRatio)) {
+    fs.unlink(validPath, () => { });
+    return res.status(400).json({ error: `Invalid crop ratio. Allowed: ${ALLOWED_CROP_RATIOS.join(', ')}` });
+  }
 
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
   req.body.format = format;
@@ -447,6 +465,7 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
   req.body.startTime = startTime;
   req.body.endTime = endTime;
   req.body.audioBitrate = audioBitrate;
+  req.body.cropRatio = cropRatio;
 
   const jobId = uuidv4();
 
@@ -472,6 +491,30 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
   });
 });
 
+async function buildCropFilter(inputPath, cropRatio, logId) {
+  const probeDims = await probeVideo(inputPath);
+  const videoW = probeDims.width;
+  const videoH = probeDims.height;
+  const [ratioW, ratioH] = cropRatio.split(':').map(Number);
+  let cropW, cropH, cropX, cropY;
+  if (videoW / videoH > ratioW / ratioH) {
+    cropH = videoH - (videoH % 2);
+    cropW = Math.floor(cropH * ratioW / ratioH);
+    cropW = cropW - (cropW % 2);
+    cropX = Math.floor((videoW - cropW) / 2);
+    cropY = Math.floor((videoH - cropH) / 2);
+  } else {
+    cropW = videoW - (videoW % 2);
+    cropH = Math.floor(cropW * ratioH / ratioW);
+    cropH = cropH - (cropH % 2);
+    cropX = Math.floor((videoW - cropW) / 2);
+    cropY = Math.floor((videoH - cropH) / 2);
+  }
+  const filter = `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
+  console.log(`[${logId}] Crop: ${cropRatio} -> ${filter}`);
+  return filter;
+}
+
 async function handleConvert(req, res) {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
@@ -484,7 +527,8 @@ async function handleConvert(req, res) {
     reencode = 'auto',
     startTime,
     endTime,
-    audioBitrate = '192'
+    audioBitrate = '192',
+    cropRatio
   } = req.body;
 
   if (clientId) {
@@ -495,6 +539,11 @@ async function handleConvert(req, res) {
         error: `Too many active jobs. Maximum ${SAFETY_LIMITS.maxJobsPerClient} concurrent jobs per user.`
       });
     }
+  }
+
+  if (cropRatio && !ALLOWED_CROP_RATIOS.includes(cropRatio)) {
+    fs.unlink(req.file.path, () => { });
+    return res.status(400).json({ error: `Invalid crop ratio. Allowed: ${ALLOWED_CROP_RATIOS.join(', ')}` });
   }
 
   const convertJobCheck = canStartJob('convert');
@@ -575,12 +624,17 @@ async function handleConvert(req, res) {
 
       const compat = codecCompatibility[format] || [];
       const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
-      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
+      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible) || !!cropRatio;
+
+      const cropFilter = cropRatio ? await buildCropFilter(inputPath, cropRatio, convertId) : null;
 
       if (needsReencode) {
         const crfValues = { high: 18, medium: 23, low: 28 };
         const crf = crfValues[quality] || 23;
         console.log(`[${convertId}] Re-encoding video (${probeCodec} → h264, CRF ${crf})`);
+        if (cropFilter) {
+          ffmpegArgs.push('-vf', cropFilter);
+        }
         ffmpegArgs.push(
           '-c:v', 'libx264',
           '-preset', 'medium',
@@ -673,7 +727,8 @@ async function handleConvertAsync(req, jobId) {
     reencode = 'auto',
     startTime,
     endTime,
-    audioBitrate = '192'
+    audioBitrate = '192',
+    cropRatio
   } = req.body;
 
   const convertId = jobId;
@@ -696,6 +751,15 @@ async function handleConvertAsync(req, jobId) {
   console.log(`[Queue] Async convert started. Active: ${JSON.stringify(activeJobsByType)}`);
   console.log(`[${convertId}] Converting to ${format} (async)`);
 
+  if (cropRatio && !ALLOWED_CROP_RATIOS.includes(cropRatio)) {
+    try { fs.unlinkSync(inputPath); } catch { }
+    activeJobsByType.convert--;
+    unlinkJobFromClient(convertId);
+    job.status = 'error';
+    job.error = 'Invalid crop ratio';
+    job.progress = 0;
+    return;
+  }
   if (startTime && !validateTimeParam(startTime)) {
     try { fs.unlinkSync(inputPath); } catch { }
     activeJobsByType.convert--;
@@ -764,11 +828,16 @@ async function handleConvertAsync(req, jobId) {
 
       const compat = codecCompatibility[format] || [];
       const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
-      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible);
+      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible) || !!cropRatio;
+
+      const cropFilter = cropRatio ? await buildCropFilter(inputPath, cropRatio, convertId) : null;
 
       if (needsReencode) {
         const crfValues = { high: 18, medium: 23, low: 28 };
         const crf = crfValues[quality] || 23;
+        if (cropFilter) {
+          ffmpegArgs.push('-vf', cropFilter);
+        }
         ffmpegArgs.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k');
       } else {
         ffmpegArgs.push('-codec', 'copy');
