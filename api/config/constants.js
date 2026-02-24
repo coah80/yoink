@@ -27,7 +27,8 @@ const SAFETY_LIMITS = {
   maxJobsPerClient: 5,
   rateLimitWindowMs: 60 * 1000,
   rateLimitMaxRequests: 60,
-  maxUrlLength: 2048
+  maxUrlLength: 2048,
+  maxSegments: 20
 };
 
 // Quality Settings
