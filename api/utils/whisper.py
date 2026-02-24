@@ -183,6 +183,166 @@ def wrap_lines(segments, max_chars):
     return segments
 
 
+def transcribe_local(args):
+    """Run transcription using local faster-whisper model. Returns (segments, language)."""
+    write_progress(0, "Loading whisper model...")
+
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        write_result(False, error="faster-whisper not installed")
+        sys.exit(1)
+
+    try:
+        model = WhisperModel(args.model, device="cpu", compute_type="int8")
+    except Exception as e:
+        write_result(False, error=f"Failed to load model: {str(e)}")
+        sys.exit(1)
+
+    write_progress(2, "Model loaded, starting transcription...")
+
+    total_duration = get_audio_duration(args.input)
+    need_word_timestamps = args.max_words_per_caption > 0
+
+    transcribe_kwargs = {
+        "vad_filter": True,
+        "vad_parameters": {"min_silence_duration_ms": 500},
+    }
+    if args.language:
+        transcribe_kwargs["language"] = args.language
+    if need_word_timestamps:
+        transcribe_kwargs["word_timestamps"] = True
+
+    segments_iter, info = model.transcribe(args.input, **transcribe_kwargs)
+    detected_language = info.language
+
+    write_progress(5, f"Detected language: {detected_language}")
+
+    segments = []
+    for segment in segments_iter:
+        seg_dict = {
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text,
+        }
+        if need_word_timestamps and segment.words:
+            seg_dict["words"] = [
+                {"start": w.start, "end": w.end, "word": w.word}
+                for w in segment.words
+            ]
+        segments.append(seg_dict)
+
+        if total_duration > 0:
+            progress = min(85, int(5 + (segment.end / total_duration) * 80))
+            write_progress(progress, f"Transcribing... {progress}%")
+
+    return segments, detected_language
+
+
+def transcribe_api(args):
+    """Run transcription using OpenAI Whisper API. Returns (segments, language)."""
+    import subprocess
+
+    try:
+        import openai
+    except ImportError:
+        write_result(False, error="openai package not installed (pip install openai)")
+        sys.exit(1)
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        write_result(False, error="OPENAI_API_KEY environment variable not set")
+        sys.exit(1)
+
+    write_progress(2, "Preparing audio for OpenAI...")
+
+    # Compress WAV to MP3 to stay under OpenAI's 25MB limit
+    base, _ = os.path.splitext(args.input)
+    mp3_path = base + "_api.mp3"
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", args.input, "-ac", "1", "-ar", "16000", "-b:a", "48k", mp3_path],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            write_result(False, error=f"MP3 compression failed: {result.stderr[:200]}")
+            sys.exit(1)
+    except Exception as e:
+        write_result(False, error=f"MP3 compression failed: {str(e)}")
+        sys.exit(1)
+
+    mp3_size = os.path.getsize(mp3_path)
+    if mp3_size > 25 * 1024 * 1024:
+        os.unlink(mp3_path)
+        write_result(False, error=f"Audio too long for API ({mp3_size // (1024 * 1024)}MB compressed, max 25MB)")
+        sys.exit(1)
+
+    write_progress(5, "Transcribing with OpenAI...")
+
+    need_word_timestamps = args.max_words_per_caption > 0
+
+    try:
+        client = openai.OpenAI(api_key=api_key)
+
+        with open(mp3_path, "rb") as audio_file:
+            kwargs = {
+                "model": "whisper-1",
+                "file": audio_file,
+                "response_format": "verbose_json",
+                "timestamp_granularities": ["segment", "word"] if need_word_timestamps else ["segment"],
+            }
+            if args.language:
+                kwargs["language"] = args.language
+
+            response = client.audio.transcriptions.create(**kwargs)
+
+        write_progress(80, "Processing results...")
+
+        detected_language = getattr(response, "language", "") or ""
+
+        api_segments = getattr(response, "segments", []) or []
+        api_words = getattr(response, "words", []) or []
+
+        segments = []
+        for seg in api_segments:
+            seg_dict = {
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+            }
+            segments.append(seg_dict)
+
+        # Assign words to segments in a single pass (O(n+m))
+        if need_word_timestamps and api_words:
+            sorted_words = sorted(api_words, key=lambda w: w.start)
+            word_idx = 0
+            for seg_dict in segments:
+                seg_words = []
+                while word_idx < len(sorted_words):
+                    w = sorted_words[word_idx]
+                    if w.start >= seg_dict["end"] + 0.01:
+                        break
+                    if w.start >= seg_dict["start"] - 0.01:
+                        seg_words.append({"start": w.start, "end": w.end, "word": w.word})
+                    word_idx += 1
+                if seg_words:
+                    seg_dict["words"] = seg_words
+
+    except openai.APIError as e:
+        write_result(False, error=f"OpenAI API error: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        write_result(False, error=f"OpenAI transcription failed: {str(e)}")
+        sys.exit(1)
+    finally:
+        try:
+            os.unlink(mp3_path)
+        except OSError:
+            pass
+
+    return segments, detected_language
+
+
 def main():
     parser = argparse.ArgumentParser(description="Whisper transcription helper")
     parser.add_argument("--input", required=True, help="Input audio file path")
@@ -201,65 +361,21 @@ def main():
                         help="Gap between captions in seconds (0 = none)")
     parser.add_argument("--font-size", type=int, default=72,
                         help="ASS subtitle font size (default 72)")
+    parser.add_argument("--use-api", action="store_true",
+                        help="Use OpenAI API instead of local model")
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
         write_result(False, error=f"Input file not found: {args.input}")
         sys.exit(1)
 
-    write_progress(0, "Loading whisper model...")
-
     try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        write_result(False, error="faster-whisper not installed")
-        sys.exit(1)
-
-    try:
-        model = WhisperModel(args.model, device="cpu", compute_type="int8")
-    except Exception as e:
-        write_result(False, error=f"Failed to load model: {str(e)}")
-        sys.exit(1)
-
-    write_progress(2, "Model loaded, starting transcription...")
-
-    total_duration = get_audio_duration(args.input)
-
-    need_word_timestamps = args.max_words_per_caption > 0
-
-    try:
-        transcribe_kwargs = {
-            "vad_filter": True,
-            "vad_parameters": {"min_silence_duration_ms": 500},
-        }
-        if args.language:
-            transcribe_kwargs["language"] = args.language
-        if need_word_timestamps:
-            transcribe_kwargs["word_timestamps"] = True
-
-        segments_iter, info = model.transcribe(args.input, **transcribe_kwargs)
-        detected_language = info.language
-
-        write_progress(5, f"Detected language: {detected_language}")
-
-        segments = []
-        for segment in segments_iter:
-            seg_dict = {
-                "start": segment.start,
-                "end": segment.end,
-                "text": segment.text,
-            }
-            if need_word_timestamps and segment.words:
-                seg_dict["words"] = [
-                    {"start": w.start, "end": w.end, "word": w.word}
-                    for w in segment.words
-                ]
-            segments.append(seg_dict)
-
-            if total_duration > 0:
-                progress = min(85, int(5 + (segment.end / total_duration) * 80))
-                write_progress(progress, f"Transcribing... {progress}%")
-
+        if args.use_api:
+            segments, detected_language = transcribe_api(args)
+        else:
+            segments, detected_language = transcribe_local(args)
+    except SystemExit:
+        raise
     except Exception as e:
         write_result(False, error=f"Transcription failed: {str(e)}")
         sys.exit(1)

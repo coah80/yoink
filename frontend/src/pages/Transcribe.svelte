@@ -43,7 +43,8 @@
     { id: 'tiny', label: 'tiny', sublabel: 'fastest, less accurate' },
     { id: 'base', label: 'base', sublabel: 'recommended' },
     { id: 'small', label: 'small', sublabel: 'slower, more accurate' },
-    { id: 'medium', label: 'medium', sublabel: 'slowest, best quality' },
+    { id: 'medium', label: 'medium', sublabel: 'slowest local model' },
+    { id: 'large', label: 'large', sublabel: 'cloud, best quality' },
   ];
 
   let showCaptionSettings = $derived(outputMode === 'subtitles' || outputMode === 'captions');
@@ -71,7 +72,7 @@
     return text;
   });
 
-  const modelMultipliers = { tiny: 0.17, base: 0.33, small: 1.0, medium: 3.3 };
+  const modelMultipliers = { tiny: 0.17, base: 0.33, small: 1.0, medium: 3.3, large: 1.5 };
 
   let estimateText = $derived.by(() => {
     if (!selectedFile || !mediaDuration) return 'select a file to see estimate';
@@ -815,7 +816,7 @@
 
   .model-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
   }
 

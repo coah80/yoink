@@ -31,7 +31,9 @@ const upload = multer({
 });
 
 const ALLOWED_OUTPUT_MODES = ['subtitles', 'captions', 'text'];
-const ALLOWED_MODELS = ['tiny', 'base', 'small', 'medium'];
+const LOCAL_MODELS = ['tiny', 'base', 'small', 'medium'];
+const API_MODELS = ['large'];
+const ALLOWED_MODELS = [...LOCAL_MODELS, ...API_MODELS];
 const ALLOWED_SUB_FORMATS = ['srt', 'ass'];
 
 const WHISPER_SCRIPT = path.join(__dirname, '..', 'utils', 'whisper.py');
@@ -158,6 +160,12 @@ async function handleTranscribeAsync(req, jobId) {
   if (!ALLOWED_MODELS.includes(model)) {
     job.status = 'error';
     job.error = `Invalid model. Allowed: ${ALLOWED_MODELS.join(', ')}`;
+    return;
+  }
+  if (API_MODELS.includes(model) && !process.env.OPENAI_API_KEY) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    job.status = 'error';
+    job.error = 'Large model requires API configuration. Use a local model (tiny/base/small/medium).';
     return;
   }
   if (outputMode === 'subtitles' && !ALLOWED_SUB_FORMATS.includes(subtitleFormat)) {
@@ -299,6 +307,10 @@ async function handleTranscribeAsync(req, jobId) {
 
     if (language) {
       whisperArgs.push('--language', language);
+    }
+
+    if (API_MODELS.includes(model)) {
+      whisperArgs.push('--use-api');
     }
 
     if (outputMode !== 'text') {
