@@ -3,6 +3,9 @@
   import FooterSimple from '../components/layout/FooterSimple.svelte';
   import QueueToggle from '../components/queue/QueueToggle.svelte';
   import ProgressBar from '../components/ui/ProgressBar.svelte';
+  import CropOverlay from '../components/editor/CropOverlay.svelte';
+  import ThumbnailTimeline from '../components/editor/ThumbnailTimeline.svelte';
+  import VideoControls from '../components/editor/VideoControls.svelte';
   import { apiBase } from '../lib/api.js';
   import { uploadChunked } from '../lib/upload.js';
   import { downloadBlob } from '../lib/download.js';
@@ -30,7 +33,6 @@
   let endTime = $state(0);
   let startTimeInput = $state('');
   let endTimeInput = $state('');
-  let cropRatio = $state('');
   let processing = $state(false);
   let progress = $state(0);
   let progressLabel = $state('');
@@ -41,8 +43,27 @@
   let videoEl = $state(null);
   let videoSrc = $state('');
 
-  const cropOptions = [
-    { value: '', label: 'original' },
+  // new editor state
+  let cropX = $state(0);
+  let cropY = $state(0);
+  let cropW = $state(0);
+  let cropH = $state(0);
+  let aspectLock = $state('');
+  let isPlaying = $state(false);
+  let currentTime = $state(0);
+  let segments = $state([]);
+  let thumbnails = $state([]);
+  let thumbnailsLoading = $state(false);
+  let containerWidth = $state(0);
+  let containerHeight = $state(0);
+  let videoWrapperEl = $state(null);
+
+  let nextSegId = 1;
+
+  const segmentColors = ['var(--purple-400)', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#ec4899'];
+
+  const aspectOptions = [
+    { value: '', label: 'free' },
     { value: '16:9', label: '16:9' },
     { value: '9:16', label: '9:16' },
     { value: '1:1', label: '1:1' },
@@ -50,25 +71,23 @@
     { value: '4:5', label: '4:5' },
   ];
 
-  let trimDuration = $derived.by(() => {
-    if (endTime > startTime) return endTime - startTime;
-    return videoDuration;
+  let hasCrop = $derived(
+    videoWidth > 0 && videoHeight > 0 &&
+    (cropX > 0 || cropY > 0 || cropW < videoWidth || cropH < videoHeight)
+  );
+
+  let hasValidTrim = $derived(
+    endTime > startTime && endTime > 0 &&
+    (videoDuration === 0 || startTime > 0.1 || endTime < videoDuration - 0.1)
+  );
+  let hasSegments = $derived(segments.length > 1);
+
+  let buttonLabel = $derived.by(() => {
+    if (hasSegments) return 'export';
+    if (hasCrop && hasValidTrim) return 'trim & crop';
+    if (hasCrop) return 'crop';
+    return 'trim';
   });
-
-  let trimDurationText = $derived.by(() => {
-    const d = trimDuration;
-    if (!d) return '--:--';
-    const mins = Math.floor(d / 60);
-    const secs = Math.floor(d % 60);
-    const tenths = Math.floor((d % 1) * 10);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${tenths}`;
-  });
-
-  let trimBarStart = $derived(videoDuration > 0 ? (startTime / videoDuration) * 100 : 0);
-  let trimBarEnd = $derived(videoDuration > 0 ? (endTime / videoDuration) * 100 : 100);
-
-  let buttonLabel = $derived(cropRatio ? 'trim & crop' : 'trim');
-  let hasValidTrim = $derived(endTime > startTime && endTime > 0);
 
   function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
@@ -95,8 +114,227 @@
     videoHeight = videoEl.videoHeight;
     endTime = videoEl.duration;
     endTimeInput = formatTime(videoEl.duration);
+    startTime = 0;
+    startTimeInput = '0:00.0';
+
+    // init crop to full video
+    cropX = 0;
+    cropY = 0;
+    cropW = videoWidth;
+    cropH = videoHeight;
+
+    // init segments
+    segments = [{ id: nextSegId++, start: 0, end: videoEl.duration, color: segmentColors[0] }];
+
+    // generate thumbnails for file uploads
+    if (videoSrc && videoSrc.startsWith('blob:')) {
+      generateThumbnails();
+    }
   }
 
+  // rAF loop for smooth playhead - only runs while playing
+  let rafId = null;
+  function startRafLoop() {
+    if (rafId) return;
+    function tick() {
+      if (videoEl && !videoEl.paused) {
+        currentTime = videoEl.currentTime;
+        rafId = requestAnimationFrame(tick);
+      } else {
+        rafId = null;
+      }
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function handlePlay() { isPlaying = true; startRafLoop(); }
+  function handlePause() { isPlaying = false; }
+  function handleEnded() { isPlaying = false; }
+
+  function togglePlayPause() {
+    if (!videoEl) return;
+    if (videoEl.paused) {
+      videoEl.play();
+    } else {
+      videoEl.pause();
+    }
+  }
+
+  function seekTo(time) {
+    if (!videoEl) return;
+    const clamped = Math.max(0, Math.min(videoDuration, time));
+    videoEl.currentTime = clamped;
+    currentTime = clamped;
+  }
+
+  function handleStartTimeChange(time) {
+    startTime = Math.max(0, time);
+    startTimeInput = formatTime(startTime);
+  }
+
+  function handleEndTimeChange(time) {
+    endTime = Math.min(videoDuration, time);
+    endTimeInput = formatTime(endTime);
+  }
+
+  function handleStartInput(value) {
+    startTimeInput = value;
+    const parsed = parseTimeInput(value);
+    if (parsed !== null && parsed >= 0) startTime = parsed;
+  }
+
+  function handleEndInput(value) {
+    endTimeInput = value;
+    const parsed = parseTimeInput(value);
+    if (parsed !== null && parsed >= 0) endTime = parsed;
+  }
+
+  // crop
+  function handleCropChange(x, y, w, h) {
+    cropX = x;
+    cropY = y;
+    cropW = w;
+    cropH = h;
+  }
+
+  function setAspect(value) {
+    aspectLock = value;
+    if (!videoWidth || !videoHeight) return;
+
+    if (value === '') {
+      // free: reset to full video
+      cropX = 0;
+      cropY = 0;
+      cropW = videoWidth;
+      cropH = videoHeight;
+      return;
+    }
+
+    const [aw, ah] = value.split(':').map(Number);
+    const ratio = aw / ah;
+    let w, h;
+
+    if (videoWidth / videoHeight > ratio) {
+      h = videoHeight;
+      w = h * ratio;
+    } else {
+      w = videoWidth;
+      h = w / ratio;
+    }
+
+    // center the crop
+    cropX = (videoWidth - w) / 2;
+    cropY = (videoHeight - h) / 2;
+    cropW = w;
+    cropH = h;
+  }
+
+  // segments
+  function splitAtPlayhead() {
+    if (segments.length === 0) return;
+
+    const time = currentTime;
+    const segIdx = segments.findIndex(s => time > s.start + 0.05 && time < s.end - 0.05);
+    if (segIdx === -1) return;
+
+    const seg = segments[segIdx];
+    const newSegs = [...segments];
+    const colorIdx1 = segIdx % segmentColors.length;
+    const colorIdx2 = (segIdx + 1) % segmentColors.length;
+
+    newSegs.splice(segIdx, 1,
+      { id: nextSegId++, start: seg.start, end: time, color: segmentColors[colorIdx1] },
+      { id: nextSegId++, start: time, end: seg.end, color: segmentColors[colorIdx2] },
+    );
+
+    // recolor all
+    segments = newSegs.map((s, i) => ({ ...s, color: segmentColors[i % segmentColors.length] }));
+  }
+
+  function removeSegment(id) {
+    segments = segments.filter(s => s.id !== id);
+    if (segments.length === 0) {
+      segments = [{ id: nextSegId++, start: startTime, end: endTime, color: segmentColors[0] }];
+    }
+    // recolor
+    segments = segments.map((s, i) => ({ ...s, color: segmentColors[i % segmentColors.length] }));
+  }
+
+  // thumbnails
+  async function generateThumbnails() {
+    if (!videoSrc || thumbnailsLoading) return;
+    thumbnailsLoading = true;
+    thumbnails = [];
+
+    try {
+      const thumbVideo = document.createElement('video');
+      thumbVideo.crossOrigin = 'anonymous';
+      thumbVideo.muted = true;
+      thumbVideo.preload = 'auto';
+      thumbVideo.src = videoSrc;
+
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('video load timeout')), 10000);
+        thumbVideo.onloadeddata = () => { clearTimeout(timer); resolve(); };
+        thumbVideo.onerror = () => { clearTimeout(timer); reject(new Error('video load error')); };
+      });
+
+      const count = Math.min(Math.ceil(videoDuration / 2), 60);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const aspect = thumbVideo.videoWidth / thumbVideo.videoHeight;
+      canvas.height = 56;
+      canvas.width = Math.round(56 * aspect);
+
+      const results = [];
+
+      for (let i = 0; i < count; i++) {
+        const time = (i / count) * videoDuration;
+        thumbVideo.currentTime = time;
+
+        await new Promise((resolve) => {
+          thumbVideo.onseeked = resolve;
+          setTimeout(resolve, 500);
+        });
+
+        ctx.drawImage(thumbVideo, 0, 0, canvas.width, canvas.height);
+        results.push(canvas.toDataURL('image/jpeg', 0.6));
+      }
+
+      thumbnails = results;
+      thumbVideo.src = '';
+      thumbVideo.load();
+    } catch (err) {
+      console.warn('thumbnail generation failed:', err);
+    } finally {
+      thumbnailsLoading = false;
+    }
+  }
+
+  // measure container
+  function updateContainerSize() {
+    if (videoWrapperEl && videoEl) {
+      containerWidth = videoEl.clientWidth;
+      containerHeight = videoEl.clientHeight;
+    }
+  }
+
+  $effect(() => {
+    if (videoWrapperEl) {
+      const ro = new ResizeObserver(updateContainerSize);
+      ro.observe(videoWrapperEl);
+      return () => ro.disconnect();
+    }
+  });
+
+  // cleanup rAF on unmount
+  $effect(() => {
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  });
+
+  // file handling
   async function handleFile(file) {
     if (!file) return;
     if (!file.type.startsWith('video/')) {
@@ -127,60 +365,18 @@
     endTime = 0;
     startTimeInput = '';
     endTimeInput = '';
-    cropRatio = '';
+    cropX = 0; cropY = 0; cropW = 0; cropH = 0;
+    aspectLock = '';
+    isPlaying = false;
+    currentTime = 0;
+    segments = [];
+    thumbnails = [];
     progress = 0;
     progressLabel = '';
     statusType = null;
     statusMessage = '';
     if (inputEl) inputEl.value = '';
   }
-
-  function setStart() {
-    if (!videoEl) return;
-    startTime = videoEl.currentTime;
-    startTimeInput = formatTime(startTime);
-  }
-
-  function setEnd() {
-    if (!videoEl) return;
-    endTime = videoEl.currentTime;
-    endTimeInput = formatTime(endTime);
-  }
-
-  function handleStartInput(value) {
-    startTimeInput = value;
-    const parsed = parseTimeInput(value);
-    if (parsed !== null && parsed >= 0) startTime = parsed;
-  }
-
-  function handleEndInput(value) {
-    endTimeInput = value;
-    const parsed = parseTimeInput(value);
-    if (parsed !== null && parsed >= 0) endTime = parsed;
-  }
-
-  // crop overlay dimensions
-  let cropOverlay = $derived.by(() => {
-    if (!cropRatio || !videoWidth || !videoHeight) return null;
-    const [rw, rh] = cropRatio.split(':').map(Number);
-    const vidAspect = videoWidth / videoHeight;
-    const cropAspect = rw / rh;
-    let left = 0, top = 0, right = 0, bottom = 0;
-    if (vidAspect > cropAspect) {
-      // wider than target, crop sides
-      const visibleWidth = cropAspect / vidAspect;
-      const margin = (1 - visibleWidth) / 2;
-      left = margin * 100;
-      right = margin * 100;
-    } else {
-      // taller than target, crop top/bottom
-      const visibleHeight = vidAspect / cropAspect;
-      const margin = (1 - visibleHeight) / 2;
-      top = margin * 100;
-      bottom = margin * 100;
-    }
-    return { left, top, right, bottom };
-  });
 
   async function safeParseError(res) {
     let text = '';
@@ -202,8 +398,8 @@
     const isUrlMode = inputMode === 'url' && urlInput.trim();
     if ((!selectedFile && !isUrlMode && !fetchedFile) || processing) return;
 
-    if (!hasValidTrim && !cropRatio) {
-      addToast('set start and end times, or pick a crop ratio', 'error');
+    if (!hasValidTrim && !hasCrop && !hasSegments) {
+      addToast('set start and end times, pick a crop, or split the video', 'error');
       return;
     }
 
@@ -233,7 +429,6 @@
       let filePath, uploadedFileName;
 
       if (isUrlMode && !fetchedFile) {
-        // fetch URL first
         progressLabel = 'Downloading media...';
         queue.updateItem(queueId, { status: 'downloading media...' });
 
@@ -273,7 +468,6 @@
         uploadedFileName = fetchedFile.fileName;
         queue.updateItem(queueId, { stage: 'processing', status: 'processing...', progress: 0 });
       } else {
-        // file upload
         progressLabel = 'Uploading...';
         const result = await uploadChunked(selectedFile, (p) => {
           progress = p;
@@ -295,12 +489,25 @@
         format: 'mp4',
         reencode: 'always',
       };
-      if (hasValidTrim) {
+
+      if (hasValidTrim && !hasSegments) {
         body.startTime = String(startTime);
         body.endTime = String(endTime);
       }
-      if (cropRatio) {
-        body.cropRatio = cropRatio;
+
+      if (hasCrop) {
+        // round to even numbers for ffmpeg
+        body.cropX = Math.round(cropX);
+        body.cropY = Math.round(cropY);
+        body.cropW = Math.round(cropW) - (Math.round(cropW) % 2);
+        body.cropH = Math.round(cropH) - (Math.round(cropH) % 2);
+      } else if (aspectLock) {
+        // URL mode without video preview - use ratio string
+        body.cropRatio = aspectLock;
+      }
+
+      if (hasSegments) {
+        body.segments = segments.map(s => ({ start: s.start, end: s.end }));
       }
 
       const initResponse = await fetch(`${apiBase()}/api/convert-chunked`, {
@@ -374,6 +581,8 @@
       if (heartbeatJobId) stopHeartbeat(heartbeatJobId);
     }
   }
+
+  let hasVideo = $derived(!!((selectedFile && videoSrc) || fetchedFile));
 </script>
 
 <HeaderSimple>
@@ -386,7 +595,8 @@
     <p>cut videos and change aspect ratios</p>
   </div>
 
-  <div class="trim-container">
+  <!-- file input section - always narrow -->
+  <div class="input-section">
     {#if !selectedFile && !fetchedFile}
       <div class="input-tabs">
         <button class="input-tab" class:active={inputMode === 'file'} onclick={() => inputMode = 'file'}>upload file</button>
@@ -438,7 +648,7 @@
           </div>
           <div class="file-details">
             <div class="file-name" title={fetchedFile ? fetchedFile.fileName : selectedFile.name}>{fetchedFile ? fetchedFile.fileName : selectedFile.name}</div>
-            <div class="file-size">{fetchedFile ? formatBytes(fetchedFile.fileSize) : formatBytes(selectedFile.size)}</div>
+            <div class="file-size">{fetchedFile ? formatBytes(fetchedFile.fileSize) : formatBytes(selectedFile.size)}{videoWidth && videoHeight ? ` \u2022 ${videoWidth}x${videoHeight}` : ''}</div>
           </div>
           <button class="file-remove" onclick={removeFile}>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -449,66 +659,99 @@
         </div>
       </div>
     {/if}
+  </div>
 
-    {#if selectedFile && videoSrc}
-      <div class="video-preview">
-        <div class="video-wrapper">
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video
-            bind:this={videoEl}
-            src={videoSrc}
-            controls
-            preload="metadata"
-            onloadedmetadata={handleVideoLoaded}
-          ></video>
-          {#if cropOverlay}
-            <div class="crop-overlay crop-overlay-top" style="height: {cropOverlay.top}%"></div>
-            <div class="crop-overlay crop-overlay-bottom" style="height: {cropOverlay.bottom}%"></div>
-            <div class="crop-overlay crop-overlay-left" style="width: {cropOverlay.left}%; top: {cropOverlay.top}%; bottom: {cropOverlay.bottom}%"></div>
-            <div class="crop-overlay crop-overlay-right" style="width: {cropOverlay.right}%; top: {cropOverlay.top}%; bottom: {cropOverlay.bottom}%"></div>
-          {/if}
-        </div>
-
-        <div class="trim-controls">
-          <div class="trim-buttons">
-            <button class="trim-btn" onclick={setStart}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="17" y1="10" x2="3" y2="10"></line>
-                <line x1="21" y1="6" x2="3" y2="6"></line>
-                <line x1="21" y1="14" x2="3" y2="14"></line>
-                <line x1="17" y1="18" x2="3" y2="18"></line>
-              </svg>
-              set start
-            </button>
-            <div class="trim-time">{formatTime(startTime)}</div>
-            <span class="trim-arrow">→</span>
-            <div class="trim-time">{formatTime(endTime)}</div>
-            <button class="trim-btn" onclick={setEnd}>
-              set end
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="17" y1="10" x2="3" y2="10"></line>
-                <line x1="21" y1="6" x2="3" y2="6"></line>
-                <line x1="21" y1="14" x2="3" y2="14"></line>
-                <line x1="17" y1="18" x2="3" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-
-          <div class="trim-bar">
-            <div
-              class="trim-bar-selected"
-              style="left: {trimBarStart}%; right: {100 - trimBarEnd}%"
-            ></div>
-          </div>
-
-          <div class="trim-duration">
-            trimmed duration: <strong>{trimDurationText}</strong>
-          </div>
-        </div>
+  <!-- editor section - wider when video loaded -->
+  {#if selectedFile && videoSrc}
+    <div class="editor-section">
+      <div class="video-wrapper" bind:this={videoWrapperEl}>
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={videoEl}
+          src={videoSrc}
+          preload="metadata"
+          onloadedmetadata={handleVideoLoaded}
+          onplay={handlePlay}
+          onpause={handlePause}
+          onended={handleEnded}
+          onclick={togglePlayPause}
+        ></video>
+        {#if videoWidth > 0 && containerWidth > 0}
+          <CropOverlay
+            {videoWidth}
+            {videoHeight}
+            {containerWidth}
+            {containerHeight}
+            {cropX}
+            {cropY}
+            {cropW}
+            {cropH}
+            {aspectLock}
+            onCropChange={handleCropChange}
+          />
+        {/if}
       </div>
-    {/if}
 
-    {#if inputMode === 'url' && !selectedFile && !fetchedFile}
+      <!-- aspect ratio bar -->
+      <div class="aspect-bar">
+        {#each aspectOptions as opt}
+          <button
+            class="aspect-btn"
+            class:active={aspectLock === opt.value}
+            onclick={() => setAspect(opt.value)}
+          >
+            {opt.label}
+          </button>
+        {/each}
+      </div>
+
+      <!-- video controls -->
+      <VideoControls
+        {isPlaying}
+        {currentTime}
+        duration={videoDuration}
+        onPlayPause={togglePlayPause}
+        onSplitAtPlayhead={splitAtPlayhead}
+      />
+
+      <!-- thumbnail timeline -->
+      <ThumbnailTimeline
+        duration={videoDuration}
+        {currentTime}
+        {startTime}
+        {endTime}
+        {thumbnails}
+        {thumbnailsLoading}
+        {segments}
+        onSeek={seekTo}
+        onStartTimeChange={handleStartTimeChange}
+        onEndTimeChange={handleEndTimeChange}
+      />
+
+      <!-- segment list -->
+      {#if segments.length > 1}
+        <div class="segment-list">
+          <div class="segment-list-label">segments</div>
+          {#each segments as seg, i}
+            <div class="segment-row">
+              <div class="segment-color" style="background: {seg.color}"></div>
+              <span class="segment-range">{formatTime(seg.start)} → {formatTime(seg.end)}</span>
+              <button class="segment-remove" onclick={() => removeSegment(seg.id)} title="Remove segment">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- url mode: manual time inputs when no video preview -->
+  {#if inputMode === 'url' && !selectedFile && !fetchedFile}
+    <div class="input-section">
       <div class="section">
         <div class="section-label">trim times (seconds or MM:SS)</div>
         <div class="manual-time-inputs">
@@ -533,23 +776,26 @@
           </div>
         </div>
       </div>
-    {/if}
 
-    <div class="section">
-      <div class="section-label">crop aspect ratio</div>
-      <div class="segmented-control">
-        {#each cropOptions as opt}
-          <button
-            class="segment"
-            class:active={cropRatio === opt.value}
-            onclick={() => cropRatio = opt.value}
-          >
-            {opt.label}
-          </button>
-        {/each}
+      <div class="section">
+        <div class="section-label">crop aspect ratio</div>
+        <div class="segmented-control">
+          {#each aspectOptions.slice(1) as opt}
+            <button
+              class="segment"
+              class:active={aspectLock === opt.value}
+              onclick={() => { aspectLock = aspectLock === opt.value ? '' : opt.value; }}
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
       </div>
     </div>
+  {/if}
 
+  <!-- process button & status -->
+  <div class="input-section">
     <button
       class="process-btn"
       onclick={processTrim}
@@ -588,11 +834,12 @@
     justify-content: flex-start;
     padding: 40px 20px;
     width: 100%;
+    gap: 16px;
   }
 
   .page-header {
     text-align: center;
-    margin-bottom: 32px;
+    margin-bottom: 16px;
   }
 
   .page-header h1 {
@@ -608,12 +855,20 @@
     font-size: 1rem;
   }
 
-  .trim-container {
+  .input-section {
     width: 100%;
     max-width: 500px;
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  .editor-section {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .input-tabs {
@@ -676,12 +931,6 @@
 
   .url-input::placeholder {
     color: var(--text-muted);
-  }
-
-  .url-hint {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    text-align: center;
   }
 
   .drop-zone {
@@ -785,134 +1034,112 @@
     background: rgba(248, 113, 113, 0.1);
   }
 
-  .video-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
   .video-wrapper {
     position: relative;
     border-radius: var(--radius-md);
     overflow: hidden;
     background: #000;
+    border: 3px solid var(--purple-300);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.12);
   }
 
   .video-wrapper video {
     width: 100%;
     display: block;
-    border-radius: var(--radius-md);
+    cursor: pointer;
   }
 
-  .crop-overlay {
-    position: absolute;
-    background: rgba(0, 0, 0, 0.6);
-    pointer-events: none;
-    z-index: 2;
-  }
-
-  .crop-overlay-top {
-    top: 0;
-    left: 0;
-    right: 0;
-  }
-
-  .crop-overlay-bottom {
-    bottom: 0;
-    left: 0;
-    right: 0;
-  }
-
-  .crop-overlay-left {
-    left: 0;
-    position: absolute;
-  }
-
-  .crop-overlay-right {
-    right: 0;
-    position: absolute;
-  }
-
-  .trim-controls {
+  .aspect-bar {
+    display: flex;
+    gap: 3px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    border-radius: 20px;
+    padding: 3px;
   }
 
-  .trim-buttons {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .trim-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+  .aspect-btn {
+    flex: 1;
+    padding: 6px 10px;
     font-family: var(--font-body);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--purple-400);
-    background: var(--purple-900);
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 16px;
     cursor: pointer;
     transition: all 0.15s ease-out;
+    text-align: center;
   }
 
-  .trim-btn:hover {
+  .aspect-btn:hover:not(.active) {
+    color: var(--text);
+    background: var(--surface-elevated);
+  }
+
+  .aspect-btn.active {
     background: var(--purple-500);
     color: white;
   }
 
-  .trim-time {
-    font-family: monospace;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text);
-    padding: 6px 10px;
+  .segment-list {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .segment-list-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+
+  .segment-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
     background: var(--surface-elevated);
     border-radius: var(--radius-sm);
   }
 
-  .trim-arrow {
-    color: var(--text-muted);
-    font-size: 0.9rem;
+  .segment-color {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
   }
 
-  .trim-bar {
-    position: relative;
-    height: 8px;
-    background: var(--surface-elevated);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .trim-bar-selected {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    background: var(--purple-500);
-    border-radius: 4px;
-    transition: left 0.15s ease-out, right 0.15s ease-out;
-  }
-
-  .trim-duration {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    text-align: center;
-  }
-
-  .trim-duration strong {
-    color: var(--text);
+  .segment-range {
     font-family: monospace;
+    font-size: 0.8rem;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .segment-remove {
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s ease-out;
+    display: flex;
+    align-items: center;
+  }
+
+  .segment-remove:hover {
+    color: var(--error);
+    background: rgba(248, 113, 113, 0.1);
   }
 
   .section {
@@ -963,6 +1190,11 @@
 
   .time-field input:focus {
     border-color: var(--purple-500);
+  }
+
+  .trim-arrow {
+    color: var(--text-muted);
+    font-size: 0.9rem;
   }
 
   .segmented-control {
@@ -1080,9 +1312,9 @@
       padding: 16px;
     }
 
-    .segment {
-      padding: 12px 10px;
-      font-size: 0.85rem;
+    .aspect-btn {
+      padding: 10px 8px;
+      font-size: 0.75rem;
     }
 
     .process-btn {
@@ -1096,15 +1328,6 @@
 
     .file-remove:active {
       transform: scale(0.9);
-    }
-
-    .trim-buttons {
-      gap: 6px;
-    }
-
-    .trim-btn {
-      padding: 8px 10px;
-      font-size: 0.75rem;
     }
 
     .time-field input {

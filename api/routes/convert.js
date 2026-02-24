@@ -441,7 +441,12 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
     startTime,
     endTime,
     audioBitrate = '192',
-    cropRatio
+    cropRatio,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    segments
   } = req.body;
 
   const validPath = validateChunkedFilePath(filePath);
@@ -470,6 +475,42 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
     return res.status(400).json({ error: `Invalid crop ratio. Allowed: ${ALLOWED_CROP_RATIOS.join(', ')}` });
   }
 
+  // validate raw crop params if provided
+  const hasRawCrop = cropX !== undefined && cropY !== undefined && cropW !== undefined && cropH !== undefined;
+  if (hasRawCrop) {
+    const cx = parseInt(cropX), cy = parseInt(cropY), cw = parseInt(cropW), ch = parseInt(cropH);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cw) || !Number.isFinite(ch)) {
+      fs.unlink(validPath, () => { });
+      return res.status(400).json({ error: 'Invalid crop parameters: must be integers' });
+    }
+    if (cx < 0 || cy < 0 || cw <= 0 || ch <= 0) {
+      fs.unlink(validPath, () => { });
+      return res.status(400).json({ error: 'Invalid crop parameters: values must be positive' });
+    }
+    if (cw % 2 !== 0 || ch % 2 !== 0) {
+      fs.unlink(validPath, () => { });
+      return res.status(400).json({ error: 'Invalid crop parameters: width and height must be even' });
+    }
+  }
+
+  // validate segments if provided
+  if (segments) {
+    if (!Array.isArray(segments) || segments.length === 0) {
+      fs.unlink(validPath, () => { });
+      return res.status(400).json({ error: 'Invalid segments: must be a non-empty array' });
+    }
+    if (segments.length > 20) {
+      fs.unlink(validPath, () => { });
+      return res.status(400).json({ error: 'Too many segments (max 20)' });
+    }
+    for (const seg of segments) {
+      if (typeof seg.start !== 'number' || typeof seg.end !== 'number' || seg.end <= seg.start) {
+        fs.unlink(validPath, () => { });
+        return res.status(400).json({ error: 'Invalid segment: each must have numeric start < end' });
+      }
+    }
+  }
+
   const safeBitrate = ALLOWED_AUDIO_BITRATES.includes(audioBitrate) ? audioBitrate : '192';
 
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
@@ -481,6 +522,11 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
   req.body.endTime = endTime;
   req.body.audioBitrate = safeBitrate;
   req.body.cropRatio = cropRatio;
+  req.body.cropX = cropX;
+  req.body.cropY = cropY;
+  req.body.cropW = cropW;
+  req.body.cropH = cropH;
+  req.body.segments = segments;
 
   const jobId = uuidv4();
 
@@ -506,7 +552,28 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
   });
 });
 
-async function buildCropFilter(inputPath, cropRatio, logId) {
+async function buildCropFilter(inputPath, cropOpts, logId) {
+  // cropOpts can be a string (ratio like "16:9") or an object { cropX, cropY, cropW, cropH }
+  if (typeof cropOpts === 'object' && cropOpts.cropW && cropOpts.cropH) {
+    const { cropX: cx, cropY: cy, cropW: cw, cropH: ch } = cropOpts;
+    const x = parseInt(cx), y = parseInt(cy), w = parseInt(cw), h = parseInt(ch);
+
+    // validate against actual video dimensions
+    const probeDims = await probeVideo(inputPath);
+    if (x + w > probeDims.width || y + h > probeDims.height) {
+      console.log(`[${logId}] Crop skipped: crop rect exceeds video bounds (${x}+${w} x ${y}+${h} vs ${probeDims.width}x${probeDims.height})`);
+      return null;
+    }
+
+    const filter = `crop=${w}:${h}:${x}:${y}`;
+    console.log(`[${logId}] Crop (raw): ${filter}`);
+    return filter;
+  }
+
+  // string ratio path
+  const cropRatio = typeof cropOpts === 'string' ? cropOpts : null;
+  if (!cropRatio) return null;
+
   const probeDims = await probeVideo(inputPath);
   const videoW = probeDims.width;
   const videoH = probeDims.height;
@@ -755,7 +822,12 @@ async function handleConvertAsync(req, jobId) {
     startTime,
     endTime,
     audioBitrate = '192',
-    cropRatio
+    cropRatio,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    segments
   } = req.body;
 
   const convertId = jobId;
@@ -806,42 +878,43 @@ async function handleConvertAsync(req, jobId) {
     return;
   }
 
+  // determine crop filter source: raw coords take priority over ratio
+  const hasRawCrop = cropX !== undefined && cropY !== undefined && cropW !== undefined && cropH !== undefined;
+  const cropOpts = hasRawCrop ? { cropX, cropY, cropW, cropH } : (cropRatio || null);
+  const hasCrop = !!cropOpts;
+
+  // determine if we have multiple segments
+  const hasSegments = Array.isArray(segments) && segments.length > 1;
+
+  const tempClips = []; // track temp files for cleanup
+
   try {
     const isAudioFormat = ['mp3', 'm4a', 'opus', 'wav', 'flac'].includes(format);
-    const validStartTime = validateTimeParam(startTime);
-    const validEndTime = validateTimeParam(endTime);
 
     job.message = 'Analyzing file...';
     job.progress = 5;
 
-    const ffmpegArgs = ['-y'];
+    const duration = await new Promise((resolve) => {
+      const ffprobe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath]);
+      let out = '';
+      ffprobe.stdout.on('data', (d) => { out += d.toString(); });
+      ffprobe.on('close', () => resolve(parseFloat(out) || 60));
+      ffprobe.on('error', () => resolve(60));
+    });
 
-    if (validStartTime) ffmpegArgs.push('-ss', validStartTime);
-    if (validEndTime) ffmpegArgs.push('-to', validEndTime);
+    // build crop filter if needed
+    const cropFilter = hasCrop ? await buildCropFilter(inputPath, cropOpts, convertId) : null;
 
-    ffmpegArgs.push('-i', inputPath, '-threads', '0');
-
-    if (isAudioFormat) {
-      if (format === 'mp3') {
-        ffmpegArgs.push('-codec:a', 'libmp3lame', '-b:a', `${audioBitrate}k`);
-      } else if (format === 'm4a') {
-        ffmpegArgs.push('-codec:a', 'aac', '-b:a', `${audioBitrate}k`);
-      } else if (format === 'opus') {
-        ffmpegArgs.push('-codec:a', 'libopus', '-b:a', '128k');
-      } else if (format === 'wav') {
-        ffmpegArgs.push('-codec:a', 'pcm_s16le');
-      } else if (format === 'flac') {
-        ffmpegArgs.push('-codec:a', 'flac');
-      }
-      ffmpegArgs.push('-vn');
-    } else {
+    // probe codec for reencode decision
+    // force reencode for multi-segment to avoid keyframe artifacts at concat boundaries
+    let needsReencode = reencode === 'always' || hasCrop || hasSegments;
+    if (!isAudioFormat && !needsReencode) {
       const codecCompatibility = {
         'mp4': ['h264', 'avc', 'hevc', 'h265'],
         'webm': ['vp8', 'vp9', 'av1'],
         'mkv': ['*'],
         'mov': ['h264', 'hevc', 'prores']
       };
-
       const probeCodec = await new Promise((resolve) => {
         const ffprobe = spawn('ffprobe', [
           '-v', 'error', '-select_streams', 'v:0',
@@ -852,68 +925,168 @@ async function handleConvertAsync(req, jobId) {
         ffprobe.on('close', () => resolve(out.trim().toLowerCase()));
         ffprobe.on('error', () => resolve('unknown'));
       });
-
       const compat = codecCompatibility[format] || [];
       const isCompatible = compat.includes('*') || compat.some(c => probeCodec.includes(c));
-      const needsReencode = reencode === 'always' || (reencode === 'auto' && !isCompatible) || !!cropRatio;
-
-      const cropFilter = cropRatio ? await buildCropFilter(inputPath, cropRatio, convertId) : null;
-
-      if (needsReencode) {
-        const crfValues = { high: 18, medium: 23, low: 28 };
-        const crf = crfValues[quality] || 23;
-        if (cropFilter) {
-          ffmpegArgs.push('-vf', cropFilter);
-        }
-        ffmpegArgs.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k');
-      } else {
-        ffmpegArgs.push('-codec', 'copy');
-      }
-
-      if (format === 'mp4' || format === 'mov') {
-        ffmpegArgs.push('-movflags', '+faststart');
-      }
+      if (reencode === 'auto' && !isCompatible) needsReencode = true;
     }
 
-    ffmpegArgs.push(outputPath);
+    const crfValues = { high: 18, medium: 23, low: 28 };
+    const crf = crfValues[quality] || 23;
 
-    job.message = 'Converting...';
-    job.progress = 10;
+    // helper to build ffmpeg args for a single segment
+    function buildSegmentArgs(segStart, segEnd, outFile) {
+      const args = ['-y'];
+      if (segStart > 0) args.push('-ss', String(segStart));
+      if (segEnd < duration) args.push('-to', String(segEnd));
+      args.push('-i', inputPath, '-threads', '0');
 
-    const duration = await new Promise((resolve) => {
-      const ffprobe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath]);
-      let out = '';
-      ffprobe.stdout.on('data', (d) => { out += d.toString(); });
-      ffprobe.on('close', () => resolve(parseFloat(out) || 60));
-      ffprobe.on('error', () => resolve(60));
-    });
+      if (isAudioFormat) {
+        if (format === 'mp3') args.push('-codec:a', 'libmp3lame', '-b:a', `${audioBitrate}k`);
+        else if (format === 'm4a') args.push('-codec:a', 'aac', '-b:a', `${audioBitrate}k`);
+        else if (format === 'opus') args.push('-codec:a', 'libopus', '-b:a', '128k');
+        else if (format === 'wav') args.push('-codec:a', 'pcm_s16le');
+        else if (format === 'flac') args.push('-codec:a', 'flac');
+        args.push('-vn');
+      } else if (needsReencode) {
+        if (cropFilter) args.push('-vf', cropFilter);
+        args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k');
+      } else {
+        args.push('-codec', 'copy');
+      }
 
-    await new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      if (!isAudioFormat && (format === 'mp4' || format === 'mov')) {
+        args.push('-movflags', '+faststart');
+      }
+      args.push(outFile);
+      return args;
+    }
 
-      ffmpeg.stderr.on('data', (data) => {
-        const msg = data.toString();
-        const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
-        if (timeMatch) {
-          const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
-          const progress = Math.min(95, 10 + (currentTime / duration) * 85);
+    if (hasSegments) {
+      // multi-segment: encode each segment, then concat
+      console.log(`[${convertId}] Processing ${segments.length} segments`);
+      job.message = `Processing segment 1/${segments.length}...`;
+      job.progress = 10;
 
-          const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
-          const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
-          const eta = speed ? formatETA((duration - currentTime) / speed) : null;
+      const clipPaths = [];
+      const totalSegDuration = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
+      let processedDuration = 0;
 
-          job.progress = Math.round(progress);
-          job.message = eta ? `Converting... ${Math.round(progress)}% (ETA: ${eta})` : `Converting... ${Math.round(progress)}%`;
-        }
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const clipPath = path.join(TEMP_DIRS.convert, `${convertId}-clip${i}.${format}`);
+        tempClips.push(clipPath);
+        clipPaths.push(clipPath);
+
+        const segDuration = seg.end - seg.start;
+        const segArgs = buildSegmentArgs(seg.start, seg.end, clipPath);
+
+        job.message = `Processing segment ${i + 1}/${segments.length}...`;
+
+        await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', segArgs);
+          ffmpeg.stderr.on('data', (data) => {
+            const msg = data.toString();
+            const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+            if (timeMatch) {
+              const ct = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              const segProgress = ct / segDuration;
+              const overallProgress = 10 + ((processedDuration + segDuration * segProgress) / totalSegDuration) * 75;
+              job.progress = Math.round(Math.min(85, overallProgress));
+              job.message = `Segment ${i + 1}/${segments.length}... ${Math.round(segProgress * 100)}%`;
+            }
+          });
+          ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Segment ${i + 1} failed with code ${code}`)));
+          ffmpeg.on('error', reject);
+        });
+
+        processedDuration += segDuration;
+      }
+
+      // write concat list (all temp files on encrypted volume via TEMP_DIRS.convert)
+      const concatListPath = path.join(TEMP_DIRS.convert, `${convertId}-concat.txt`);
+      tempClips.push(concatListPath);
+      const concatContent = clipPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+      fs.writeFileSync(concatListPath, concatContent);
+
+      job.message = 'Joining segments...';
+      job.progress = 90;
+
+      // concat with stream copy
+      await new Promise((resolve, reject) => {
+        const concatArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-c', 'copy'];
+        if (format === 'mp4' || format === 'mov') concatArgs.push('-movflags', '+faststart');
+        concatArgs.push(outputPath);
+
+        const ffmpeg = spawn('ffmpeg', concatArgs);
+        ffmpeg.stderr.on('data', () => {});
+        ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Concat failed with code ${code}`)));
+        ffmpeg.on('error', reject);
       });
 
-      ffmpeg.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`Conversion failed with code ${code}`));
-      });
+      // clean up temp clips
+      for (const clip of tempClips) {
+        try { fs.unlinkSync(clip); } catch { }
+      }
 
-      ffmpeg.on('error', reject);
-    });
+    } else {
+      // single segment / simple trim
+      const validStartTime = validateTimeParam(startTime);
+      const validEndTime = validateTimeParam(endTime);
+
+      const finalArgs = ['-y'];
+      if (validStartTime) finalArgs.push('-ss', validStartTime);
+      if (validEndTime) finalArgs.push('-to', validEndTime);
+      finalArgs.push('-i', inputPath, '-threads', '0');
+
+      if (isAudioFormat) {
+        if (format === 'mp3') finalArgs.push('-codec:a', 'libmp3lame', '-b:a', `${audioBitrate}k`);
+        else if (format === 'm4a') finalArgs.push('-codec:a', 'aac', '-b:a', `${audioBitrate}k`);
+        else if (format === 'opus') finalArgs.push('-codec:a', 'libopus', '-b:a', '128k');
+        else if (format === 'wav') finalArgs.push('-codec:a', 'pcm_s16le');
+        else if (format === 'flac') finalArgs.push('-codec:a', 'flac');
+        finalArgs.push('-vn');
+      } else if (needsReencode) {
+        if (cropFilter) finalArgs.push('-vf', cropFilter);
+        finalArgs.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k');
+      } else {
+        finalArgs.push('-codec', 'copy');
+      }
+
+      if (!isAudioFormat && (format === 'mp4' || format === 'mov')) {
+        finalArgs.push('-movflags', '+faststart');
+      }
+      finalArgs.push(outputPath);
+
+      job.message = 'Converting...';
+      job.progress = 10;
+
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', finalArgs);
+
+        ffmpeg.stderr.on('data', (data) => {
+          const msg = data.toString();
+          const timeMatch = msg.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+          if (timeMatch) {
+            const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+            const progress = Math.min(95, 10 + (currentTime / duration) * 85);
+
+            const speedMatch = msg.match(/speed=\s*([\d.]+)x/);
+            const speed = speedMatch ? parseFloat(speedMatch[1]) : null;
+            const eta = speed ? formatETA((duration - currentTime) / speed) : null;
+
+            job.progress = Math.round(progress);
+            job.message = eta ? `Converting... ${Math.round(progress)}% (ETA: ${eta})` : `Converting... ${Math.round(progress)}%`;
+          }
+        });
+
+        ffmpeg.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Conversion failed with code ${code}`));
+        });
+
+        ffmpeg.on('error', reject);
+      });
+    }
 
     try { fs.unlinkSync(inputPath); } catch { }
 
@@ -942,6 +1115,10 @@ async function handleConvertAsync(req, jobId) {
     console.error(`[${convertId}] Async convert error:`, err);
     try { fs.unlinkSync(inputPath); } catch { }
     try { fs.unlinkSync(outputPath); } catch { }
+    // clean up any temp clips
+    for (const clip of tempClips) {
+      try { fs.unlinkSync(clip); } catch { }
+    }
     activeJobsByType.convert--;
     unlinkJobFromClient(convertId);
 
