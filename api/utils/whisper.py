@@ -164,6 +164,29 @@ def apply_gap(segments, gap):
     return segments
 
 
+def deduplicate_segments(segments):
+    """Remove consecutive segments with identical or near-identical text.
+    Whisper (especially the API) sometimes hallucinates repeated segments."""
+    if not segments:
+        return segments
+    result = [segments[0]]
+    for seg in segments[1:]:
+        prev_text = result[-1]["text"].strip().lower()
+        curr_text = seg["text"].strip().lower()
+        # skip exact duplicate text
+        if curr_text == prev_text:
+            continue
+        # skip if current text is fully contained in the previous segment
+        if curr_text and curr_text in prev_text:
+            continue
+        # skip if previous text is fully contained in current (keep the longer one)
+        if prev_text and prev_text in curr_text:
+            result[-1] = seg
+            continue
+        result.append(seg)
+    return result
+
+
 def wrap_lines(segments, max_chars):
     """Insert \\n line breaks via greedy word-wrap."""
     for seg in segments:
@@ -384,7 +407,8 @@ def main():
         write_result(False, error="No speech detected in audio")
         sys.exit(1)
 
-    # Post-processing: split → min duration → gap → wrap lines
+    # Post-processing: dedup → split → min duration → gap → wrap lines
+    segments = deduplicate_segments(segments)
     if args.max_words_per_caption > 0:
         segments = split_by_word_count(segments, args.max_words_per_caption)
     if args.min_duration > 0:
