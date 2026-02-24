@@ -244,7 +244,7 @@
     }
 
     if (currentFormat === 'images' && isYouTubeUrl(url)) {
-      addToast('YouTube doesn\'t support image downloads — use video or audio', 'error');
+      addToast('YouTube doesn\'t support image downloads, use video or audio', 'error');
       return;
     }
 

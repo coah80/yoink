@@ -32,8 +32,65 @@
     '/updates': Updates,
   };
 
+  const pageTitles = {
+    '/': [
+      'yoink - download youtube videos, audio, and clips for free',
+      'yoink - free video downloader for youtube, twitter, tiktok',
+      'yoink - save videos from any site in seconds',
+      'yoink - fast youtube downloader, no ads, no signup',
+      'yoink - download videos and audio from 1000+ sites',
+    ],
+    '/convert': [
+      'yoink - convert videos to mp4, webm, mp3, and more',
+      'yoink - free online video and audio converter',
+      'yoink - convert any video format instantly',
+      'yoink - turn videos into mp3, mp4, wav, flac, and more',
+      'yoink - fast video converter, no file size limit',
+    ],
+    '/compress': [
+      'yoink - compress videos to any file size for free',
+      'yoink - shrink video files without losing quality',
+      'yoink - free video compressor for discord, email, and more',
+      'yoink - make videos smaller in seconds',
+      'yoink - reduce video file size online, fast and free',
+    ],
+    '/trim': [
+      'yoink - trim and crop videos online for free',
+      'yoink - cut videos to any length and aspect ratio',
+      'yoink - clip videos for reels, shorts, and tiktok',
+      'yoink - free video trimmer with crop and preview',
+      'yoink - trim videos to 9:16, 16:9, 1:1, and more',
+    ],
+    '/transcribe': [
+      'yoink - transcribe videos and audio to text for free',
+      'yoink - free video transcription with subtitles and captions',
+      'yoink - generate subtitles from any video or audio file',
+      'yoink - turn speech into text, srt, or burned-in captions',
+      'yoink - free audio transcription, no account needed',
+    ],
+    '/settings': [
+      'yoink - settings',
+    ],
+    '/privacy': [
+      'yoink - privacy',
+    ],
+    '/updates': [
+      'yoink - updates and changelog',
+    ],
+  };
+
+  function pickTitle(route) {
+    const titles = pageTitles[route];
+    if (!titles) return 'yoink.tools';
+    return titles[Math.floor(Math.random() * titles.length)];
+  }
+
   let currentPath = $derived($path);
   let CurrentPage = $derived(routes[currentPath] || NotFound);
+
+  $effect(() => {
+    document.title = pickTitle(currentPath);
+  });
 
   function handleClick(e) {
     const a = e.target.closest('a');

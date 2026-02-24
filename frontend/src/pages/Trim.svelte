@@ -167,13 +167,13 @@
     const cropAspect = rw / rh;
     let left = 0, top = 0, right = 0, bottom = 0;
     if (vidAspect > cropAspect) {
-      // wider than target — crop sides
+      // wider than target, crop sides
       const visibleWidth = cropAspect / vidAspect;
       const margin = (1 - visibleWidth) / 2;
       left = margin * 100;
       right = margin * 100;
     } else {
-      // taller than target — crop top/bottom
+      // taller than target, crop top/bottom
       const visibleHeight = vidAspect / cropAspect;
       const margin = (1 - visibleHeight) / 2;
       top = margin * 100;
@@ -426,7 +426,6 @@
             placeholder="https://youtube.com/watch?v=..."
             bind:value={urlInput}
           />
-          <p class="url-hint">paste a link to any video — youtube, twitter, tiktok, etc.</p>
         </div>
       {/if}
     {:else}

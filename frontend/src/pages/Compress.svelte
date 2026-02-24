@@ -544,7 +544,6 @@
             placeholder="https://youtube.com/watch?v=..."
             bind:value={urlInput}
           />
-          <p class="url-hint">paste a link to any video — youtube, twitter, tiktok, etc.</p>
         </div>
       {/if}
     {:else if fetchedFile}
