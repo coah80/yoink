@@ -98,7 +98,7 @@ const COMPRESSION_CONFIG = {
 // Bot Configuration
 const BOT_SECRET = process.env.BOT_SECRET;
 if (!BOT_SECRET) {
-  console.error('[FATAL] BOT_SECRET environment variable is not set — bot endpoints will be unprotected');
+  console.error('[FATAL] BOT_SECRET environment variable is not set, bot endpoints will be unprotected');
 }
 const BOT_DOWNLOAD_EXPIRY = 5 * 60 * 1000;
 const PLAYLIST_DOWNLOAD_EXPIRY = 12 * 60 * 60 * 1000;
@@ -126,6 +126,7 @@ const ASYNC_JOB_TIMEOUT = 60 * 60 * 1000;
 const ALLOWED_FORMATS = ['mp4', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'opus', 'wav', 'flac'];
 const ALLOWED_REENCODES = ['auto', 'always', 'never'];
 const ALLOWED_CROP_RATIOS = ['16:9', '9:16', '1:1', '4:3', '4:5'];
+const ALLOWED_AUDIO_BITRATES = ['64', '96', '128', '192', '256', '320'];
 
 // Error Messages
 const BOT_DETECTION_ERRORS = [
@@ -168,5 +169,6 @@ module.exports = {
   ALLOWED_FORMATS,
   ALLOWED_REENCODES,
   ALLOWED_CROP_RATIOS,
+  ALLOWED_AUDIO_BITRATES,
   BOT_DETECTION_ERRORS
 };

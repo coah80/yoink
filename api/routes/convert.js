@@ -19,6 +19,7 @@ const {
   ALLOWED_FORMATS,
   ALLOWED_REENCODES,
   ALLOWED_CROP_RATIOS,
+  ALLOWED_AUDIO_BITRATES,
   ASYNC_JOB_TIMEOUT,
   CHUNK_TIMEOUT
 } = require('../config/constants');
@@ -35,7 +36,7 @@ const {
   sendProgress
 } = require('../services/state');
 
-const { validateVideoFile, validateTimeParam } = require('../utils/validation');
+const { validateVideoFile, validateTimeParam, validateUrl } = require('../utils/validation');
 const { cleanupJobFiles, sanitizeFilename } = require('../utils/files');
 const {
   COMPRESSION_CONFIG,
@@ -275,57 +276,69 @@ router.post('/api/fetch-url', express.json(), async (req, res) => {
     return res.status(400).json({ error: 'Missing or invalid URL' });
   }
 
+  const trimmedUrl = url.trim();
+  const urlCheck = validateUrl(trimmedUrl);
+  if (!urlCheck.valid) {
+    return res.status(400).json({ error: urlCheck.error });
+  }
+
   const fetchCheck = canStartJob('fetchUrl');
   if (!fetchCheck.ok) {
     return res.status(503).json({ error: fetchCheck.reason });
   }
 
   const id = `fetch-${uuidv4()}`;
-  const trimmedUrl = url.trim();
   const isYouTube = trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be');
-  console.log(`[${id}] Fetching URL: ${trimmedUrl}${isYouTube ? ' (via cobalt)' : ''}`);
+  console.log(`[${id}] Fetching URL (${isYouTube ? 'cobalt' : 'yt-dlp'})`);
 
   try {
     let filePath;
 
+    const ytdlpFetch = () => new Promise((resolve, reject) => {
+      const args = [
+        '--no-playlist',
+        '-f', 'bv*+ba/b',
+        '-o', `${TEMP_DIRS.upload}/${id}-%(title)s.%(ext)s`,
+        '--print', 'after_move:filepath',
+        '--no-warnings',
+        trimmedUrl
+      ];
+
+      const proc = spawn('yt-dlp', args);
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim().split('\n').pop() || 'yt-dlp failed'));
+          return;
+        }
+        const outputPath = stdout.trim().split('\n').pop();
+        if (!outputPath || !fs.existsSync(outputPath)) {
+          reject(new Error('yt-dlp did not produce a file'));
+          return;
+        }
+        resolve(outputPath);
+      });
+
+      proc.on('error', (err) => reject(new Error(`Failed to run yt-dlp: ${err.message}`)));
+    });
+
     if (isYouTube) {
-      const cobaltResult = await downloadViaCobalt(trimmedUrl, id, false, null, null, {
-        outputDir: TEMP_DIRS.upload
-      });
-      filePath = cobaltResult.filePath;
-    } else {
-      filePath = await new Promise((resolve, reject) => {
-        const args = [
-          '--no-playlist',
-          '-f', 'bv*+ba/b',
-          '-o', `${TEMP_DIRS.upload}/${id}-%(title)s.%(ext)s`,
-          '--print', 'after_move:filepath',
-          '--no-warnings',
-          trimmedUrl
-        ];
-
-        const proc = spawn('yt-dlp', args);
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout.on('data', (d) => { stdout += d.toString(); });
-        proc.stderr.on('data', (d) => { stderr += d.toString(); });
-
-        proc.on('close', (code) => {
-          if (code !== 0) {
-            reject(new Error(stderr.trim().split('\n').pop() || 'yt-dlp failed'));
-            return;
-          }
-          const outputPath = stdout.trim().split('\n').pop();
-          if (!outputPath || !fs.existsSync(outputPath)) {
-            reject(new Error('yt-dlp did not produce a file'));
-            return;
-          }
-          resolve(outputPath);
+      try {
+        const cobaltResult = await downloadViaCobalt(trimmedUrl, id, false, null, null, {
+          outputDir: TEMP_DIRS.upload
         });
-
-        proc.on('error', (err) => reject(new Error(`Failed to run yt-dlp: ${err.message}`)));
-      });
+        filePath = cobaltResult.filePath;
+      } catch (cobaltErr) {
+        console.log(`[${id}] Cobalt failed, falling back to yt-dlp: ${cobaltErr.message}`);
+        filePath = await ytdlpFetch();
+      }
+    } else {
+      filePath = await ytdlpFetch();
     }
 
     const stat = fs.statSync(filePath);
@@ -457,6 +470,8 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
     return res.status(400).json({ error: `Invalid crop ratio. Allowed: ${ALLOWED_CROP_RATIOS.join(', ')}` });
   }
 
+  const safeBitrate = ALLOWED_AUDIO_BITRATES.includes(audioBitrate) ? audioBitrate : '192';
+
   req.file = { path: validPath, originalname: fileName || 'video.mp4' };
   req.body.format = format;
   req.body.clientId = clientId;
@@ -464,7 +479,7 @@ router.post('/api/convert-chunked', express.json(), async (req, res) => {
   req.body.reencode = reencode;
   req.body.startTime = startTime;
   req.body.endTime = endTime;
-  req.body.audioBitrate = audioBitrate;
+  req.body.audioBitrate = safeBitrate;
   req.body.cropRatio = cropRatio;
 
   const jobId = uuidv4();
@@ -496,6 +511,10 @@ async function buildCropFilter(inputPath, cropRatio, logId) {
   const videoW = probeDims.width;
   const videoH = probeDims.height;
   const [ratioW, ratioH] = cropRatio.split(':').map(Number);
+  if (!videoW || !videoH || !ratioW || !ratioH) {
+    console.log(`[${logId}] Crop skipped: invalid dimensions (${videoW}x${videoH}) or ratio (${ratioW}:${ratioH})`);
+    return null;
+  }
   let cropW, cropH, cropX, cropY;
   if (videoW / videoH > ratioW / ratioH) {
     cropH = videoH - (videoH % 2);
@@ -527,9 +546,11 @@ async function handleConvert(req, res) {
     reencode = 'auto',
     startTime,
     endTime,
-    audioBitrate = '192',
+    audioBitrate: rawBitrate = '192',
     cropRatio
   } = req.body;
+
+  const audioBitrate = ALLOWED_AUDIO_BITRATES.includes(rawBitrate) ? rawBitrate : '192';
 
   if (clientId) {
     const clientJobs = getClientJobCount(clientId);
@@ -581,6 +602,12 @@ async function handleConvert(req, res) {
       activeJobsByType.convert--;
       unlinkJobFromClient(convertId);
       return res.status(400).json({ error: 'Invalid endTime format. Use seconds or HH:MM:SS' });
+    }
+    if (validStartTime && validEndTime && parseFloat(validEndTime) <= parseFloat(validStartTime)) {
+      fs.unlink(inputPath, () => { });
+      activeJobsByType.convert--;
+      unlinkJobFromClient(convertId);
+      return res.status(400).json({ error: 'endTime must be greater than startTime' });
     }
 
     const ffmpegArgs = ['-y'];
