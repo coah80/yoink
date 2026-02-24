@@ -1,8 +1,11 @@
 <script>
   import { queue } from '../../stores/queue.js';
   import { ACTIVE_STAGES } from '../../lib/constants.js';
+  import { navigate } from '../../lib/router.js';
 
   let { item } = $props();
+  let showSendTo = $state(false);
+  let sendToRef = $state(null);
 
   let isActive = $derived(ACTIVE_STAGES.includes(item.stage));
   let isComplete = $derived(item.stage === 'complete');
@@ -42,6 +45,26 @@
       if (parts.length) text += ` · ${parts.join(' · ')}`;
     }
     return text;
+  });
+
+  let hasUrl = $derived(!!item.url);
+
+  function sendTo(page) {
+    navigate(`/${page}?url=${encodeURIComponent(item.url)}`);
+    showSendTo = false;
+  }
+
+  function handleClickOutside(e) {
+    if (sendToRef && !sendToRef.contains(e.target)) {
+      showSendTo = false;
+    }
+  }
+
+  $effect(() => {
+    if (showSendTo) {
+      document.addEventListener('click', handleClickOutside, true);
+      return () => document.removeEventListener('click', handleClickOutside, true);
+    }
   });
 </script>
 
@@ -132,6 +155,44 @@
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </button>
+      {/if}
+      {#if hasUrl}
+        <div class="send-to-wrapper" bind:this={sendToRef}>
+          <button class="queue-item-sendto" onclick={(e) => { e.stopPropagation(); showSendTo = !showSendTo; }} title="Send to...">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+          {#if showSendTo}
+            <div class="send-to-flyout">
+              <button class="send-to-option" onclick={(e) => { e.stopPropagation(); sendTo('transcribe'); }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                transcribe
+              </button>
+              <button class="send-to-option" onclick={(e) => { e.stopPropagation(); sendTo('compress'); }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="4 14 10 14 10 20"></polyline>
+                  <polyline points="20 10 14 10 14 4"></polyline>
+                  <line x1="14" y1="10" x2="21" y2="3"></line>
+                  <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+                compress
+              </button>
+              <button class="send-to-option" onclick={(e) => { e.stopPropagation(); sendTo('convert'); }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="16 3 21 3 21 8"></polyline>
+                  <line x1="4" y1="20" x2="21" y2="3"></line>
+                  <polyline points="21 16 21 21 16 21"></polyline>
+                  <line x1="15" y1="15" x2="21" y2="21"></line>
+                  <line x1="4" y1="4" x2="9" y2="9"></line>
+                </svg>
+                convert
+              </button>
+            </div>
+          {/if}
+        </div>
       {/if}
       <button class="queue-item-remove" onclick={(e) => { e.stopPropagation(); queue.remove(item.id); }} title="Remove">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -272,6 +333,76 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    position: relative;
+  }
+
+  .send-to-wrapper {
+    position: relative;
+  }
+
+  .queue-item-sendto {
+    padding: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease-out;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .queue-item-sendto:hover {
+    color: var(--purple-400);
+    background: var(--purple-900);
+  }
+
+  .queue-item-sendto:active {
+    transform: scale(0.9);
+  }
+
+  .send-to-flyout {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    z-index: 100;
+    min-width: 140px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    animation: flyoutIn 0.12s ease-out;
+  }
+
+  @keyframes flyoutIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .send-to-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: all 0.1s ease-out;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .send-to-option:hover {
+    background: var(--purple-900);
+    color: var(--purple-400);
   }
 
   .queue-item-progress {

@@ -266,6 +266,105 @@ function validateChunkedFilePath(filePath) {
   return resolved;
 }
 
+router.post('/api/fetch-url', express.json(), async (req, res) => {
+  const { url } = req.body;
+
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return res.status(400).json({ error: 'Missing or invalid URL' });
+  }
+
+  const fetchCheck = canStartJob('fetchUrl');
+  if (!fetchCheck.ok) {
+    return res.status(503).json({ error: fetchCheck.reason });
+  }
+
+  const id = `fetch-${uuidv4()}`;
+  console.log(`[${id}] Fetching URL: ${url}`);
+
+  try {
+    const filePath = await new Promise((resolve, reject) => {
+      const args = [
+        '--no-playlist',
+        '-f', 'bv*+ba/b',
+        '-o', `${TEMP_DIRS.upload}/${id}-%(title)s.%(ext)s`,
+        '--print', 'after_move:filepath',
+        '--no-warnings',
+        url.trim()
+      ];
+
+      const proc = spawn('yt-dlp', args);
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim().split('\n').pop() || 'yt-dlp failed'));
+          return;
+        }
+        const outputPath = stdout.trim().split('\n').pop();
+        if (!outputPath || !fs.existsSync(outputPath)) {
+          reject(new Error('yt-dlp did not produce a file'));
+          return;
+        }
+        resolve(outputPath);
+      });
+
+      proc.on('error', (err) => reject(new Error(`Failed to run yt-dlp: ${err.message}`)));
+    });
+
+    const stat = fs.statSync(filePath);
+    if (stat.size > FILE_SIZE_LIMIT) {
+      fs.unlink(filePath, () => {});
+      activeJobsByType.fetchUrl--;
+      return res.status(400).json({ error: `Downloaded file too large (${(stat.size / (1024 * 1024 * 1024)).toFixed(1)}GB). Maximum is ${FILE_SIZE_LIMIT / (1024 * 1024 * 1024)}GB.` });
+    }
+
+    let duration = 0, width = 0, height = 0;
+    try {
+      const probe = await new Promise((resolve) => {
+        const ffprobe = spawn('ffprobe', [
+          '-v', 'error',
+          '-select_streams', 'v:0',
+          '-show_entries', 'stream=width,height:format=duration',
+          '-of', 'json',
+          filePath
+        ]);
+        let out = '';
+        ffprobe.stdout.on('data', (d) => { out += d.toString(); });
+        ffprobe.on('close', () => {
+          try {
+            const parsed = JSON.parse(out);
+            resolve({
+              duration: parseFloat(parsed.format?.duration) || 0,
+              width: parseInt(parsed.streams?.[0]?.width) || 0,
+              height: parseInt(parsed.streams?.[0]?.height) || 0
+            });
+          } catch {
+            resolve({ duration: 0, width: 0, height: 0 });
+          }
+        });
+        ffprobe.on('error', () => resolve({ duration: 0, width: 0, height: 0 }));
+      });
+      duration = probe.duration;
+      width = probe.width;
+      height = probe.height;
+    } catch {}
+
+    const fileName = path.basename(filePath);
+    console.log(`[${id}] Fetched: ${fileName} (${(stat.size / (1024 * 1024)).toFixed(1)}MB)`);
+
+    activeJobsByType.fetchUrl--;
+    res.json({ filePath, fileName, fileSize: stat.size, duration, width, height });
+  } catch (err) {
+    console.error(`[${id}] Fetch URL error:`, err.message);
+    activeJobsByType.fetchUrl--;
+    res.status(400).json({ error: err.message || 'Failed to download from URL' });
+  }
+});
+
 router.post('/api/compress-chunked', express.json(), async (req, res) => {
   const { filePath, fileName, clientId, ...options } = req.body;
 

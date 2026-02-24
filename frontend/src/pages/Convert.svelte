@@ -10,9 +10,19 @@
   import { addToast } from '../stores/toast.js';
   import { startHeartbeat, stopHeartbeat } from '../stores/session.js';
   import { queue } from '../stores/queue.js';
+  import { getQuery } from '../lib/router.js';
 
   let selectedFile = $state(null);
   let targetFormat = $state('mp4');
+  let urlInput = $state('');
+  let inputMode = $state('file');
+  let fetchedFile = $state(null);
+
+  const initialQuery = getQuery();
+  if (initialQuery.url) {
+    urlInput = initialQuery.url;
+    inputMode = 'url';
+  }
   let converting = $state(false);
   let progress = $state(0);
   let progressLabel = $state('');
@@ -73,30 +83,127 @@
   }
 
   async function convertFile() {
-    if (!selectedFile || converting) return;
+    const isUrlMode = inputMode === 'url' && urlInput.trim();
+    if ((!selectedFile && !isUrlMode) || converting) return;
 
     converting = true;
     progress = 0;
-    progressLabel = 'Uploading...';
     statusType = null;
     statusMessage = '';
 
-    const useChunked = selectedFile.size > 90 * 1024 * 1024;
-    let heartbeatJobId = null;
     const queueId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const queueTitle = isUrlMode ? `URL → .${targetFormat}` : `${selectedFile.name} → .${targetFormat}`;
     queue.add({
       id: queueId,
-      title: `${selectedFile.name} → .${targetFormat}`,
+      title: queueTitle,
       type: 'convert',
-      stage: 'uploading',
-      status: 'uploading...',
+      stage: isUrlMode ? 'downloading' : 'uploading',
+      status: isUrlMode ? 'downloading media...' : 'uploading...',
       progress: 0,
       startTime: Date.now(),
     });
 
+    let heartbeatJobId = null;
+
     try {
       heartbeatJobId = startHeartbeat();
       let response;
+
+      if (isUrlMode) {
+        progressLabel = 'Downloading media...';
+        queue.updateItem(queueId, { status: 'downloading media...' });
+
+        const fetchRes = await fetch(`${apiBase()}/api/fetch-url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: urlInput.trim() }),
+        });
+
+        if (!fetchRes.ok) {
+          let errMsg = 'Failed to download from URL';
+          try { const err = await fetchRes.json(); errMsg = err.error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        const fetchData = await fetchRes.json();
+        fetchedFile = fetchData;
+
+        queue.updateItem(queueId, {
+          title: `${fetchData.fileName} → .${targetFormat}`,
+          stage: 'converting',
+          status: 'converting...',
+          progress: 0
+        });
+
+        progress = 0;
+        progressLabel = 'Converting...';
+
+        const initResponse = await fetch(`${apiBase()}/api/convert-chunked`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filePath: fetchData.filePath, fileName: fetchData.fileName, format: targetFormat }),
+        });
+
+        if (!initResponse.ok) {
+          throw new Error(await safeParseError(initResponse));
+        }
+
+        const { jobId } = await initResponse.json();
+        let pollAttempts = 0;
+
+        while (true) {
+          if (pollAttempts >= 300) throw new Error('Conversion timed out after 10 minutes');
+          pollAttempts++;
+          await new Promise(r => setTimeout(r, 2000));
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          let statusRes;
+          try {
+            statusRes = await fetch(`${apiBase()}/api/job/${jobId}/status`, { signal: controller.signal });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          if (!statusRes.ok) {
+            if (statusRes.status === 404) throw new Error('Job not found or expired');
+            throw new Error('Failed to check job status');
+          }
+
+          const jobStatus = await statusRes.json();
+          if (jobStatus.status === 'error') throw new Error(jobStatus.error || 'Conversion failed');
+          progress = jobStatus.progress || 0;
+          progressLabel = jobStatus.message || 'processing...';
+          queue.updateItem(queueId, { progress: jobStatus.progress || 0, status: jobStatus.message || 'converting...' });
+          if (jobStatus.status === 'complete') break;
+        }
+
+        response = await fetch(`${apiBase()}/api/job/${jobId}/download`);
+
+        if (!response.ok) {
+          throw new Error(await safeParseError(response));
+        }
+
+        progress = 100;
+        progressLabel = 'complete!';
+
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let downloadName = fetchData.fileName.replace(/\.[^.]+$/, '') + '.' + targetFormat;
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (match) downloadName = match[1];
+        }
+
+        const blob = await response.blob();
+        downloadBlob(blob, downloadName);
+
+        statusType = 'success';
+        statusMessage = 'conversion complete! download started.';
+        queue.updateItem(queueId, { stage: 'complete', status: 'complete!', progress: 100 });
+        setTimeout(() => queue.remove(queueId), 5000);
+      } else {
+      const useChunked = selectedFile.size > 90 * 1024 * 1024;
+      progressLabel = 'Uploading...';
 
       if (useChunked) {
         const { filePath, fileName } = await uploadChunked(selectedFile, (p) => {
@@ -206,6 +313,7 @@
       statusMessage = 'conversion complete! download started.';
       queue.updateItem(queueId, { stage: 'complete', status: 'complete!', progress: 100 });
       setTimeout(() => queue.remove(queueId), 5000);
+      }
     } catch (err) {
       statusType = 'error';
       statusMessage = err.message || 'conversion failed';
@@ -230,7 +338,12 @@
   </div>
 
   <div class="converter">
-    {#if !selectedFile}
+    {#if !selectedFile && !(inputMode === 'url')}
+      <div class="input-tabs">
+        <button class="input-tab" class:active={inputMode === 'file'} onclick={() => inputMode = 'file'}>upload file</button>
+        <button class="input-tab" class:active={inputMode === 'url'} onclick={() => inputMode = 'url'}>paste link</button>
+      </div>
+
       <button
         type="button"
         class="drop-zone"
@@ -255,12 +368,53 @@
           style="display: none;"
         />
       </button>
+    {:else if inputMode === 'url' && !selectedFile}
+      <div class="input-tabs">
+        <button class="input-tab" class:active={inputMode === 'file'} onclick={() => inputMode = 'file'}>upload file</button>
+        <button class="input-tab" class:active={inputMode === 'url'} onclick={() => inputMode = 'url'}>paste link</button>
+      </div>
+
+      <div class="url-input-section">
+        <input
+          type="url"
+          class="url-input"
+          placeholder="https://youtube.com/watch?v=..."
+          bind:value={urlInput}
+        />
+        <p class="url-hint">paste a link to any video or audio — youtube, twitter, tiktok, etc.</p>
+      </div>
+
+      <div class="convert-options">
+        <div class="option-label">convert to</div>
+        <div class="segmented-control">
+          {#each formats as fmt}
+            <button
+              class="segment"
+              class:active={targetFormat === fmt.value}
+              onclick={() => targetFormat = fmt.value}
+            >
+              {fmt.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <button class="convert-btn" onclick={convertFile} disabled={!urlInput.trim() || converting}>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 3 21 3 21 8"></polyline>
+          <line x1="4" y1="20" x2="21" y2="3"></line>
+          <polyline points="21 16 21 21 16 21"></polyline>
+          <line x1="15" y1="15" x2="21" y2="21"></line>
+          <line x1="4" y1="4" x2="9" y2="9"></line>
+        </svg>
+        {converting ? 'converting...' : 'convert'}
+      </button>
     {:else}
       <div class="file-info">
         <div class="file-header">
           <div class="file-icon">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              {#if isAudioFile(selectedFile)}
+              {#if selectedFile && isAudioFile(selectedFile)}
                 <path d="M9 18V5l12-2v13"></path>
                 <circle cx="6" cy="18" r="3"></circle>
                 <circle cx="18" cy="16" r="3"></circle>
@@ -356,6 +510,75 @@
   .converter {
     width: 100%;
     max-width: 500px;
+  }
+
+  .input-tabs {
+    display: flex;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+
+  .input-tab {
+    flex: 1;
+    padding: 10px 16px;
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    text-align: center;
+  }
+
+  .input-tab:hover:not(.active) {
+    color: var(--text);
+    background: var(--border);
+  }
+
+  .input-tab.active {
+    background: var(--purple-500);
+    color: white;
+  }
+
+  .url-input-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .url-input {
+    width: 100%;
+    padding: 16px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease-out;
+    box-sizing: border-box;
+  }
+
+  .url-input:focus {
+    border-color: var(--purple-500);
+    border-style: solid;
+  }
+
+  .url-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .url-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 
   .drop-zone {

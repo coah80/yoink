@@ -12,11 +12,21 @@
   import { addToast } from '../stores/toast.js';
   import { startHeartbeat, stopHeartbeat } from '../stores/session.js';
   import { queue } from '../stores/queue.js';
+  import { getQuery } from '../lib/router.js';
 
   let selectedFile = $state(null);
   let videoDuration = $state(0);
   let videoWidth = $state(0);
   let videoHeight = $state(0);
+  let urlInput = $state('');
+  let inputMode = $state('file');
+  let fetchedFile = $state(null);
+
+  const initialQuery = getQuery();
+  if (initialQuery.url) {
+    urlInput = initialQuery.url;
+    inputMode = 'url';
+  }
   let selectedSize = $state(50);
   let actualSize = $state(47);
   let customSize = $state('');
@@ -50,7 +60,7 @@
   ];
 
   let estimatedBitrate = $derived.by(() => {
-    if (!selectedFile || !videoDuration) return 0;
+    if ((!selectedFile && !fetchedFile) || !videoDuration) return 0;
     const targetBytes = actualSize * 1024 * 1024;
     const audioBitrate = 128 * 1024;
     const availableForVideo = targetBytes - (audioBitrate / 8 * videoDuration);
@@ -58,8 +68,13 @@
   });
 
   let estimateText = $derived.by(() => {
-    if (!selectedFile || !videoDuration) return 'select a file to see estimate';
-    const fileSizeMB = selectedFile.size / (1024 * 1024);
+    if (inputMode === 'url' && !fetchedFile && !selectedFile) {
+      return urlInput ? 'fetch the URL to see estimate' : 'paste a link to see estimate';
+    }
+    if ((!selectedFile && !fetchedFile) || !videoDuration) return 'select a file to see estimate';
+    const fileSizeMB = fetchedFile
+      ? fetchedFile.fileSize / (1024 * 1024)
+      : selectedFile.size / (1024 * 1024);
     if (fileSizeMB <= actualSize) return `already under ${selectedSize}MB!`;
 
     if (estimatedBitrate < 500) return `~${estimatedBitrate} kbps video - very low quality (may be blocky)`;
@@ -69,7 +84,10 @@
     return `~${estimatedBitrate} kbps video - excellent quality`;
   });
 
-  let estimateWarning = $derived(selectedFile && videoDuration && estimatedBitrate < 500 && (selectedFile.size / (1024 * 1024)) > actualSize);
+  let estimateWarning = $derived.by(() => {
+    const fileSize = fetchedFile ? fetchedFile.fileSize : selectedFile?.size;
+    return (selectedFile || fetchedFile) && videoDuration && estimatedBitrate < 500 && fileSize && (fileSize / (1024 * 1024)) > actualSize;
+  });
 
   let gaugeAngle = $derived.by(() => {
     const maxBitrate = 2000;
@@ -164,9 +182,58 @@
     }
   }
 
+  async function fetchUrlForCompress() {
+    if (!urlInput.trim()) return;
+    compressing = true;
+    progressLabel = 'downloading media...';
+    progressDetail = 'fetching media from URL...';
+    progress = 0;
+
+    try {
+      const fetchRes = await fetch(`${apiBase()}/api/fetch-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlInput.trim() }),
+      });
+
+      if (!fetchRes.ok) {
+        let errMsg = 'Failed to download from URL';
+        try { const err = await fetchRes.json(); errMsg = err.error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+
+      const data = await fetchRes.json();
+      fetchedFile = data;
+      videoDuration = data.duration || 0;
+      videoWidth = data.width || 0;
+      videoHeight = data.height || 0;
+
+      compressing = false;
+      progressLabel = '';
+      progressDetail = '';
+      progress = 0;
+    } catch (err) {
+      addToast(err.message || 'Failed to fetch URL', 'error');
+      compressing = false;
+      progressLabel = '';
+      progressDetail = '';
+      progress = 0;
+    }
+  }
+
   function checkQualityAndCompress() {
-    if (!selectedFile) return;
-    const fileSizeMB = selectedFile.size / (1024 * 1024);
+    const isUrlMode = inputMode === 'url' && urlInput.trim();
+
+    if (isUrlMode && !fetchedFile) {
+      fetchUrlForCompress();
+      return;
+    }
+
+    if (!selectedFile && !fetchedFile) return;
+
+    const fileSizeMB = fetchedFile
+      ? fetchedFile.fileSize / (1024 * 1024)
+      : selectedFile.size / (1024 * 1024);
     if (fileSizeMB <= actualSize) {
       addToast(`File is already under ${selectedSize}MB!`, 'success');
       return;
@@ -179,10 +246,14 @@
   }
 
   async function compress() {
-    if (!selectedFile || compressing) return;
+    if ((!selectedFile && !fetchedFile) || compressing) return;
     showQualityWarning = false;
-    
-    const fileSizeMB = selectedFile.size / (1024 * 1024);
+
+    const isUrlMode = !!fetchedFile;
+    const fileSize = isUrlMode ? fetchedFile.fileSize : selectedFile.size;
+    const fileName = isUrlMode ? fetchedFile.fileName : selectedFile.name;
+    const fileSizeMB = fileSize / (1024 * 1024);
+
     if (fileSizeMB <= actualSize) {
       addToast(`File is already under ${selectedSize}MB!`, 'success');
       return;
@@ -190,22 +261,22 @@
 
     compressing = true;
     progress = 0;
-    progressLabel = 'uploading...';
-    progressDetail = 'sending file to server...';
+    progressLabel = isUrlMode ? 'compressing...' : 'uploading...';
+    progressDetail = isUrlMode ? 'starting compression...' : 'sending file to server...';
     showResult = false;
 
     const progressId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     const queueId = progressId;
     queue.add({
       id: queueId,
-      title: `${selectedFile.name} → ${selectedSize}MB`,
+      title: `${fileName} → ${selectedSize}MB`,
       type: 'compress',
-      stage: 'uploading',
-      status: 'uploading...',
+      stage: isUrlMode ? 'compressing' : 'uploading',
+      status: isUrlMode ? 'compressing...' : 'uploading...',
       progress: 0,
       startTime: Date.now(),
     });
-    const useChunked = selectedFile.size > 90 * 1024 * 1024;
+
     let heartbeatJobId = null;
     let sseConnection = null;
 
@@ -226,6 +297,73 @@
 
       let response;
 
+      if (isUrlMode) {
+        progress = 0;
+        progressLabel = 'compressing...';
+        progressDetail = 'starting compression...';
+        queue.updateItem(queueId, { stage: 'compressing', status: 'compressing...', progress: 0 });
+
+        const initResponse = await fetch(`${apiBase()}/api/compress-chunked`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filePath: fetchedFile.filePath,
+            fileName: fetchedFile.fileName,
+            targetSize: actualSize.toString(),
+            duration: videoDuration.toString(),
+            progressId,
+            preset: selectedPreset,
+            downscale,
+          }),
+        });
+
+        if (!initResponse.ok) {
+          let errMsg = 'Failed to start compression';
+          try { const err = await initResponse.json(); errMsg = err.error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        const { jobId } = await initResponse.json();
+        const pollStartTime = Date.now();
+        const maxPollDuration = 30 * 60 * 1000;
+        let consecutiveErrors = 0;
+
+        while (Date.now() - pollStartTime <= maxPollDuration) {
+          await new Promise(r => setTimeout(r, 2000));
+
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            let statusRes;
+            try {
+              statusRes = await fetch(`${apiBase()}/api/job/${jobId}/status`, { signal: controller.signal });
+            } finally {
+              clearTimeout(timeoutId);
+            }
+
+            if (!statusRes.ok) throw new Error(`Server returned ${statusRes.status}`);
+            const status = await statusRes.json();
+            consecutiveErrors = 0;
+
+            if (status.status === 'error') throw new Error(status.error || 'Compression failed');
+            if (status.progress !== undefined) progress = status.progress;
+            if (status.message) progressDetail = status.message;
+            queue.updateItem(queueId, { progress: status.progress || 0, status: status.message || 'compressing...' });
+            if (status.status === 'complete') break;
+          } catch (fetchErr) {
+            consecutiveErrors++;
+            if (consecutiveErrors >= 3) throw new Error(`Failed to check job status after 3 attempts: ${fetchErr.message}`);
+          }
+        }
+
+        if (Date.now() - pollStartTime > maxPollDuration) {
+          throw new Error('Job timed out after 30 minutes.');
+        }
+
+        response = await fetch(`${apiBase()}/api/job/${jobId}/download`);
+      } else {
+      const useChunked = selectedFile.size > 90 * 1024 * 1024;
+
       if (useChunked) {
         progressLabel = 'uploading...';
         progressDetail = 'large file detected, uploading in chunks...';
@@ -236,7 +374,7 @@
           queue.updateItem(queueId, { progress: p, status: 'uploading...' });
         });
 
-        const { filePath, fileName } = uploadResult;
+        const { filePath, fileName: uploadedName } = uploadResult;
         progress = 0;
         progressLabel = 'compressing...';
         progressDetail = 'starting compression...';
@@ -246,7 +384,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            filePath, fileName,
+            filePath, fileName: uploadedName,
             targetSize: actualSize.toString(),
             duration: videoDuration.toString(),
             progressId,
@@ -313,6 +451,7 @@
           body: formData,
         });
       }
+      }
 
       if (sseConnection) sseConnection.close();
 
@@ -325,17 +464,17 @@
       const blob = await response.blob();
       const compressedSize = blob.size;
 
-      const originalMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
+      const originalMB = (fileSize / (1024 * 1024)).toFixed(1);
       const compressedMB = (compressedSize / (1024 * 1024)).toFixed(1);
-      const savedPercent = Math.round((1 - compressedSize / selectedFile.size) * 100);
+      const savedPercent = Math.round((1 - compressedSize / fileSize) * 100);
 
       resultOriginal = `${originalMB} MB`;
       resultCompressed = `${compressedMB} MB`;
       resultSaved = `${savedPercent}%`;
       showResult = true;
 
-      const lastDot = selectedFile.name.lastIndexOf('.');
-      const baseName = lastDot > 0 ? selectedFile.name.slice(0, lastDot) : selectedFile.name;
+      const lastDot = fileName.lastIndexOf('.');
+      const baseName = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
       downloadBlob(blob, `${baseName}_compressed.mp4`);
 
       addToast('Compression complete!', 'success');
@@ -366,31 +505,75 @@
   </div>
 
   <div class="compress-container">
-    {#if !selectedFile}
-      <button
-        type="button"
-        class="drop-zone"
-        class:dragover={dragging}
-        ondragover={(e) => { e.preventDefault(); dragging = true; }}
-        ondragleave={(e) => { e.preventDefault(); dragging = false; }}
-        ondrop={(e) => { e.preventDefault(); dragging = false; handleFile(e.dataTransfer?.files?.[0]); }}
-        onclick={() => inputEl?.click()}
-      >
-        <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        <p class="drop-zone-text">drop a video here or click to browse</p>
-        <p class="drop-zone-hint">supports mp4, webm, mov, mkv, avi (max 8GB)</p>
-        <input
-          bind:this={inputEl}
-          type="file"
-          accept="video/*"
-          onchange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }}
-          style="display: none;"
-        />
-      </button>
+    {#if !selectedFile && !fetchedFile}
+      <div class="input-tabs">
+        <button class="input-tab" class:active={inputMode === 'file'} onclick={() => inputMode = 'file'}>upload file</button>
+        <button class="input-tab" class:active={inputMode === 'url'} onclick={() => inputMode = 'url'}>paste link</button>
+      </div>
+
+      {#if inputMode === 'file'}
+        <button
+          type="button"
+          class="drop-zone"
+          class:dragover={dragging}
+          ondragover={(e) => { e.preventDefault(); dragging = true; }}
+          ondragleave={(e) => { e.preventDefault(); dragging = false; }}
+          ondrop={(e) => { e.preventDefault(); dragging = false; handleFile(e.dataTransfer?.files?.[0]); }}
+          onclick={() => inputEl?.click()}
+        >
+          <svg class="drop-zone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <p class="drop-zone-text">drop a video here or click to browse</p>
+          <p class="drop-zone-hint">supports mp4, webm, mov, mkv, avi (max 8GB)</p>
+          <input
+            bind:this={inputEl}
+            type="file"
+            accept="video/*"
+            onchange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }}
+            style="display: none;"
+          />
+        </button>
+      {:else}
+        <div class="url-input-section">
+          <input
+            type="url"
+            class="url-input"
+            placeholder="https://youtube.com/watch?v=..."
+            bind:value={urlInput}
+          />
+          <p class="url-hint">paste a link to any video — youtube, twitter, tiktok, etc.</p>
+        </div>
+      {/if}
+    {:else if fetchedFile}
+      <div class="file-info">
+        <div class="file-header">
+          <div class="file-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+              <line x1="7" y1="2" x2="7" y2="22"></line>
+              <line x1="17" y1="2" x2="17" y2="22"></line>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+            </svg>
+          </div>
+          <div class="file-details">
+            <div class="file-name" title={fetchedFile.fileName}>{fetchedFile.fileName}</div>
+            <div class="file-size">{formatBytes(fetchedFile.fileSize)}</div>
+          </div>
+          <button class="file-remove" onclick={() => { fetchedFile = null; videoDuration = 0; videoWidth = 0; videoHeight = 0; }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="file-meta">
+          <span>duration: {videoDuration ? durationText : 'unknown'}</span>
+          <span>resolution: {resolutionText}</span>
+        </div>
+      </div>
     {:else}
       <div class="file-info">
         <div class="file-header">
@@ -477,7 +660,7 @@
       </label>
     </div>
 
-    <button class="compress-btn" onclick={checkQualityAndCompress} disabled={!selectedFile || compressing}>
+    <button class="compress-btn" onclick={checkQualityAndCompress} disabled={(!selectedFile && !fetchedFile && !(inputMode === 'url' && urlInput.trim())) || compressing}>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="4 14 10 14 10 20"></polyline>
         <polyline points="20 10 14 10 14 4"></polyline>
@@ -650,6 +833,74 @@
   .drop-zone-hint {
     font-size: 0.85rem;
     color: var(--text-muted);
+  }
+
+  .input-tabs {
+    display: flex;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    gap: 4px;
+  }
+
+  .input-tab {
+    flex: 1;
+    padding: 10px 16px;
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    text-align: center;
+  }
+
+  .input-tab:hover:not(.active) {
+    color: var(--text);
+    background: var(--border);
+  }
+
+  .input-tab.active {
+    background: var(--purple-500);
+    color: white;
+  }
+
+  .url-input-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .url-input {
+    width: 100%;
+    padding: 16px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease-out;
+    box-sizing: border-box;
+  }
+
+  .url-input:focus {
+    border-color: var(--purple-500);
+    border-style: solid;
+  }
+
+  .url-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .url-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 
   .file-info {
