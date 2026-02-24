@@ -24,6 +24,8 @@
   let yoinkDropdownOpen = $state(false);
   let batchText = $state('');
   let playlistResolve = $state(null);
+  let showCarouselModal = $state(false);
+  let carouselResolve = $state(null);
 
   let splash = $state(null);
   let splashEl;
@@ -115,6 +117,7 @@
 
   function askPlaylistChoice() {
     return new Promise((resolve) => {
+      rememberChoice = false;
       playlistResolve = resolve;
       showPlaylistModal = true;
     });
@@ -133,6 +136,36 @@
     if (playlistResolve) playlistResolve(null);
     playlistResolve = null;
     showPlaylistModal = false;
+  }
+
+  function askCarouselChoice() {
+    return new Promise((resolve) => {
+      rememberChoice = false;
+      carouselResolve = resolve;
+      showCarouselModal = true;
+    });
+  }
+
+  function handleCarouselChoice(choice, remember) {
+    if (remember) {
+      settings.setSetting('tiktokCarouselPreference', choice);
+    }
+    if (carouselResolve) carouselResolve(choice);
+    carouselResolve = null;
+    showCarouselModal = false;
+  }
+
+  function dismissCarouselModal() {
+    if (carouselResolve) carouselResolve(null);
+    carouselResolve = null;
+    showCarouselModal = false;
+  }
+
+  async function resolveCarouselFormat(metadata, s) {
+    if (!metadata.isTikTokCarousel || !metadata.hasAudio) return null;
+    if (s.tiktokCarouselPreference === 'photos') return 'photos';
+    if (s.tiktokCarouselPreference === 'video') return 'video';
+    return await askCarouselChoice();
   }
 
   async function addUrlToQueue(rawUrl, startImmediately = false) {
@@ -169,6 +202,9 @@
         if (metaRes.ok && ct?.includes('application/json')) {
           const metadata = await metaRes.json();
           title = metadata.title || 'Image';
+          const carouselChoice = await resolveCarouselFormat(metadata, s);
+          if (carouselChoice === null) return null;
+          if (carouselChoice === 'video') queueFormat = 'slideshow';
         } else {
           title = url.substring(0, 50);
         }
@@ -181,6 +217,9 @@
           if (metadata.isGallery === true) {
             queueFormat = 'images';
           }
+          const carouselChoice = await resolveCarouselFormat(metadata, s);
+          if (carouselChoice === null) return null;
+          if (carouselChoice === 'video') queueFormat = 'slideshow';
           if (metadata.usingCookies) {
             addToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
           }
@@ -212,7 +251,7 @@
       status: startImmediately ? 'initializing...' : 'in queue',
       progress: 0,
       isPlaylist: downloadPlaylist,
-      formatDisplay: queueFormat === 'images' ? 'images' : (queueFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
+      formatDisplay: queueFormat === 'slideshow' ? 'slideshow' : (queueFormat === 'images' ? 'images' : (queueFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`)),
       startTime: startImmediately ? Date.now() : null,
       failedVideos: [],
     };
@@ -317,8 +356,13 @@
       const title = metadata.title;
       const isPlaylist = metadata.isPlaylist && downloadPlaylist;
       const isGallery = format === 'images' || metadata.isGallery === true;
-      const actualFormat = metadata.isGallery === true ? 'images' : format;
+      let actualFormat = metadata.isGallery === true ? 'images' : format;
       const videoCount = metadata.videoCount || metadata.imageCount || 0;
+
+      // tiktok carousel detection
+      const carouselChoice = await resolveCarouselFormat(metadata, s);
+      if (carouselChoice === null) { loading = false; return; }
+      if (carouselChoice === 'video') actualFormat = 'slideshow';
 
       if (metadata.usingCookies) {
         addToast('Using intervaled requests to stay under the radar (this may be slower)', 'warning', 5000);
@@ -337,7 +381,7 @@
         videoCount,
         currentVideo: 0,
         currentVideoTitle: '',
-        formatDisplay: isGallery ? 'images' : (actualFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`),
+        formatDisplay: actualFormat === 'slideshow' ? 'slideshow' : (isGallery ? 'images' : (actualFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`)),
         failedVideos: [],
         startTime: Date.now(),
       };
@@ -598,6 +642,37 @@
             <line x1="3" y1="18" x2="3.01" y2="18"></line>
           </svg>
           playlist
+        </button>
+      </div>
+      <label class="modal-toggle">
+        <input type="checkbox" bind:checked={rememberChoice} />
+        <span class="modal-toggle-switch"></span>
+        <span class="modal-toggle-label">remember this choice</span>
+      </label>
+      <div class="modal-hint">this can be changed in <a href="/settings">settings</a>!</div>
+    </div>
+  </div>
+{/if}
+
+{#if showCarouselModal}
+  <div class="modal-overlay" onclick={(e) => { if (e.target === e.currentTarget) dismissCarouselModal(); }}>
+    <div class="modal">
+      <div class="modal-title">tiktok photo post detected!</div>
+      <div class="modal-subtitle">download just the photos, or as a video with the audio?</div>
+      <div class="modal-buttons">
+        <button class="modal-btn" onclick={() => handleCarouselChoice('photos', rememberChoice)}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          photos
+        </button>
+        <button class="modal-btn primary" onclick={() => handleCarouselChoice('video', rememberChoice)}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          video (includes audio)
         </button>
       </div>
       <label class="modal-toggle">

@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS = {
   audioBitrate: '320',
   filenameStyle: 'basic',
   playlistPreference: null,
+  tiktokCarouselPreference: null,
   twitterGifs: true,
 };
 

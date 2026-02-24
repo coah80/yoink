@@ -59,6 +59,12 @@
     { value: 'playlist', label: 'full playlist' },
   ];
 
+  const carouselOptions = [
+    { value: 'ask', label: 'ask me' },
+    { value: 'photos', label: 'photos only' },
+    { value: 'video', label: 'video + audio' },
+  ];
+
   let filenameExample = $derived.by(() => {
     const ext = s.container || 'mp4';
     const examples = {
@@ -247,6 +253,22 @@
           {/each}
         </div>
         <p class="setting-description">when a link contains a playlist, should we download just the video or the entire playlist? "ask me" will show a popup each time.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">tiktok photo posts</div>
+        <div class="segmented-control">
+          {#each carouselOptions as opt}
+            <button
+              class="segment"
+              class:active={(s.tiktokCarouselPreference === null ? 'ask' : s.tiktokCarouselPreference) === opt.value}
+              onclick={() => set('tiktokCarouselPreference', opt.value === 'ask' ? null : opt.value)}
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="setting-description">tiktok photo posts have background music. download just the photos, or create a slideshow video with the audio? "ask me" will show a popup each time.</p>
       </div>
     </section>
   {/if}

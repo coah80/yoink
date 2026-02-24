@@ -171,6 +171,8 @@ function createQueueStore() {
             const timeStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
             const msg = item.format === 'images'
               ? 'gallery download complete!'
+              : item.format === 'slideshow'
+              ? `slideshow created! (${timeStr})`
               : `download complete! (${timeStr})`;
             addToast(msg, 'success');
 
@@ -211,7 +213,9 @@ function createQueueStore() {
       });
 
       let endpoint;
-      if (item.format === 'images') {
+      if (item.format === 'slideshow') {
+        endpoint = '/api/gallery/slideshow';
+      } else if (item.format === 'images') {
         endpoint = '/api/gallery/download';
       } else {
         endpoint = '/api/download';
