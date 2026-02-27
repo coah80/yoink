@@ -138,11 +138,18 @@ func processBotDownload(jobID string, job *services.AsyncJob, rawURL string, isA
 			downloadedExt = result.Ext
 			job.SetProgress(100)
 		} else {
-			job.SetMessage("Downloading via yt-dlp...")
+			job.SetMessage("Downloading...")
 			botProgress := func(progress float64, speed, eta string) {
+				msg := fmt.Sprintf("Downloading... %.0f%%", progress)
+				if speed != "" {
+					msg += fmt.Sprintf(" • %s", speed)
+				}
+				if eta != "" {
+					msg += fmt.Sprintf(" • ETA %s", eta)
+				}
 				job.Lock()
 				job.Progress = progress
-				job.Message = fmt.Sprintf("Downloading... %.0f%%", progress)
+				job.Message = msg
 				job.Speed = speed
 				job.ETA = eta
 				job.Unlock()

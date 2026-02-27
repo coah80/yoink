@@ -350,9 +350,16 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			downloadedPath = result.Path
 			downloadedExt = result.Ext
 		} else {
-			services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading via yt-dlp...", 0)
+			services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading...", 0)
 			onProgress := func(progress float64, speed, eta string) {
-				services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
+				msg := fmt.Sprintf("Downloading... %.0f%%", progress)
+				if speed != "" {
+					msg += fmt.Sprintf(" • %s", speed)
+				}
+				if eta != "" {
+					msg += fmt.Sprintf(" • ETA %s", eta)
+				}
+				services.Global.SendProgress(downloadID, "downloading", msg, &progress, map[string]interface{}{"speed": speed, "eta": eta})
 				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
 			}
 			result, err := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
