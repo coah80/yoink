@@ -379,19 +379,21 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				log.Printf("[%s] yt-dlp failed, retrying with proxy: %s", downloadID, err)
-				services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying with proxy...", 0)
-				result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-					IsAudio:     isAudio,
-					AudioFormat: audioFormat,
-					Quality:     quality,
-					Container:   container,
-					TempDir:     config.TempDirs["download"],
-					ProcessInfo: processInfo,
-					Playlist:    false,
-					UseProxy:    true,
-					OnProgress:  onProgress,
-				})
+				if util.HasProxy() {
+					log.Printf("[%s] yt-dlp failed, retrying with proxy: %s", downloadID, err)
+					services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying with proxy...", 0)
+					result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
+						IsAudio:     isAudio,
+						AudioFormat: audioFormat,
+						Quality:     quality,
+						Container:   container,
+						TempDir:     config.TempDirs["download"],
+						ProcessInfo: processInfo,
+						Playlist:    false,
+						UseProxy:    true,
+						OnProgress:  onProgress,
+					})
+				}
 			}
 			if err != nil {
 				log.Printf("[%s] yt-dlp with proxy failed, falling back to Cobalt: %s", downloadID, err)
