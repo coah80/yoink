@@ -100,13 +100,6 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		resumedJob.ClientReconnected = true
 		resumedJob.Response = w
-	} else {
-		data, _ := json.Marshal(map[string]interface{}{
-			"stage":   "connected",
-			"message": "Connected to progress stream",
-		})
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
 	}
 
 	dw := services.Global.RegisterDownload(id, w, flusher)
