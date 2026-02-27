@@ -19,6 +19,7 @@ type Bot struct {
 	cfg     Config
 	api     *apiClient
 	cmdIDs  []string
+	status  *statusMonitor
 }
 
 func New(cfg Config) (*Bot, error) {
@@ -45,6 +46,9 @@ func (b *Bot) Start() error {
 	}
 
 	log.Printf("Bot logged in as %s", b.session.State.User.Username)
+
+	b.status = newStatusMonitor(b.session)
+	b.status.start()
 
 	commands := b.commandDefinitions()
 	for _, cmd := range commands {
@@ -141,6 +145,12 @@ func (b *Bot) commandDefinitions() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
+			Name:                     "set-status",
+			Description:              "Set this channel as the status notification channel",
+			DefaultMemberPermissions: &[]int64{discordgo.PermissionManageServer}[0],
+			Options:                  []*discordgo.ApplicationCommandOption{},
+		},
+		{
 			Name:        "compress",
 			Description: "Compress a video to fit Discord's upload limit",
 			IntegrationTypes: &[]discordgo.ApplicationIntegrationType{
@@ -197,5 +207,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		b.handleConvert(s, i)
 	case "compress":
 		b.handleCompress(s, i)
+	case "set-status":
+		b.handleSetStatus(s, i)
 	}
 }
