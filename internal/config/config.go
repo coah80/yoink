@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -141,11 +142,8 @@ var BitrateThresholds = map[int]int{
 	360:  400,
 }
 
-var CobaltAPIs = []string{
-	"https://nuko-c.meowing.de",
-	"https://subito-c.meowing.de",
-	"https://cessi-c.meowing.de",
-}
+var CobaltAPIs []string
+var ExtractorURL string
 
 var (
 	AllowedFormats       = []string{"mp4", "webm", "mkv", "mov", "mp3", "m4a", "opus", "wav", "flac"}
@@ -191,6 +189,23 @@ func Load() {
 	DiscordAlerts = DiscordWebhookURL != ""
 
 	SessionGeneratorURL = envOrDefault("SESSION_GENERATOR_URL", "http://localhost:8080")
+
+	if cobaltEnv := os.Getenv("COBALT_APIS"); cobaltEnv != "" {
+		for _, u := range strings.Split(cobaltEnv, ",") {
+			u = strings.TrimSpace(u)
+			if u != "" {
+				CobaltAPIs = append(CobaltAPIs, u)
+			}
+		}
+	}
+	if len(CobaltAPIs) == 0 {
+		CobaltAPIs = []string{
+			"https://co.eepy.today",
+		}
+	}
+
+	ExtractorURL = envOrDefault("EXTRACTOR_URL", "http://localhost:3099")
+
 	refreshMin, _ := strconv.Atoi(envOrDefault("SESSION_TOKEN_REFRESH_MIN", "15"))
 	if refreshMin < 1 {
 		refreshMin = 15
