@@ -29,17 +29,16 @@ var (
 	DiscordPingUserID string
 	DiscordAlerts     bool
 
-	SessionGeneratorURL  string
-	SessionTokenRefresh  time.Duration
+	SessionGeneratorURL string
+	SessionTokenRefresh time.Duration
 )
 
 var JobLimits = map[string]int{
-	"download":  6,
-	"playlist":  2,
-	"convert":   2,
-	"compress":  1,
+	"playlist":   2,
+	"convert":    2,
+	"compress":   1,
 	"transcribe": 1,
-	"fetchUrl":  2,
+	"fetchUrl":   2,
 }
 
 const (
@@ -51,7 +50,7 @@ const (
 	SessionIdleTimeout  = 60 * time.Second
 	MaxPlaylistVideos   = 1000
 	MaxVideoDuration    = 4 * 60 * 60
-	MaxJobsPerClient    = 5
+	MaxJobsPerClient    = 3
 	RateLimitWindow     = 60 * time.Second
 	RateLimitMax        = 60
 	MaxURLLength        = 2048
@@ -90,13 +89,13 @@ var AudioMIMEs = map[string]string{
 const TempDir = "/var/tmp/yoink"
 
 var TempDirs = map[string]string{
-	"download":  filepath.Join(TempDir, "downloads"),
-	"convert":   filepath.Join(TempDir, "convert"),
-	"compress":  filepath.Join(TempDir, "compress"),
-	"playlist":  filepath.Join(TempDir, "playlists"),
-	"gallery":   filepath.Join(TempDir, "galleries"),
-	"upload":    filepath.Join(TempDir, "uploads"),
-	"bot":       filepath.Join(TempDir, "bot"),
+	"download":   filepath.Join(TempDir, "downloads"),
+	"convert":    filepath.Join(TempDir, "convert"),
+	"compress":   filepath.Join(TempDir, "compress"),
+	"playlist":   filepath.Join(TempDir, "playlists"),
+	"gallery":    filepath.Join(TempDir, "galleries"),
+	"upload":     filepath.Join(TempDir, "uploads"),
+	"bot":        filepath.Join(TempDir, "bot"),
 	"transcribe": filepath.Join(TempDir, "transcribe"),
 }
 

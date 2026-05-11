@@ -288,8 +288,26 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 					job.VideosCompleted = len(downloadedFiles)
 					job.Unlock()
 					log.Printf("[%s] Video %d complete", jobID, videoNum)
+				} else {
+					failedVideos = append(failedVideos, services.FailedVideo{Num: videoNum, Title: videoTitle, Reason: util.ToUserError(err.Error())})
+					job.Lock()
+					job.FailedVideos = failedVideos
+					job.FailedCount = len(failedVideos)
+					job.Unlock()
 				}
+			} else {
+				failedVideos = append(failedVideos, services.FailedVideo{Num: videoNum, Title: videoTitle, Reason: "Download failed"})
+				job.Lock()
+				job.FailedVideos = failedVideos
+				job.FailedCount = len(failedVideos)
+				job.Unlock()
 			}
+		} else {
+			failedVideos = append(failedVideos, services.FailedVideo{Num: videoNum, Title: videoTitle, Reason: "Download failed"})
+			job.Lock()
+			job.FailedVideos = failedVideos
+			job.FailedCount = len(failedVideos)
+			job.Unlock()
 		}
 	}
 

@@ -112,9 +112,9 @@ func StreamFile(w http.ResponseWriter, r *http.Request, filePath string, filenam
 	asciiFilename := toASCII(safeFilename) + "." + ext
 
 	Global.SendProgressSimple(downloadID, "sending", "Sending file to you...")
+	Global.ReleaseJob(downloadID)
 
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
 			asciiFilename, url.PathEscape(fullFilename)))
@@ -123,22 +123,16 @@ func StreamFile(w http.ResponseWriter, r *http.Request, filePath string, filenam
 	if err != nil {
 		log.Printf("[%s] Failed to open file for streaming: %v", downloadID, err)
 		Global.SendProgressSimple(downloadID, "error", "Failed to send file")
-		Global.ReleaseJob(downloadID)
 		return
 	}
 	defer f.Close()
 
-	_, copyErr := io.Copy(w, f)
+	// ServeContent handles Range requests, conditional GETs, and uses
+	// sendfile() syscall for zero-copy transfer when possible
+	http.ServeContent(w, r, fullFilename, info.ModTime(), f)
 
-	if copyErr != nil {
-		log.Printf("[%s] Stream error: %v", downloadID, copyErr)
-		Global.SendProgressSimple(downloadID, "error", "Failed to send file")
-		Global.ReleaseJob(downloadID)
-	} else {
-		Global.SendProgressSimple(downloadID, "complete", "Download complete!")
-		Global.UnregisterDownload(downloadID)
-		Global.ReleaseJob(downloadID)
-	}
+	Global.SendProgressSimple(downloadID, "complete", "Download complete!")
+	Global.UnregisterDownload(downloadID)
 
 	if onCleanup != nil {
 		onCleanup()

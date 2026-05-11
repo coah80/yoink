@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/coah80/yoink/internal/util"
 )
 
 var (
@@ -58,6 +60,13 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+func effectiveClientID(r *http.Request, clientID string) string {
+	if clientID != "" {
+		return clientID
+	}
+	return "ip:" + util.GetClientIP(r)
 }
 
 func contains(slice []string, val string) bool {

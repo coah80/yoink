@@ -110,14 +110,14 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		cobaltMeta, err := services.FetchMetadataViaCobalt(ctx, rawURL)
 		if err == nil {
 			result := map[string]interface{}{
-				"title":      cobaltMeta.Title,
-				"ext":        cobaltMeta.Ext,
-				"id":         cobaltMeta.ID,
-				"uploader":   cobaltMeta.Uploader,
-				"duration":   cobaltMeta.Duration,
-				"thumbnail":  cobaltMeta.Thumbnail,
-				"isPlaylist": false,
-				"viaCobalt":  true,
+				"title":        cobaltMeta.Title,
+				"ext":          cobaltMeta.Ext,
+				"id":           cobaltMeta.ID,
+				"uploader":     cobaltMeta.Uploader,
+				"duration":     cobaltMeta.Duration,
+				"thumbnail":    cobaltMeta.Thumbnail,
+				"isPlaylist":   false,
+				"viaCobalt":    true,
 				"usingCookies": false,
 			}
 			services.MetadataCache.Set(rawURL, result, 10*time.Minute)
@@ -221,10 +221,7 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 			rawURL,
 		)
 	} else {
-		args = append(args, "--yes-playlist", "--flat-playlist",
-			"--print", "%(playlist_title)s", "--print", "%(playlist_count)s", "--print", "%(title)s",
-			rawURL,
-		)
+		args = append(args, "--yes-playlist", "--flat-playlist", "-J", rawURL)
 	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -279,35 +276,37 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 	lines := strings.Split(strings.TrimSpace(outBuf.String()), "\n")
 	if downloadPlaylist {
-		playlistTitle := "Playlist"
-		if len(lines) > 0 {
-			playlistTitle = lines[0]
+		var raw struct {
+			Title         string `json:"title"`
+			PlaylistCount int    `json:"playlist_count"`
+			Entries       []struct {
+				Title string `json:"title"`
+			} `json:"entries"`
 		}
-		videoCount := 0
-		if len(lines) > 1 {
-			fmt.Sscanf(lines[1], "%d", &videoCount)
+		if err := json.Unmarshal([]byte(outBuf.String()), &raw); err != nil {
+			respondJSON(w, 500, map[string]string{"error": "Failed to parse playlist info"})
+			return
 		}
-		videoTitles := []string{}
-		if len(lines) > 2 {
-			for _, t := range lines[2:] {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					videoTitles = append(videoTitles, t)
-				}
+		playlistTitle := orDefault(raw.Title, "Playlist")
+		videoCount := raw.PlaylistCount
+		cap := 50
+		if len(raw.Entries) < cap {
+			cap = len(raw.Entries)
+		}
+		videoTitles := make([]string, 0, cap)
+		for _, entry := range raw.Entries[:cap] {
+			if title := strings.TrimSpace(entry.Title); title != "" {
+				videoTitles = append(videoTitles, title)
 			}
 		}
 		if videoCount == 0 {
-			videoCount = len(videoTitles)
-		}
-		cap := 50
-		if len(videoTitles) < cap {
-			cap = len(videoTitles)
+			videoCount = len(raw.Entries)
 		}
 		respondJSON(w, 200, map[string]interface{}{
 			"title":        playlistTitle,
 			"isPlaylist":   true,
 			"videoCount":   videoCount,
-			"videoTitles":  videoTitles[:cap],
+			"videoTitles":  videoTitles,
 			"usingCookies": usingCookies,
 		})
 	} else {
@@ -342,7 +341,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	audioFormat := orDefault(q.Get("audioFormat"), "mp3")
 	audioBitrate := orDefault(q.Get("audioBitrate"), "320")
 	progressID := q.Get("progressId")
-	clientID := q.Get("clientId")
+	clientID := effectiveClientID(r, q.Get("clientId"))
 	twitterGifs := q.Get("twitterGifs") != "false"
 	downloadPlaylist := q.Get("playlist") == "true"
 
@@ -357,23 +356,18 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if clientID != "" {
-		if services.Global.GetClientJobCount(clientID) >= config.MaxJobsPerClient {
-			services.Global.SendProgressSimple(downloadID, "error", fmt.Sprintf("Too many active jobs. Maximum %d concurrent jobs per user.", config.MaxJobsPerClient))
-			respondJSON(w, 429, map[string]string{"error": fmt.Sprintf("Too many active jobs. Maximum %d concurrent jobs per user.", config.MaxJobsPerClient)})
-			return
-		}
+	if !services.Global.TryReserveClientJob(downloadID, clientID, config.MaxJobsPerClient) {
+		services.Global.SendProgressSimple(downloadID, "error", fmt.Sprintf("too many active jobs, max %d at once per person", config.MaxJobsPerClient))
+		respondJSON(w, 429, map[string]string{"error": fmt.Sprintf("too many active jobs, max %d at once per person", config.MaxJobsPerClient)})
+		return
 	}
 
 	jobCheck := services.Global.CanStartJob("download")
 	if !jobCheck.OK {
+		services.Global.UnlinkJobFromClient(downloadID)
 		services.Global.SendProgressSimple(downloadID, "error", jobCheck.Reason)
 		respondJSON(w, 503, map[string]string{"error": jobCheck.Reason})
 		return
-	}
-	if clientID != "" {
-		services.Global.RegisterClient(clientID)
-		services.Global.LinkJobToClient(downloadID, clientID)
 	}
 
 	isAudio := format == "audio"
@@ -390,8 +384,8 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	processInfo := &services.ProcessInfo{
-		TempFile: finalFile,
-		JobType:  "download",
+		TempFile:   finalFile,
+		JobType:    "download",
 		CancelFunc: cancel,
 	}
 	services.Global.SetProcess(downloadID, processInfo)
@@ -715,6 +709,11 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if downloadedExt == "zip" {
+		services.StreamFile(w, r, downloadedPath, orDefault(filename, "download"), "zip", "application/zip", downloadID, rawURL, "download", nil)
+		return
+	}
+
 	isTwitter := strings.Contains(rawURL, "twitter.com") || strings.Contains(rawURL, "x.com")
 	isGif := false
 	if isTwitter && !isAudio && twitterGifs {
@@ -770,7 +769,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = downloadedExt
 	services.StreamFile(w, r, streamPath, orDefault(filename, "download"), actualOutputExt,
 		services.GetMimeType(actualOutputExt, isAudio, isGif),
 		downloadID, rawURL, "download", nil)
@@ -956,4 +954,3 @@ func extractYouTubeVideoID(rawURL string) string {
 
 	return ""
 }
-

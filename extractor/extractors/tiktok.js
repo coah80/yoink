@@ -1,13 +1,54 @@
 import { getPage } from "../lib/browser.js";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readdir, stat, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 
 const TEMP_DIR = process.env.EXTRACTOR_TEMP || "/tmp/yoink-extractor";
+const STALE_TEMP_MS = 30 * 60 * 1000;
+
+function metadataFromItem(item) {
+  const metadata = {
+    title: item.desc || "",
+    author: item.author?.uniqueId || "",
+    duration: item.video?.duration || item.music?.duration || 0,
+    audioUrl: item.music?.playUrl || null,
+    thumbnail: item.video?.cover || item.imagePost?.cover?.imageURL?.urlList?.[0] || null,
+  };
+  if (item.imagePost?.images?.length > 0) {
+    metadata.type = "slideshow";
+    metadata.images = item.imagePost.images
+      .map((img) => img.imageURL?.urlList?.[0])
+      .filter(Boolean);
+    metadata.thumbnail = metadata.thumbnail || metadata.images[0] || null;
+  }
+  return metadata;
+}
 
 async function ensureTempDir() {
   await mkdir(TEMP_DIR, { recursive: true });
 }
+
+async function cleanupStaleTempFiles() {
+  await ensureTempDir();
+  const now = Date.now();
+  const entries = await readdir(TEMP_DIR).catch(() => []);
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith("tiktok-") && name.endsWith(".mp4"))
+      .map(async (name) => {
+        const filePath = join(TEMP_DIR, name);
+        try {
+          const info = await stat(filePath);
+          if (now - info.mtimeMs > STALE_TEMP_MS) {
+            await unlink(filePath);
+          }
+        } catch {}
+      })
+  );
+}
+
+cleanupStaleTempFiles().catch(() => {});
+setInterval(() => cleanupStaleTempFiles().catch(() => {}), 5 * 60 * 1000).unref();
 
 export async function extractVideo(url) {
   await ensureTempDir();
@@ -30,19 +71,7 @@ export async function extractVideo(url) {
             const data = JSON.parse(await resp.text());
             const item = data.itemList?.[0];
             if (item) {
-              metadata = {
-                title: item.desc || "",
-                author: item.author?.uniqueId || "",
-                duration: item.video?.duration || 0,
-                audioUrl: item.music?.playUrl || null,
-                thumbnail: item.video?.cover || null,
-              };
-              if (item.imagePost?.images?.length > 0) {
-                metadata.type = "slideshow";
-                metadata.images = item.imagePost.images
-                  .map((img) => img.imageURL?.urlList?.[0])
-                  .filter(Boolean);
-              }
+              metadata = metadataFromItem(item);
             }
           } catch {}
         }
@@ -52,13 +81,7 @@ export async function extractVideo(url) {
             const data = JSON.parse(await resp.text());
             const item = data.itemInfo?.itemStruct;
             if (item) {
-              metadata = {
-                title: item.desc || "",
-                author: item.author?.uniqueId || "",
-                duration: item.video?.duration || 0,
-                audioUrl: item.music?.playUrl || null,
-                thumbnail: item.video?.cover || null,
-              };
+              metadata = metadataFromItem(item);
             }
           } catch {}
         }
@@ -97,13 +120,7 @@ export async function extractVideo(url) {
           if (detail?.statusCode === 10204) throw new Error("video not found");
           const item = detail?.itemInfo?.itemStruct;
           if (item && !metadata) {
-            metadata = {
-              title: item.desc || "",
-              author: item.author?.uniqueId || "",
-              duration: item.video?.duration || 0,
-              audioUrl: item.music?.playUrl || null,
-              thumbnail: item.video?.cover || null,
-            };
+            metadata = metadataFromItem(item);
           }
         } catch (e) {
           if (e.message === "video not found") throw e;
@@ -112,6 +129,19 @@ export async function extractVideo(url) {
     }
 
     if (!videoBuffer) {
+      if (metadata?.type === "slideshow" && metadata.images?.length > 0) {
+        return {
+          type: "slideshow",
+          filePath: "",
+          fileSize: 0,
+          title: metadata.title || "",
+          author: metadata.author || "",
+          duration: metadata.duration || 0,
+          audioUrl: metadata.audioUrl || null,
+          thumbnail: metadata.thumbnail || metadata.images[0] || null,
+          images: metadata.images || [],
+        };
+      }
       throw new Error("could not capture video stream from TikTok");
     }
 

@@ -85,6 +85,7 @@ type ClientSession struct {
 	LastHeartbeat time.Time
 	LastActivity  time.Time
 	ActiveJobs    map[string]bool
+	SkipHeartbeat bool
 }
 
 type FailedVideo struct {
@@ -315,9 +316,9 @@ func (dw *DownloadWriter) WriteKeepAlive() {
 }
 
 type ResumedJob struct {
-	Progress         float64
+	Progress          float64
 	ClientReconnected bool
-	Response         http.ResponseWriter
+	Response          http.ResponseWriter
 }
 
 type PendingJob struct {
@@ -332,30 +333,30 @@ type PendingJob struct {
 }
 
 type State struct {
-	muDownloads    sync.RWMutex
+	muDownloads     sync.RWMutex
 	activeDownloads map[string]*DownloadWriter
 
-	muProcesses    sync.Mutex
+	muProcesses     sync.Mutex
 	activeProcesses map[string]*ProcessInfo
 
-	muJobs         sync.Mutex
-	jobsByType     map[string]int
+	muJobs     sync.Mutex
+	jobsByType map[string]int
 
-	muSessions     sync.Mutex
-	sessions       map[string]*ClientSession
-	jobToClient    map[string]string
+	muSessions  sync.Mutex
+	sessions    map[string]*ClientSession
+	jobToClient map[string]string
 
-	muAsync        sync.RWMutex
-	asyncJobs      map[string]*AsyncJob
+	muAsync   sync.RWMutex
+	asyncJobs map[string]*AsyncJob
 
-	muBot          sync.RWMutex
-	botDownloads   map[string]*BotDownload
+	muBot        sync.RWMutex
+	botDownloads map[string]*BotDownload
 
-	muPending      sync.Mutex
-	pendingJobs    map[string]*PendingJob
+	muPending   sync.Mutex
+	pendingJobs map[string]*PendingJob
 
-	muResumed      sync.Mutex
-	resumedJobs    map[string]*ResumedJob
+	muResumed   sync.Mutex
+	resumedJobs map[string]*ResumedJob
 
 	muChunked      sync.Mutex
 	chunkedUploads map[string]*ChunkedUpload
@@ -363,8 +364,8 @@ type State struct {
 	muProgress     sync.Mutex
 	lastLoggedProg map[string]float64
 
-	muFileRefs     sync.Mutex
-	fileRefs       map[string]*FileRef
+	muFileRefs sync.Mutex
+	fileRefs   map[string]*FileRef
 }
 
 type FileRef struct {
@@ -460,7 +461,7 @@ func (s *State) CanStartJob(jobType string) JobCheck {
 
 	limit, exists := config.JobLimits[jobType]
 	if exists && s.jobsByType[jobType] >= limit {
-		return JobCheck{false, fmt.Sprintf("Too many active %s jobs (limit: %d)", jobType, limit)}
+		return JobCheck{false, fmt.Sprintf("server is busy, too many %s jobs are running right now (limit: %d)", jobType, limit)}
 	}
 
 	availGB := getDiskSpaceGB()
@@ -515,6 +516,7 @@ func (s *State) RegisterClient(clientID string) {
 			LastHeartbeat: time.Now(),
 			LastActivity:  time.Now(),
 			ActiveJobs:    make(map[string]bool),
+			SkipHeartbeat: strings.HasPrefix(clientID, "ip:"),
 		}
 		short := clientID
 		if len(short) > 8 {
@@ -553,6 +555,36 @@ func (s *State) LinkJobToClient(jobID, clientID string) {
 	session.ActiveJobs[jobID] = true
 	session.LastActivity = time.Now()
 	s.jobToClient[jobID] = clientID
+}
+
+func (s *State) TryReserveClientJob(jobID, clientID string, maxJobs int) bool {
+	s.muSessions.Lock()
+	defer s.muSessions.Unlock()
+	if clientID == "" {
+		return false
+	}
+	session, exists := s.sessions[clientID]
+	if !exists {
+		session = &ClientSession{
+			LastHeartbeat: time.Now(),
+			LastActivity:  time.Now(),
+			ActiveJobs:    make(map[string]bool),
+			SkipHeartbeat: strings.HasPrefix(clientID, "ip:"),
+		}
+		s.sessions[clientID] = session
+		short := clientID
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		log.Printf("[Session] Client %s... connected", short)
+	}
+	if len(session.ActiveJobs) >= maxJobs {
+		return false
+	}
+	session.ActiveJobs[jobID] = true
+	session.LastActivity = time.Now()
+	s.jobToClient[jobID] = clientID
+	return true
 }
 
 func (s *State) GetJobOwner(jobID string) string {
@@ -758,13 +790,9 @@ func (s *State) SendProgress(downloadID, stage, message string, progress *float6
 		if *progress >= 100 || *progress-lastProg >= 25 {
 			log.Printf("[%s] %s: %s", short, stage, message)
 			s.lastLoggedProg[downloadID] = *progress
-			if *progress >= 100 {
-				delete(s.lastLoggedProg, downloadID)
-			}
 		}
 	} else {
 		log.Printf("[%s] %s: %s", short, stage, message)
-		delete(s.lastLoggedProg, downloadID)
 	}
 	s.muProgress.Unlock()
 }
@@ -792,6 +820,11 @@ func (s *State) ReleaseJob(jobID string) bool {
 	}
 	s.RemovePendingJob(jobID)
 	s.UnlinkJobFromClient(jobID)
+
+	s.muProgress.Lock()
+	delete(s.lastLoggedProg, jobID)
+	s.muProgress.Unlock()
+
 	return true
 }
 
@@ -812,7 +845,7 @@ func (s *State) StartSessionCleanup(cleanupJobFiles func(string)) {
 			for clientID, session := range s.sessions {
 				hasActive := len(session.ActiveJobs) > 0
 
-				if hasActive && now.Sub(session.LastHeartbeat) > config.HeartbeatTimeout {
+				if hasActive && !session.SkipHeartbeat && now.Sub(session.LastHeartbeat) > config.HeartbeatTimeout {
 					short := clientID
 					if len(short) > 8 {
 						short = short[:8]
@@ -890,25 +923,27 @@ func (s *State) StartCounterReconciliation() {
 		ticker := time.NewTicker(30 * time.Second)
 		for range ticker.C {
 			s.muProcesses.Lock()
-			processCount := len(s.activeProcesses)
-			s.muProcesses.Unlock()
-
-			if processCount > 0 {
-				continue
+			actualCounts := make(map[string]int)
+			for _, proc := range s.activeProcesses {
+				if proc.JobType != "" {
+					actualCounts[proc.JobType]++
+				}
 			}
+			s.muProcesses.Unlock()
 
 			s.muJobs.Lock()
 			leaked := false
 			for t, count := range s.jobsByType {
-				if count > 0 {
-					log.Printf("[Queue] Counter leak detected: %s=%d with no active processes. Resetting.", t, count)
-					s.jobsByType[t] = 0
+				actual := actualCounts[t]
+				if count > actual {
+					log.Printf("[Queue] Counter leak detected: %s=%d but only %d active processes. Correcting.", t, count, actual)
+					s.jobsByType[t] = actual
 					leaked = true
 				}
 			}
 			if leaked {
 				b, _ := json.Marshal(s.jobsByType)
-				log.Printf("[Queue] Counters reset: %s", string(b))
+				log.Printf("[Queue] Counters corrected: %s", string(b))
 			}
 			s.muJobs.Unlock()
 		}

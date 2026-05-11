@@ -1653,7 +1653,7 @@ func runTwoPassEncode(inputPath, outputPath, passLogFile string, videoBitrateK i
 		"-maxrate", fmt.Sprintf("%dk", maxrateK),
 		"-bufsize", fmt.Sprintf("%dk", bufsizeK),
 		"-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "4.2",
-		"-x264-params", x264Params,
+		"-x264-params", x264Params+":fast-pskip=1",
 		"-pass", "1", "-passlogfile", passLogFile,
 		"-an", "-f", "null", os.DevNull)
 
@@ -1702,7 +1702,7 @@ func runTwoPassEncodeAsync(inputPath, outputPath, passLogFile string, videoBitra
 		"-maxrate", fmt.Sprintf("%dk", maxrateK),
 		"-bufsize", fmt.Sprintf("%dk", bufsizeK),
 		"-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "4.2",
-		"-x264-params", x264Params,
+		"-x264-params", x264Params+":fast-pskip=1",
 		"-pass", "1", "-passlogfile", passLogFile,
 		"-an", "-f", "null", os.DevNull)
 

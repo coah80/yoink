@@ -148,7 +148,7 @@ func handleCancel(w http.ResponseWriter, r *http.Request) {
 		}
 		processInfo.KillProcess()
 
-		services.Global.DeleteProcess(id)
+		services.Global.ReleaseJob(id)
 		services.Global.SendProgressSimple(id, "cancelled", "Download cancelled")
 
 		go func() {

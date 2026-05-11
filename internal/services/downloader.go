@@ -81,6 +81,7 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 	args = append(args,
 		"--continue",
 		"-t", "sleep",
+		"--remote-components", "ejs:github",
 	)
 	if opts.Playlist {
 		args = append(args, "--yes-playlist")

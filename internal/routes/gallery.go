@@ -182,7 +182,7 @@ func handleGalleryMetadata(w http.ResponseWriter, r *http.Request) {
 func handleGalleryDownload(w http.ResponseWriter, r *http.Request) {
 	rawURL := r.URL.Query().Get("url")
 	progressID := r.URL.Query().Get("progressId")
-	clientID := r.URL.Query().Get("clientId")
+	clientID := effectiveClientID(r, r.URL.Query().Get("clientId"))
 	filename := r.URL.Query().Get("filename")
 
 	if !util.GalleryDlAvailable {
@@ -195,22 +195,21 @@ func handleGalleryDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if clientID != "" {
-		if services.Global.GetClientJobCount(clientID) >= config.MaxJobsPerClient {
-			respondJSON(w, 429, map[string]string{
-				"error": fmt.Sprintf("Too many active jobs. Maximum %d concurrent jobs per user.", config.MaxJobsPerClient),
-			})
-			return
-		}
-	}
-
 	downloadID := progressID
 	if downloadID == "" {
 		downloadID = uuid.New().String()
 	}
 
+	if !services.Global.TryReserveClientJob(downloadID, clientID, config.MaxJobsPerClient) {
+		respondJSON(w, 429, map[string]string{
+			"error": fmt.Sprintf("too many active jobs, max %d at once per person", config.MaxJobsPerClient),
+		})
+		return
+	}
+
 	jobCheck := services.Global.CanStartJob("download")
 	if !jobCheck.OK {
+		services.Global.UnlinkJobFromClient(downloadID)
 		services.Global.SendProgressSimple(downloadID, "error", jobCheck.Reason)
 		respondJSON(w, 503, map[string]string{"error": jobCheck.Reason})
 		return
@@ -218,11 +217,6 @@ func handleGalleryDownload(w http.ResponseWriter, r *http.Request) {
 
 	galleryDir := filepath.Join(config.TempDirs["gallery"], "gallery-"+downloadID)
 	os.MkdirAll(galleryDir, 0755)
-
-	if clientID != "" {
-		services.Global.RegisterClient(clientID)
-		services.Global.LinkJobToClient(downloadID, clientID)
-	}
 
 	processInfo := &services.ProcessInfo{TempDir: galleryDir, JobType: "download"}
 	services.Global.SetProcess(downloadID, processInfo)
@@ -261,7 +255,7 @@ func handleGalleryDownload(w http.ResponseWriter, r *http.Request) {
 func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 	rawURL := r.URL.Query().Get("url")
 	progressID := r.URL.Query().Get("progressId")
-	clientID := r.URL.Query().Get("clientId")
+	clientID := effectiveClientID(r, r.URL.Query().Get("clientId"))
 	filename := r.URL.Query().Get("filename")
 
 	if !util.GalleryDlAvailable {
@@ -274,22 +268,21 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if clientID != "" {
-		if services.Global.GetClientJobCount(clientID) >= config.MaxJobsPerClient {
-			respondJSON(w, 429, map[string]string{
-				"error": fmt.Sprintf("Too many active jobs. Maximum %d concurrent jobs per user.", config.MaxJobsPerClient),
-			})
-			return
-		}
-	}
-
 	downloadID := progressID
 	if downloadID == "" {
 		downloadID = uuid.New().String()
 	}
 
+	if !services.Global.TryReserveClientJob(downloadID, clientID, config.MaxJobsPerClient) {
+		respondJSON(w, 429, map[string]string{
+			"error": fmt.Sprintf("too many active jobs, max %d at once per person", config.MaxJobsPerClient),
+		})
+		return
+	}
+
 	jobCheck := services.Global.CanStartJob("download")
 	if !jobCheck.OK {
+		services.Global.UnlinkJobFromClient(downloadID)
 		services.Global.SendProgressSimple(downloadID, "error", jobCheck.Reason)
 		respondJSON(w, 503, map[string]string{"error": jobCheck.Reason})
 		return
@@ -297,11 +290,6 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 
 	galleryDir := filepath.Join(config.TempDirs["gallery"], "gallery-"+downloadID)
 	os.MkdirAll(galleryDir, 0755)
-
-	if clientID != "" {
-		services.Global.RegisterClient(clientID)
-		services.Global.LinkJobToClient(downloadID, clientID)
-	}
 
 	processInfo := &services.ProcessInfo{TempDir: galleryDir, JobType: "download"}
 	services.Global.SetProcess(downloadID, processInfo)
@@ -775,4 +763,3 @@ func truncStr(s string, n int) string {
 	}
 	return s
 }
-

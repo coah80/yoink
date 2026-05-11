@@ -1,7 +1,14 @@
 .env
+.DS_Store
+.wrangler/
+deploy/
 cookies.txt
 youtube-cookies.txt
 cors-origins.txt
 discord-config.json
 yoink
 yoink-linux-amd64
+yoink-linux
+yoink-go-linux
+yoink-bot-linux
+bot-data.db*
