@@ -15,6 +15,7 @@ func (b *Bot) handleYoink(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	data := i.ApplicationCommandData()
 	rawURL := ""
 	format := "mp4"
+	resumeFrom := 1
 
 	for _, opt := range data.Options {
 		switch opt.Name {
@@ -22,6 +23,8 @@ func (b *Bot) handleYoink(s *discordgo.Session, i *discordgo.InteractionCreate) 
 			rawURL = opt.StringValue()
 		case "format":
 			format = opt.StringValue()
+		case "resume_from":
+			resumeFrom = int(opt.IntValue())
 		}
 	}
 
@@ -32,12 +35,15 @@ func (b *Bot) handleYoink(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		return
 	}
 
-	go b.processYoink(s, i, rawURL, format)
+	go b.processYoink(s, i, rawURL, format, resumeFrom)
 }
 
-func (b *Bot) processYoink(s *discordgo.Session, i *discordgo.InteractionCreate, rawURL, format string) {
+func (b *Bot) processYoink(s *discordgo.Session, i *discordgo.InteractionCreate, rawURL, format string, resumeFrom int) {
 	url := normalizeURL(rawURL)
 	isPlaylist := isPlaylistURL(url)
+	if resumeFrom < 1 {
+		resumeFrom = 1
+	}
 
 	editEmbed(s, i, progressEmbed("Downloading...", 0, "", "", url))
 
@@ -65,7 +71,7 @@ func (b *Bot) processYoink(s *discordgo.Session, i *discordgo.InteractionCreate,
 	var err error
 
 	if isPlaylist {
-		jobID, err = b.api.startPlaylistDownload(url, apiFormat, quality, container, audioFormat)
+		jobID, err = b.api.startPlaylistDownload(url, apiFormat, quality, container, audioFormat, resumeFrom)
 	} else {
 		jobID, err = b.api.startDownload(url, apiFormat, quality, container, audioFormat, false)
 	}

@@ -135,25 +135,32 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 		return
 	}
 
-	if playlistInfo.Count > config.MaxPlaylistVideos {
-		playlistError(jobID, job, processInfo, playlistDir, fmt.Errorf("Playlist too large. Maximum %d videos allowed. This playlist has %d videos.", config.MaxPlaylistVideos, playlistInfo.Count))
+	totalVideos := playlistInfo.Count
+	if totalVideos == 0 {
+		totalVideos = len(playlistInfo.Entries)
+	}
+	if len(playlistInfo.Entries) == 0 {
+		playlistError(jobID, job, processInfo, playlistDir, fmt.Errorf("No videos found in playlist"))
+		return
+	}
+	if resumeFrom > len(playlistInfo.Entries) {
+		playlistError(jobID, job, processInfo, playlistDir, fmt.Errorf("Resume point is past the end of the playlist. This playlist has %d videos.", len(playlistInfo.Entries)))
+		return
+	}
+	startIdx := resumeFrom - 1
+	remainingVideos := len(playlistInfo.Entries) - startIdx
+	if remainingVideos > config.MaxPlaylistVideos {
+		playlistError(jobID, job, processInfo, playlistDir, fmt.Errorf("Playlist chunk too large. Maximum %d videos allowed per run. Start later in the playlist or finish early.", config.MaxPlaylistVideos))
 		return
 	}
 
-	totalVideos := playlistInfo.Count
 	playlistTitle := playlistInfo.Title
-	startIdx := resumeFrom - 1
-	if startIdx >= len(playlistInfo.Entries) {
-		startIdx = len(playlistInfo.Entries) - 1
-	}
-	if startIdx < 0 {
-		startIdx = 0
-	}
 	isResuming := startIdx > 0
+	startVideo := startIdx + 1
 
 	var msg string
 	if isResuming {
-		msg = fmt.Sprintf("resuming from video %d/%d", resumeFrom, totalVideos)
+		msg = fmt.Sprintf("resuming from video %d/%d", startVideo, totalVideos)
 	} else {
 		msg = fmt.Sprintf("found %d videos", totalVideos)
 	}
@@ -162,6 +169,7 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 	job.Status = "downloading"
 	job.PlaylistTitle = playlistTitle
 	job.TotalVideos = totalVideos
+	job.StartVideo = startVideo
 	job.Message = msg
 	job.Unlock()
 

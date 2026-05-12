@@ -117,7 +117,10 @@ func (a *apiClient) startDownload(rawURL, format, quality, container, audioForma
 	return parseJobResponse(data, status)
 }
 
-func (a *apiClient) startPlaylistDownload(rawURL, format, quality, container, audioFormat string) (string, error) {
+func (a *apiClient) startPlaylistDownload(rawURL, format, quality, container, audioFormat string, resumeFrom int) (string, error) {
+	if resumeFrom < 1 {
+		resumeFrom = 1
+	}
 	body := map[string]interface{}{
 		"url":          rawURL,
 		"format":       format,
@@ -125,6 +128,7 @@ func (a *apiClient) startPlaylistDownload(rawURL, format, quality, container, au
 		"container":    container,
 		"audioFormat":  audioFormat,
 		"audioBitrate": "320",
+		"resumeFrom":   resumeFrom,
 	}
 
 	data, status, err := a.doJSON("POST", "/api/bot/download-playlist", body)
@@ -238,11 +242,11 @@ func normalizeURL(rawURL string) string {
 		return rawURL
 	}
 	replacements := map[string]string{
-		"fxtwitter.com":  "x.com",
-		"fixupx.com":     "x.com",
-		"vxtwitter.com":  "x.com",
-		"fixvx.com":      "x.com",
-		"twitter.com":    "x.com",
+		"fxtwitter.com": "x.com",
+		"fixupx.com":    "x.com",
+		"vxtwitter.com": "x.com",
+		"fixvx.com":     "x.com",
+		"twitter.com":   "x.com",
 	}
 	if replacement, ok := replacements[u.Host]; ok {
 		u.Host = replacement

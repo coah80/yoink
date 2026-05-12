@@ -134,6 +134,13 @@ func (b *Bot) commandDefinitions() []*discordgo.ApplicationCommand {
 						{Name: "Compressed for Discord", Value: "compressed"},
 					},
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "resume_from",
+					Description: "For playlists, start at this video number",
+					Required:    false,
+					MinValue:    &[]float64{1}[0],
+				},
 			},
 		},
 		{

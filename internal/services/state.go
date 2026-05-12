@@ -113,6 +113,7 @@ type AsyncJob struct {
 	FileSize          int64         `json:"fileSize,omitempty"`
 	PlaylistTitle     string        `json:"playlistTitle,omitempty"`
 	TotalVideos       int           `json:"totalVideos,omitempty"`
+	StartVideo        int           `json:"startVideo,omitempty"`
 	VideosCompleted   int           `json:"videosCompleted,omitempty"`
 	CurrentVideo      int           `json:"currentVideo,omitempty"`
 	CurrentVideoTitle string        `json:"currentVideoTitle,omitempty"`
@@ -207,6 +208,7 @@ func (j *AsyncJob) GetPlaylistStatus() map[string]interface{} {
 		"message":           j.Message,
 		"playlistTitle":     j.PlaylistTitle,
 		"totalVideos":       j.TotalVideos,
+		"startVideo":        j.StartVideo,
 		"videosCompleted":   j.VideosCompleted,
 		"currentVideo":      j.CurrentVideo,
 		"currentVideoTitle": j.CurrentVideoTitle,
@@ -239,7 +241,9 @@ func (j *AsyncJob) GetBotStatus() map[string]interface{} {
 		"speed":           j.Speed,
 		"eta":             j.ETA,
 		"totalVideos":     j.TotalVideos,
+		"startVideo":      j.StartVideo,
 		"videosCompleted": j.VideosCompleted,
+		"currentVideo":    j.CurrentVideo,
 		"failedVideos":    fv,
 		"playlistInfo":    j.PlaylistInfo,
 		"outputFilename":  j.OutputFilename,

@@ -343,6 +343,7 @@ func handleBotDownloadPlaylist(w http.ResponseWriter, r *http.Request) {
 		Container    string `json:"container"`
 		AudioFormat  string `json:"audioFormat"`
 		AudioBitrate string `json:"audioBitrate"`
+		ResumeFrom   int    `json:"resumeFrom"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 
@@ -361,6 +362,9 @@ func handleBotDownloadPlaylist(w http.ResponseWriter, r *http.Request) {
 	defaults(&body.Container, "mp4")
 	defaults(&body.AudioFormat, "mp3")
 	defaults(&body.AudioBitrate, "320")
+	if body.ResumeFrom < 1 {
+		body.ResumeFrom = 1
+	}
 
 	jobID := uuid.New().String()
 	isAudio := body.Format == "audio"
@@ -379,10 +383,10 @@ func handleBotDownloadPlaylist(w http.ResponseWriter, r *http.Request) {
 	services.Global.SetAsyncJob(jobID, job)
 	respondJSON(w, 200, map[string]string{"jobId": jobID})
 
-	go processBotPlaylistAsync(jobID, job, body.URL, isAudio, body.AudioFormat, outputExt, body.Quality, body.Container, body.AudioBitrate)
+	go processBotPlaylistAsync(jobID, job, body.URL, isAudio, body.AudioFormat, outputExt, body.Quality, body.Container, body.AudioBitrate, body.ResumeFrom)
 }
 
-func processBotPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, isAudio bool, audioFormat, outputExt, quality, container, audioBitrate string) {
+func processBotPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, isAudio bool, audioFormat, outputExt, quality, container, audioBitrate string, resumeFrom int) {
 	playlistDir := filepath.Join(config.TempDirs["bot"], "playlist-"+jobID)
 	os.MkdirAll(playlistDir, 0755)
 	ctx := context.Background()
@@ -395,23 +399,47 @@ func processBotPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string
 		return
 	}
 
-	if playlistInfo.Count > config.MaxPlaylistVideos {
-		botError(jobID, job, fmt.Errorf("Playlist too large. Maximum %d videos allowed.", config.MaxPlaylistVideos))
+	totalVideos := playlistInfo.Count
+	if totalVideos == 0 {
+		totalVideos = len(playlistInfo.Entries)
+	}
+	if len(playlistInfo.Entries) == 0 {
+		botError(jobID, job, fmt.Errorf("No videos found in playlist"))
+		os.RemoveAll(playlistDir)
+		return
+	}
+	if resumeFrom > len(playlistInfo.Entries) {
+		botError(jobID, job, fmt.Errorf("Resume point is past the end of the playlist. This playlist has %d videos.", len(playlistInfo.Entries)))
+		os.RemoveAll(playlistDir)
+		return
+	}
+	startIdx := resumeFrom - 1
+	remainingVideos := len(playlistInfo.Entries) - startIdx
+	if remainingVideos > config.MaxPlaylistVideos {
+		botError(jobID, job, fmt.Errorf("Playlist chunk too large. Maximum %d videos allowed per run.", config.MaxPlaylistVideos))
 		os.RemoveAll(playlistDir)
 		return
 	}
 
+	startVideo := startIdx + 1
+	msg := fmt.Sprintf("Found %d videos", totalVideos)
+	if startVideo > 1 {
+		msg = fmt.Sprintf("Resuming from video %d/%d", startVideo, totalVideos)
+	}
+
 	job.Lock()
-	job.TotalVideos = playlistInfo.Count
-	job.PlaylistInfo = map[string]interface{}{"title": playlistInfo.Title, "count": playlistInfo.Count}
-	job.Message = fmt.Sprintf("Found %d videos", playlistInfo.Count)
+	job.TotalVideos = totalVideos
+	job.StartVideo = startVideo
+	job.PlaylistInfo = map[string]interface{}{"title": playlistInfo.Title, "count": totalVideos, "startVideo": startVideo}
+	job.Message = msg
 	job.Status = "downloading"
 	job.Unlock()
 
 	var downloadedFiles []string
 	var failedVideos []services.FailedVideo
 
-	for i, entry := range playlistInfo.Entries {
+	for i := startIdx; i < len(playlistInfo.Entries); i++ {
+		entry := playlistInfo.Entries[i]
 		videoNum := i + 1
 		videoTitle := orDefault(entry.Title, fmt.Sprintf("Video %d", videoNum))
 		videoURL := entry.URL
@@ -422,9 +450,11 @@ func processBotPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string
 			continue
 		}
 
-		job.SetProgressAndMessage(
-			float64(videoNum)/float64(playlistInfo.Count)*90,
-			fmt.Sprintf("Downloading %d/%d: %s", videoNum, playlistInfo.Count, videoTitle))
+		job.Lock()
+		job.CurrentVideo = videoNum
+		job.Progress = float64(videoNum) / float64(totalVideos) * 90
+		job.Message = fmt.Sprintf("Downloading %d/%d: %s", videoNum, totalVideos, videoTitle)
+		job.Unlock()
 
 		safeTitle := util.SanitizeFilename(videoTitle)
 		if len(safeTitle) > 100 {
