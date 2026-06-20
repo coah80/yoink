@@ -17,6 +17,9 @@ var (
 	cookieRefreshMu   sync.Mutex
 	lastCookieRefresh time.Time
 	cookieRefreshMin  = 5 * time.Minute // minimum time between refresh attempts
+
+	cookieStateMu        sync.RWMutex
+	cookiesDisabledUntil time.Time
 )
 
 // OnCookieRefreshNeeded is called when cookies need refreshing.
@@ -58,6 +61,9 @@ func NeedsCookiesRetry(errorOutput string) bool {
 }
 
 func GetCookiesArgs() []string {
+	if CookiesTemporarilyDisabled() {
+		return nil
+	}
 	if _, err := os.Stat(YouTubeCookiesFile); err == nil {
 		return []string{"--cookies", YouTubeCookiesFile}
 	}
@@ -82,6 +88,9 @@ func GetCookiePath() string {
 // Session tokens take priority; cookie file is included as supplement/fallback.
 func GetYouTubeAuthArgs() []string {
 	var args []string
+	if providerArgs := GetPOTProviderArgs(); providerArgs != nil {
+		args = append(args, providerArgs...)
+	}
 	if tokenArgs := GetSessionTokenArgs(); tokenArgs != nil {
 		args = append(args, tokenArgs...)
 	}
@@ -91,15 +100,39 @@ func GetYouTubeAuthArgs() []string {
 	return args
 }
 
+func CookiesTemporarilyDisabled() bool {
+	cookieStateMu.RLock()
+	until := cookiesDisabledUntil
+	cookieStateMu.RUnlock()
+	return !until.IsZero() && time.Now().Before(until)
+}
+
+func disableCookiesTemporarily(reason string) {
+	cookieStateMu.Lock()
+	cookiesDisabledUntil = time.Now().Add(30 * time.Minute)
+	cookieStateMu.Unlock()
+	log.Printf("[Cookies] Temporarily disabled cookie auth for 30m: %s", reason)
+}
+
+func enableCookies() {
+	cookieStateMu.Lock()
+	cookiesDisabledUntil = time.Time{}
+	cookieStateMu.Unlock()
+}
+
 // TriggerCookieRefresh attempts to refresh YouTube cookies via the configured
 // cookie refresh script. It rate-limits to one attempt per cookieRefreshMin.
 // This should be called when yt-dlp reports bot detection / auth failures.
 func TriggerCookieRefresh(reason string) {
+	go RefreshCookies(reason)
+}
+
+func RefreshCookies(reason string) bool {
 	cookieRefreshMu.Lock()
 	if time.Since(lastCookieRefresh) < cookieRefreshMin {
 		cookieRefreshMu.Unlock()
 		log.Printf("[Cookies] Refresh skipped (last attempt %s ago)", time.Since(lastCookieRefresh).Round(time.Second))
-		return
+		return false
 	}
 	lastCookieRefresh = time.Now()
 	cookieRefreshMu.Unlock()
@@ -117,21 +150,23 @@ func TriggerCookieRefresh(reason string) {
 
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		log.Printf("[Cookies] No refresh script at %s, skipping auto-refresh", scriptPath)
-		return
+		disableCookiesTemporarily("refresh script missing")
+		return false
 	}
 
-	go func() {
-		log.Printf("[Cookies] Running refresh script: %s", scriptPath)
-		cmd := exec.Command(scriptPath)
-		cmd.Env = append(os.Environ(),
-			"COOKIES_FILE="+CookiesFile,
-			"YOUTUBE_COOKIES_FILE="+YouTubeCookiesFile,
-		)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("[Cookies] Refresh script failed: %v\n%s", err, string(output))
-			return
-		}
-		log.Printf("[Cookies] Refresh script completed successfully")
-	}()
+	log.Printf("[Cookies] Running refresh script: %s", scriptPath)
+	cmd := exec.Command(scriptPath)
+	cmd.Env = append(os.Environ(),
+		"COOKIES_FILE="+CookiesFile,
+		"YOUTUBE_COOKIES_FILE="+YouTubeCookiesFile,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		disableCookiesTemporarily("refresh failed")
+		log.Printf("[Cookies] Refresh script failed: %v\n%s", err, string(output))
+		return false
+	}
+	enableCookies()
+	log.Printf("[Cookies] Refresh script completed successfully")
+	return true
 }

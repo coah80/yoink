@@ -43,17 +43,17 @@ func ParseYtdlpProgress(text string) YtdlpProgress {
 }
 
 type DownloadOpts struct {
-	IsAudio      bool
-	AudioFormat  string
-	Quality      string
-	Container    string
-	TempDir      string
-	FilePrefix   string
-	ProcessInfo  *ProcessInfo
-	Playlist     bool
-	UseProxy     bool
-	OnProgress   func(percent float64, speed, eta string)
-	OnCancel     func(killFn func())
+	IsAudio     bool
+	AudioFormat string
+	Quality     string
+	Container   string
+	TempDir     string
+	FilePrefix  string
+	ProcessInfo *ProcessInfo
+	Playlist    bool
+	UseProxy    bool
+	OnProgress  func(percent float64, speed, eta string)
+	OnCancel    func(killFn func())
 }
 
 type DownloadResult struct {
@@ -72,7 +72,8 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 		opts.Container = "mp4"
 	}
 
-	tempFile := filepath.Join(opts.TempDir, fmt.Sprintf("%s%s.%%(ext)s", opts.FilePrefix, jobID))
+	filePrefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
+	tempFile := filepath.Join(opts.TempDir, fmt.Sprintf("%s.%%(ext)s", filePrefix))
 
 	args := append([]string{}, util.GetYouTubeAuthArgs()...)
 	if opts.UseProxy {
@@ -188,6 +189,10 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 		if m := ytdlpErrorRe.FindStringSubmatch(stderrOutput.String()); len(m) > 1 {
 			errMsg = strings.TrimSpace(m[1])
 		}
+		if util.NeedsCookiesRetry(errMsg) && util.RefreshCookies("YouTube auth failure during download") {
+			cleanupYtdlpOutputs(opts.TempDir, filePrefix)
+			return DownloadViaYtdlp(ctx, url, jobID, opts)
+		}
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
@@ -196,7 +201,7 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 		return nil, fmt.Errorf("failed to read temp dir: %w", err)
 	}
 
-	prefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
+	prefix := filePrefix
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasPrefix(name, prefix) {
@@ -213,6 +218,18 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 	}
 
 	return nil, fmt.Errorf("Downloaded file not found")
+}
+
+func cleanupYtdlpOutputs(tempDir, prefix string) {
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			_ = os.Remove(filepath.Join(tempDir, entry.Name()))
+		}
+	}
 }
 
 type PlaylistInfo struct {

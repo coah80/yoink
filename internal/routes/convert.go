@@ -360,7 +360,7 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[%s] Fetching URL (yt-dlp)\n", id)
 
 	ytdlpFetch := func() (string, error) {
-		args := []string{}
+		args := append([]string{}, util.GetYouTubeAuthArgs()...)
 		if isYouTube {
 			args = append(args, util.GetProxyArgs()...)
 		}
@@ -400,6 +400,11 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 
 	if isYouTube {
 		filePath, fetchErr = ytdlpFetch()
+		if fetchErr != nil {
+			if util.NeedsCookiesRetry(fetchErr.Error()) && util.RefreshCookies("YouTube bot detection during URL fetch") {
+				filePath, fetchErr = ytdlpFetch()
+			}
+		}
 		if fetchErr != nil {
 			log.Printf("[%s] yt-dlp failed, falling back to Cobalt: %s\n", id, fetchErr.Error())
 			result, cobaltErr := services.DownloadViaCobalt(r.Context(), trimmedURL, id, false, nil, services.CobaltDownloadOpts{OutputDir: config.TempDirs["upload"]})
@@ -847,21 +852,21 @@ func handleCompress(w http.ResponseWriter, r *http.Request) {
 
 func handleConvertChunked(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		FilePath     string             `json:"filePath"`
-		FileName     string             `json:"fileName"`
-		Format       string             `json:"format"`
-		ClientID     string             `json:"clientId"`
-		Quality      string             `json:"quality"`
-		Reencode     string             `json:"reencode"`
-		StartTime    string             `json:"startTime"`
-		EndTime      string             `json:"endTime"`
-		AudioBitrate string             `json:"audioBitrate"`
-		CropRatio    string             `json:"cropRatio"`
-		CropX        *int               `json:"cropX"`
-		CropY        *int               `json:"cropY"`
-		CropW        *int               `json:"cropW"`
-		CropH        *int               `json:"cropH"`
-		Segments     []convertSegment   `json:"segments"`
+		FilePath     string           `json:"filePath"`
+		FileName     string           `json:"fileName"`
+		Format       string           `json:"format"`
+		ClientID     string           `json:"clientId"`
+		Quality      string           `json:"quality"`
+		Reencode     string           `json:"reencode"`
+		StartTime    string           `json:"startTime"`
+		EndTime      string           `json:"endTime"`
+		AudioBitrate string           `json:"audioBitrate"`
+		CropRatio    string           `json:"cropRatio"`
+		CropX        *int             `json:"cropX"`
+		CropY        *int             `json:"cropY"`
+		CropW        *int             `json:"cropW"`
+		CropH        *int             `json:"cropH"`
+		Segments     []convertSegment `json:"segments"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respondJSON(w, 400, map[string]string{"error": "Invalid request body"})
@@ -965,16 +970,16 @@ func handleConvertChunked(w http.ResponseWriter, r *http.Request) {
 
 func handleCompressChunked(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		FilePath  string `json:"filePath"`
-		FileName  string `json:"fileName"`
-		ClientID  string `json:"clientId"`
-		TargetSize string `json:"targetSize"`
-		Duration  string `json:"duration"`
-		Mode      string `json:"mode"`
-		Quality   string `json:"quality"`
-		Preset    string `json:"preset"`
-		Denoise   string `json:"denoise"`
-		Downscale interface{} `json:"downscale"`
+		FilePath   string      `json:"filePath"`
+		FileName   string      `json:"fileName"`
+		ClientID   string      `json:"clientId"`
+		TargetSize string      `json:"targetSize"`
+		Duration   string      `json:"duration"`
+		Mode       string      `json:"mode"`
+		Quality    string      `json:"quality"`
+		Preset     string      `json:"preset"`
+		Denoise    string      `json:"denoise"`
+		Downscale  interface{} `json:"downscale"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respondJSON(w, 400, map[string]string{"error": "Invalid request body"})

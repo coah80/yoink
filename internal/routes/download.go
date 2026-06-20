@@ -224,44 +224,56 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--yes-playlist", "--flat-playlist", "-J", rawURL)
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	runYtdlpMetadata := func() (string, string, bool, error) {
+		cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "yt-dlp", args...)
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+		cmd := exec.CommandContext(cmdCtx, "yt-dlp", args...)
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
 
-	if err := cmd.Start(); err != nil {
-		respondJSON(w, 500, map[string]string{"error": "yt-dlp not found. Please install yt-dlp."})
-		return
+		if err := cmd.Start(); err != nil {
+			return "", "", false, err
+		}
+
+		var outBuf, errBuf strings.Builder
+		done := make(chan struct{}, 2)
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				outBuf.WriteString(scanner.Text() + "\n")
+			}
+			done <- struct{}{}
+		}()
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				errBuf.WriteString(scanner.Text() + "\n")
+			}
+			done <- struct{}{}
+		}()
+
+		err := cmd.Wait()
+		<-done
+		<-done
+		return outBuf.String(), errBuf.String(), cmdCtx.Err() != nil, err
 	}
 
-	var outBuf, errBuf strings.Builder
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			outBuf.WriteString(scanner.Text() + "\n")
-		}
-	}()
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			errBuf.WriteString(scanner.Text() + "\n")
-		}
-	}()
-
-	err := cmd.Wait()
+	outText, errOutput, timedOut, err := runYtdlpMetadata()
 	if err != nil {
-		if cmdCtx.Err() != nil {
+		if timedOut {
 			respondJSON(w, 504, map[string]string{"error": "Metadata fetch timed out (30s)"})
 			return
 		}
-		errOutput := errBuf.String()
-		if util.NeedsCookiesRetry(errOutput) {
-			util.TriggerCookieRefresh("YouTube bot detection during metadata fetch")
-			respondJSON(w, 500, map[string]string{"error": "YouTube requires authentication. Cookies may be expired."})
-			return
+		if util.NeedsCookiesRetry(errOutput) && util.RefreshCookies("YouTube bot detection during metadata fetch") {
+			outText, errOutput, timedOut, err = runYtdlpMetadata()
+			if timedOut {
+				respondJSON(w, 504, map[string]string{"error": "Metadata fetch timed out (30s)"})
+				return
+			}
 		}
+	}
+	if err != nil {
 		if !downloadPlaylist {
 			galleryMeta, galleryErr := tryGalleryDlMetadata(ctx, rawURL)
 			if galleryErr == nil {
@@ -274,7 +286,7 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lines := strings.Split(strings.TrimSpace(outBuf.String()), "\n")
+	lines := strings.Split(strings.TrimSpace(outText), "\n")
 	if downloadPlaylist {
 		var raw struct {
 			Title         string `json:"title"`
@@ -283,7 +295,7 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 				Title string `json:"title"`
 			} `json:"entries"`
 		}
-		if err := json.Unmarshal([]byte(outBuf.String()), &raw); err != nil {
+		if err := json.Unmarshal([]byte(outText), &raw); err != nil {
 			respondJSON(w, 500, map[string]string{"error": "Failed to parse playlist info"})
 			return
 		}
@@ -537,8 +549,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				isAuthError := util.NeedsCookiesRetry(err.Error())
-				if util.HasProxy() && !isAuthError {
+				if util.HasProxy() {
 					log.Printf("[%s] yt-dlp failed, retrying with proxy: %s", downloadID, err)
 					services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying with proxy...", 0)
 					result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{

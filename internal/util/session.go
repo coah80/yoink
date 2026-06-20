@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,13 +18,14 @@ var (
 	sessionMu     sync.RWMutex
 	cachedPOToken string
 	cachedVisitor string
+	cachedSource  string
 
 	// Set these before calling StartSessionTokenRefresh.
 	OnSessionTokenFailed    func(details string)
 	OnSessionTokenRecovered func()
 )
 
-var sessionClient = &http.Client{Timeout: 10 * time.Second}
+var sessionClient = &http.Client{Timeout: 60 * time.Second}
 
 type sessionTokenResponse struct {
 	POToken     string `json:"potoken"`
@@ -36,20 +38,44 @@ type bgutilTokenResponse struct {
 	ExpiresAt      string `json:"expiresAt"`
 }
 
-// GetSessionTokenArgs returns yt-dlp extractor-args for YouTube session tokens,
-// or nil if no valid tokens are cached.
+// GetSessionTokenArgs returns yt-dlp extractor-args for trusted session tokens,
+// or nil if no valid session-generator token is cached.
 func GetSessionTokenArgs() []string {
 	sessionMu.RLock()
 	po := cachedPOToken
 	vis := cachedVisitor
+	source := cachedSource
 	sessionMu.RUnlock()
 
 	if po == "" || vis == "" {
 		return nil
 	}
+	if source == "bgutil" {
+		return nil
+	}
 	return []string{
 		"--extractor-args",
-		fmt.Sprintf("youtube:po_token=WEB+%s;visitor_data=%s", po, vis),
+		fmt.Sprintf("youtube:po_token=web.gvs+%s;visitor_data=%s", po, vis),
+	}
+}
+
+func GetPOTProviderArgs() []string {
+	providerURL := os.Getenv("YOUTUBE_POT_PROVIDER_URL")
+	if providerURL == "" && strings.Contains(config.SessionGeneratorURL, "4416") {
+		providerURL = config.SessionGeneratorURL
+	}
+	if providerURL == "" {
+		return nil
+	}
+	client := os.Getenv("YOUTUBE_PLAYER_CLIENT")
+	if client == "" {
+		client = "mweb"
+	}
+	return []string{
+		"--extractor-args",
+		fmt.Sprintf("youtube:player_client=%s;fetch_pot=always", client),
+		"--extractor-args",
+		fmt.Sprintf("youtubepot-bgutilhttp:base_url=%s", providerURL),
 	}
 }
 
@@ -142,11 +168,13 @@ func refreshViaBgutil() bool {
 		return false
 	}
 
-	// bgutil provides contentBinding which contains visitor data
+	// bgutil tokens are fetched per video by the yt-dlp provider args. Do not
+	// pass this generic token as a reusable session token.
 	visitorData := bgResp.ContentBinding
 
 	sessionMu.Lock()
 	cachedPOToken = bgResp.POToken
+	cachedSource = "bgutil"
 	if visitorData != "" {
 		cachedVisitor = visitorData
 	}
@@ -202,6 +230,7 @@ func refreshViaSessionGenerator() bool {
 	sessionMu.Lock()
 	cachedPOToken = token.POToken
 	cachedVisitor = token.VisitorData
+	cachedSource = "session"
 	sessionMu.Unlock()
 
 	log.Printf("[Session] Token refreshed (po_token=%d chars, visitor_data=%d chars)", len(token.POToken), len(token.VisitorData))
