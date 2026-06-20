@@ -412,7 +412,7 @@ Headers:
   User-Agent: com.zhiliaoapp.musically/2023501030 (Linux; U; Android 13; en_US; Pixel 7; Build/TD1A.220804.031; Cronet/58.0.2991.0)
   Accept: application/json
   X-Argus: (empty string)
-  Cookie: odin_tt={random_160_hex_chars}
+  Cookie: [redacted]
 ```
 
 ### Required Query Parameters (all requests)
