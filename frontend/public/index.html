@@ -61,8 +61,54 @@
   </script>
   <script type="module" crossorigin src="/assets/index-B6PFl9IG.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-Qyt3V_0G.css">
+  <style>
+    .youtube-status-notice {
+      width: min(760px, calc(100% - 32px));
+      margin: 14px auto 0;
+      padding: 14px 18px;
+      border: 1px solid rgba(139, 92, 246, 0.45);
+      border-radius: 12px;
+      background: rgba(18, 18, 26, 0.96);
+      color: #fafafa;
+      font-family: "Poppins", sans-serif;
+      text-align: center;
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+      position: relative;
+      z-index: 1000;
+    }
+
+    .youtube-status-notice strong {
+      display: block;
+      font-family: "Montserrat", sans-serif;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .youtube-status-notice span {
+      display: block;
+      color: #d4d4d8;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 600px) {
+      .youtube-status-notice {
+        width: calc(100% - 24px);
+        margin-top: 10px;
+        padding: 12px 14px;
+      }
+
+      .youtube-status-notice span {
+        font-size: 0.82rem;
+      }
+    }
+  </style>
 </head>
 <body>
+  <div class="youtube-status-notice" role="status" aria-live="polite">
+    <strong>Hey!</strong>
+    <span>YouTube downloads are not working right now because YouTube is blocking the server. I am working on a fix. It will come back, because it always will.</span>
+  </div>
   <div id="app"></div>
   <noscript>
     <div style="max-width:700px;margin:0 auto;padding:40px 24px;font-family:sans-serif;color:#fafafa;background:#0a0a0f;min-height:100vh;">
