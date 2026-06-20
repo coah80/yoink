@@ -63,33 +63,34 @@
   <link rel="stylesheet" crossorigin href="/assets/index-Qyt3V_0G.css">
   <style>
     .youtube-status-notice {
-      width: min(760px, calc(100% - 32px));
-      margin: 14px auto 0;
-      padding: 14px 18px;
-      border: 1px solid rgba(139, 92, 246, 0.45);
-      border-radius: 12px;
-      background: rgba(18, 18, 26, 0.96);
-      color: #fafafa;
-      font-family: "Poppins", sans-serif;
+      width: min(620px, 100%);
+      margin: 0 auto 24px;
+      padding: 10px 14px;
+      border: 1px solid var(--border, #2a2a3a);
+      border-radius: var(--radius-md, 12px);
+      background: var(--surface, #12121a);
+      color: var(--text, #fafafa);
+      font-family: var(--font-body, "Poppins", sans-serif);
       text-align: center;
-      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+      box-shadow: none;
       position: relative;
-      z-index: 3500;
+      z-index: 1;
       flex-shrink: 0;
     }
 
     .youtube-status-notice strong {
-      display: block;
-      font-family: "Montserrat", sans-serif;
-      font-size: 1rem;
-      margin-bottom: 4px;
+      display: inline;
+      font-family: var(--font-heading, "Montserrat", sans-serif);
+      font-size: 0.86rem;
+      color: var(--purple-400, #a78bfa);
+      margin-right: 6px;
     }
 
     .youtube-status-notice span {
-      display: block;
-      color: #d4d4d8;
-      font-size: 0.9rem;
-      line-height: 1.5;
+      display: inline;
+      color: var(--text-secondary, #a1a1aa);
+      font-size: 0.82rem;
+      line-height: 1.45;
     }
 
     .youtube-status-notice .mobile-copy {
@@ -97,26 +98,23 @@
     }
 
     @media (max-width: 760px) and (hover: none) and (pointer: coarse) {
-      .youtube-status-notice + #app {
-        min-height: calc(100dvh - 76px);
-      }
-
       .youtube-status-notice {
-        width: calc(100% - 20px);
-        margin-top: 8px;
-        padding: 10px 12px;
+        width: 100%;
+        margin-bottom: 16px;
+        padding: 9px 10px;
         border-radius: 10px;
       }
 
       .youtube-status-notice strong {
-        font-size: 0.95rem;
-        margin-bottom: 2px;
+        display: block;
+        font-size: 0.82rem;
+        margin: 0 0 2px;
       }
 
       .youtube-status-notice span {
         max-width: 38ch;
         margin: 0 auto;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         line-height: 1.38;
       }
 
@@ -128,29 +126,21 @@
         display: block;
       }
 
-      .youtube-status-notice + #app header {
-        padding-top: 8px;
-      }
-
-      .youtube-status-notice + #app main {
-        padding-top: 12px;
-      }
-
-      .youtube-status-notice + #app .bottom-nav {
+      #app > .bottom-nav {
         justify-content: space-between;
         gap: 0;
         padding-left: 4px;
         padding-right: 4px;
       }
 
-      .youtube-status-notice + #app .bottom-nav-item {
+      #app > .bottom-nav .bottom-nav-item {
         flex: 1 1 0;
         min-width: 0;
         padding-left: 2px;
         padding-right: 2px;
       }
 
-      .youtube-status-notice + #app .nav-label {
+      #app > .bottom-nav .nav-label {
         max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -160,12 +150,39 @@
   </style>
 </head>
 <body>
-  <div class="youtube-status-notice" role="status" aria-live="polite">
+  <div id="app"></div>
+  <div class="youtube-status-notice" role="status" aria-live="polite" hidden>
     <strong>Hey!</strong>
     <span class="desktop-copy">YouTube downloads are not working right now because YouTube is blocking the server. I am working on a fix. It will come back, because it always will.</span>
     <span class="mobile-copy">YouTube is paused while I fix a server block. It will come back. It always will.</span>
   </div>
-  <div id="app"></div>
+  <script>
+    (() => {
+      const app = document.getElementById('app');
+      const notice = document.querySelector('.youtube-status-notice');
+      if (!app || !notice) return;
+
+      const mountNotice = () => {
+        const main = app.querySelector('main');
+        if (!main) return false;
+
+        if (notice.parentElement !== main || notice !== main.firstElementChild) {
+          main.prepend(notice);
+        }
+
+        notice.hidden = false;
+        return true;
+      };
+
+      if (mountNotice()) return;
+
+      const observer = new MutationObserver(() => {
+        mountNotice();
+      });
+      observer.observe(app, { childList: true, subtree: true });
+      window.addEventListener('load', mountNotice, { once: true });
+    })();
+  </script>
   <noscript>
     <div style="max-width:700px;margin:0 auto;padding:40px 24px;font-family:sans-serif;color:#fafafa;background:#0a0a0f;min-height:100vh;">
       <h1>yoink.tools - Free Online Video Downloader</h1>
