@@ -68,6 +68,7 @@ func handleBotDownload(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 400, map[string]string{"error": "URL required"})
 		return
 	}
+	body.URL = util.NormalizeYouTubeURL(body.URL)
 	check := util.ValidateURL(body.URL)
 	if !check.Valid {
 		respondJSON(w, 400, map[string]string{"error": check.Error})
@@ -351,6 +352,7 @@ func handleBotDownloadPlaylist(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 400, map[string]string{"error": "URL required"})
 		return
 	}
+	body.URL = util.NormalizeYouTubeURL(body.URL)
 	check := util.ValidateURL(body.URL)
 	if !check.Valid {
 		respondJSON(w, 400, map[string]string{"error": check.Error})

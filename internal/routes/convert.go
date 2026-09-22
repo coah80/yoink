@@ -343,7 +343,7 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trimmedURL := strings.TrimSpace(body.URL)
+	trimmedURL := util.NormalizeYouTubeURL(strings.TrimSpace(body.URL))
 	if validation := util.ValidateURL(trimmedURL); !validation.Valid {
 		respondJSON(w, 400, map[string]string{"error": validation.Error})
 		return

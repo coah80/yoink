@@ -65,6 +65,7 @@ func handlePlaylistStart(w http.ResponseWriter, r *http.Request) {
 		body.ResumeFrom = 1
 	}
 
+	body.URL = util.NormalizeYouTubeURL(body.URL)
 	check := util.ValidateURL(body.URL)
 	if !check.Valid {
 		respondJSON(w, 400, map[string]string{"error": check.Error})
