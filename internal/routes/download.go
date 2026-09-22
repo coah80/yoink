@@ -63,30 +63,6 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 		clipDuration := float64(clipData.EndTimeMs-clipData.StartTimeMs) / 1000
 
-		cobaltMeta, err := services.FetchMetadataViaCobalt(ctx, clipData.FullVideoURL)
-		if err == nil {
-			respondJSON(w, 200, map[string]interface{}{
-				"title":            cobaltMeta.Title,
-				"ext":              cobaltMeta.Ext,
-				"id":               cobaltMeta.ID,
-				"uploader":         cobaltMeta.Uploader,
-				"duration":         clipDuration,
-				"thumbnail":        cobaltMeta.Thumbnail,
-				"isPlaylist":       false,
-				"viaCobalt":        true,
-				"isClip":           true,
-				"clipStartTime":    float64(clipData.StartTimeMs) / 1000,
-				"clipEndTime":      float64(clipData.EndTimeMs) / 1000,
-				"clipDuration":     clipDuration,
-				"originalVideoId":  clipData.VideoID,
-				"originalDuration": cobaltMeta.Duration,
-				"fullVideoUrl":     clipData.FullVideoURL,
-				"usingCookies":     false,
-				"clipNote":         "Clip will download full video then trim to clip portion.",
-			})
-			return
-		}
-
 		respondJSON(w, 200, map[string]interface{}{
 			"isClip":          true,
 			"clipStartTime":   float64(clipData.StartTimeMs) / 1000,
