@@ -8,11 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -31,7 +29,7 @@ func DownloadRoutes(r chi.Router) {
 }
 
 func handleMetadata(w http.ResponseWriter, r *http.Request) {
-	rawURL := r.URL.Query().Get("url")
+	rawURL := util.NormalizeYouTubeURL(r.URL.Query().Get("url"))
 	downloadPlaylist := r.URL.Query().Get("playlist") == "true"
 
 	check := util.ValidateURL(rawURL)
@@ -345,7 +343,7 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 func handleDownload(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	rawURL := q.Get("url")
+	rawURL := util.NormalizeYouTubeURL(q.Get("url"))
 	format := orDefault(q.Get("format"), "video")
 	filename := q.Get("filename")
 	quality := orDefault(q.Get("quality"), "1080p")
@@ -417,7 +415,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	isYouTube := strings.Contains(rawURL, "youtube.com") || strings.Contains(rawURL, "youtu.be")
 
 	if format == "photo" && isYouTube {
-		videoID := extractYouTubeVideoID(rawURL)
+		videoID := util.ExtractYouTubeVideoID(rawURL)
 		if videoID == "" {
 			services.Global.SendProgressSimple(downloadID, "error", "Could not extract YouTube video ID")
 			services.Global.ReleaseJob(downloadID)
@@ -934,34 +932,3 @@ func parseHostname(rawURL string) (string, error) {
 	return "", fmt.Errorf("invalid URL")
 }
 
-var ytVideoIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{11}$`)
-
-func extractYouTubeVideoID(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-
-	if parsed.Host == "youtu.be" || parsed.Host == "www.youtu.be" {
-		id := strings.TrimPrefix(parsed.Path, "/")
-		if idx := strings.Index(id, "/"); idx >= 0 {
-			id = id[:idx]
-		}
-		if ytVideoIDRe.MatchString(id) {
-			return id
-		}
-	}
-
-	if v := parsed.Query().Get("v"); ytVideoIDRe.MatchString(v) {
-		return v
-	}
-
-	parts := strings.Split(parsed.Path, "/")
-	for _, p := range parts {
-		if ytVideoIDRe.MatchString(p) {
-			return p
-		}
-	}
-
-	return ""
-}

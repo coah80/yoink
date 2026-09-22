@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/coah80/yoink/internal/util"
 )
 
 type apiClient struct {
@@ -251,7 +253,7 @@ func normalizeURL(rawURL string) string {
 	if replacement, ok := replacements[u.Host]; ok {
 		u.Host = replacement
 	}
-	return u.String()
+	return util.NormalizeYouTubeURL(u.String())
 }
 
 func isPlaylistURL(rawURL string) bool {
