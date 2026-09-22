@@ -399,26 +399,29 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 	var fetchErr error
 
 	if isYouTube {
-		if ytResult, ytErr := services.DownloadYouTubeVideo(r.Context(), trimmedURL, id, config.TempDirs["upload"], "1080p", false, nil); ytErr == nil {
-			filePath = ytResult.Path
-		} else {
-			log.Printf("[%s] YouTube innertube failed, falling back to yt-dlp: %s\n", id, ytErr)
+		tries := 1
+		if util.HasProxy() {
+			tries = 3
+		}
+		for attempt := 1; attempt <= tries; attempt++ {
 			filePath, fetchErr = ytdlpFetch()
-			if fetchErr != nil {
-				if util.NeedsCookiesRetry(fetchErr.Error()) && util.RefreshCookies("YouTube bot detection during URL fetch") {
-					filePath, fetchErr = ytdlpFetch()
+			if fetchErr == nil {
+				break
+			}
+			if util.NeedsCookiesRetry(fetchErr.Error()) && util.RefreshCookies("YouTube bot detection during URL fetch") {
+				filePath, fetchErr = ytdlpFetch()
+				if fetchErr == nil {
+					break
 				}
 			}
-			if fetchErr != nil {
-				log.Printf("[%s] yt-dlp failed, falling back to Cobalt: %s\n", id, fetchErr.Error())
-				result, cobaltErr := services.DownloadViaCobalt(r.Context(), trimmedURL, id, false, nil, services.CobaltDownloadOpts{OutputDir: config.TempDirs["upload"]})
-				if cobaltErr != nil {
-					services.Global.DecrementJob("fetchUrl")
-					respondJSON(w, 400, map[string]string{"error": fetchErr.Error()})
-					return
-				}
-				filePath = result.FilePath
+			if attempt < tries {
+				log.Printf("[%s] yt-dlp retry %d/%d with a new proxy: %s\n", id, attempt+1, tries, fetchErr)
 			}
+		}
+		if fetchErr != nil {
+			services.Global.DecrementJob("fetchUrl")
+			respondJSON(w, 400, map[string]string{"error": fetchErr.Error()})
+			return
 		}
 	} else {
 		filePath, fetchErr = ytdlpFetch()
