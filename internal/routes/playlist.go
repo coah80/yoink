@@ -247,15 +247,9 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 					},
 				})
 				if err != nil {
-					cobaltResult, cobaltErr := services.DownloadViaCobalt(ctx, actualURL, fmt.Sprintf("%s-v%d", jobID, videoNum), isAudio, nil,
-						services.CobaltDownloadOpts{OutputDir: playlistDir, MaxRetries: 3, RetryDelay: 2 * time.Second})
-					if cobaltErr != nil {
-						return cobaltErr
-					}
-					tempPath = cobaltResult.FilePath
-				} else {
-					tempPath = result.Path
+					return err
 				}
+				tempPath = result.Path
 			} else {
 				result, err := services.DownloadViaYtdlp(ctx, actualURL, fmt.Sprintf("temp_%d", videoNum), services.DownloadOpts{
 					IsAudio: isAudio, Quality: quality, Container: container,

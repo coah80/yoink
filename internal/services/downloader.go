@@ -61,6 +61,10 @@ type DownloadResult struct {
 	Ext  string
 }
 
+func isYouTubeURL(rawURL string) bool {
+	return strings.Contains(rawURL, "youtube.com") || strings.Contains(rawURL, "youtu.be")
+}
+
 func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts) (*DownloadResult, error) {
 	if opts.AudioFormat == "" {
 		opts.AudioFormat = "mp3"
@@ -72,6 +76,38 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 		opts.Container = "mp4"
 	}
 
+	if isYouTubeURL(url) && util.HasProxy() {
+		opts.UseProxy = true
+	}
+
+	filePrefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
+	tries := 1
+	if opts.UseProxy {
+		tries = 3
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= tries; attempt++ {
+		if attempt > 1 {
+			cleanupYtdlpOutputs(opts.TempDir, filePrefix)
+			log.Printf("[%s] yt-dlp retry %d/%d with a new proxy", jobID, attempt, tries)
+		}
+		result, err := downloadViaYtdlpOnce(ctx, url, jobID, opts)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if opts.ProcessInfo != nil && opts.ProcessInfo.IsCancelled() {
+			return nil, err
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "cancel") {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadOpts) (*DownloadResult, error) {
 	filePrefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
 	tempFile := filepath.Join(opts.TempDir, fmt.Sprintf("%s.%%(ext)s", filePrefix))
 
@@ -191,7 +227,7 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 		}
 		if util.NeedsCookiesRetry(errMsg) && util.RefreshCookies("YouTube auth failure during download") {
 			cleanupYtdlpOutputs(opts.TempDir, filePrefix)
-			return DownloadViaYtdlp(ctx, url, jobID, opts)
+			return downloadViaYtdlpOnce(ctx, url, jobID, opts)
 		}
 		return nil, fmt.Errorf("%s", errMsg)
 	}
@@ -393,62 +429,17 @@ func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string,
 }
 
 func HandleClipDownload(ctx context.Context, clipData *ClipData, jobID string, tempDir string, onProgress func(float64, string, string)) (*DownloadResult, error) {
-	startTime := float64(clipData.StartTimeMs) / 1000
-	endTime := float64(clipData.EndTimeMs) / 1000
-	duration := float64(clipData.EndTimeMs-clipData.StartTimeMs) / 1000
-	clipFile := filepath.Join(tempDir, fmt.Sprintf("%s-clip.mp4", jobID))
-
 	log.Printf("[%s] Trying yt-dlp --download-sections...", jobID)
 	result, err := DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, onProgress)
 	if err == nil {
 		return result, nil
 	}
-	log.Printf("[%s] yt-dlp clip failed: %s", jobID, err)
-
-	result2, err := StreamClipFromCobalt(ctx, clipData.FullVideoURL, jobID, startTime, endTime, clipFile, func(progress float64) {
-		if onProgress != nil {
-			onProgress(progress, "", "")
-		}
-	})
-	if err == nil {
-		return &DownloadResult{Path: result2.FilePath, Ext: result2.Ext}, nil
+	log.Printf("[%s] yt-dlp clip failed, retrying: %s", jobID, err)
+	if result, err = DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, onProgress); err == nil {
+		return result, nil
 	}
-	log.Printf("[%s] Stream trim failed: %s", jobID, err)
-
-	log.Printf("[%s] Falling back to full cobalt download + trim...", jobID)
-	cobaltResult, err := DownloadViaCobalt(ctx, clipData.FullVideoURL, jobID, false, func(progress float64, downloaded, total int64) {
-		if onProgress != nil {
-			onProgress(progress*0.8, "", "")
-		}
-	}, CobaltDownloadOpts{OutputDir: tempDir})
-	if err != nil {
-		return nil, err
-	}
-
-	trimmedFile := filepath.Join(tempDir, fmt.Sprintf("%s-trimmed.%s", jobID, cobaltResult.Ext))
-
-	trimCmd := exec.CommandContext(ctx, "ffmpeg",
-		"-ss", fmt.Sprintf("%g", startTime),
-		"-i", cobaltResult.FilePath,
-		"-t", fmt.Sprintf("%g", duration),
-		"-c", "copy",
-		"-avoid_negative_ts", "make_zero",
-		"-y",
-		trimmedFile,
-	)
-	if err := trimCmd.Run(); err != nil {
-		return nil, fmt.Errorf("Trim failed")
-	}
-
-	os.Remove(cobaltResult.FilePath)
-
-	info, err := os.Stat(trimmedFile)
-	if err != nil || info.Size() < 10000 {
-		os.Remove(trimmedFile)
-		return nil, fmt.Errorf("Trimmed clip is too small, trim may have failed")
-	}
-
-	return &DownloadResult{Path: trimmedFile, Ext: cobaltResult.Ext}, nil
+	log.Printf("[%s] yt-dlp clip retry failed: %s", jobID, err)
+	return nil, err
 }
 
 func OrDefault(s, def string) string {

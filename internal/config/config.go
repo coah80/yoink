@@ -21,6 +21,7 @@ var (
 
 	ProxyHost       string
 	ProxyPort       string
+	ProxyScheme     string
 	ProxyUserPrefix string
 	ProxyPassword   string
 	ProxyCount      int
@@ -178,10 +179,17 @@ func Load() {
 	OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
 
 	ProxyHost = os.Getenv("PROXY_HOST")
-	ProxyPort = envOrDefault("PROXY_PORT", "80")
+	ProxyScheme = os.Getenv("PROXY_SCHEME")
 	ProxyUserPrefix = os.Getenv("PROXY_USER_PREFIX")
 	ProxyPassword = os.Getenv("PROXY_PASSWORD")
 	ProxyCount, _ = strconv.Atoi(envOrDefault("PROXY_COUNT", "0"))
+	if v := os.Getenv("PROXY_PORT"); v != "" {
+		ProxyPort = v
+	} else if ProxyPassword == "" {
+		ProxyPort = "1080"
+	} else {
+		ProxyPort = "80"
+	}
 
 	DiscordWebhookURL = os.Getenv("DISCORD_WEBHOOK_URL")
 	DiscordPingUserID = os.Getenv("DISCORD_PING_USER_ID")
@@ -195,11 +203,6 @@ func Load() {
 			if u != "" {
 				CobaltAPIs = append(CobaltAPIs, u)
 			}
-		}
-	}
-	if len(CobaltAPIs) == 0 {
-		CobaltAPIs = []string{
-			"https://co.eepy.today",
 		}
 	}
 
