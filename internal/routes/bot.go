@@ -140,67 +140,73 @@ func processBotDownload(jobID string, job *services.AsyncJob, rawURL string, isA
 			job.SetProgress(100)
 		} else {
 			job.SetMessage("Downloading...")
-			botProgress := func(progress float64, speed, eta string) {
-				msg := fmt.Sprintf("Downloading... %.0f%%", progress)
-				if speed != "" {
-					msg += fmt.Sprintf(" • %s", speed)
-				}
-				if eta != "" {
-					msg += fmt.Sprintf(" • ETA %s", eta)
-				}
-				job.Lock()
-				job.Progress = progress
-				job.Message = msg
-				job.Speed = speed
-				job.ETA = eta
-				job.Unlock()
-			}
-			result, err := services.DownloadViaYtdlp(ctx, rawURL, jobID, services.DownloadOpts{
-				IsAudio: isAudio, AudioFormat: audioFormat, Quality: quality, Container: container,
-				TempDir: config.TempDirs["bot"], FilePrefix: "bot-", Playlist: playlist, UseProxy: false,
-				OnProgress: botProgress,
+			result, err := services.DownloadYouTubeVideo(ctx, rawURL, jobID, config.TempDirs["bot"], quality, isAudio, func(progress float64, _, _ int64) {
+				job.SetProgressAndMessage(progress, fmt.Sprintf("Downloading... %.0f%%", progress))
 			})
 			if err != nil {
-				// Clean up partial files from failed attempt
-				if entries, cleanErr := os.ReadDir(config.TempDirs["bot"]); cleanErr == nil {
-					for _, e := range entries {
-						if strings.HasPrefix(e.Name(), "bot-"+jobID) {
-							os.Remove(filepath.Join(config.TempDirs["bot"], e.Name()))
+				log.Printf("[Bot] YouTube innertube failed, falling back to yt-dlp: %s", err)
+				botProgress := func(progress float64, speed, eta string) {
+					msg := fmt.Sprintf("Downloading... %.0f%%", progress)
+					if speed != "" {
+						msg += fmt.Sprintf(" • %s", speed)
+					}
+					if eta != "" {
+						msg += fmt.Sprintf(" • ETA %s", eta)
+					}
+					job.Lock()
+					job.Progress = progress
+					job.Message = msg
+					job.Speed = speed
+					job.ETA = eta
+					job.Unlock()
+				}
+				result, err = services.DownloadViaYtdlp(ctx, rawURL, jobID, services.DownloadOpts{
+					IsAudio: isAudio, AudioFormat: audioFormat, Quality: quality, Container: container,
+					TempDir: config.TempDirs["bot"], FilePrefix: "bot-", Playlist: playlist, UseProxy: false,
+					OnProgress: botProgress,
+				})
+				if err != nil {
+					// Clean up partial files from failed attempt
+					if entries, cleanErr := os.ReadDir(config.TempDirs["bot"]); cleanErr == nil {
+						for _, e := range entries {
+							if strings.HasPrefix(e.Name(), "bot-"+jobID) {
+								os.Remove(filepath.Join(config.TempDirs["bot"], e.Name()))
+							}
 						}
 					}
+					if util.HasProxy() {
+						log.Printf("[Bot] yt-dlp failed, retrying with proxy: %s", err)
+						job.Lock()
+						job.Message = "Retrying with proxy..."
+						job.Progress = 0
+						job.Speed = ""
+						job.ETA = ""
+						job.Unlock()
+						result, err = services.DownloadViaYtdlp(ctx, rawURL, jobID, services.DownloadOpts{
+							IsAudio: isAudio, AudioFormat: audioFormat, Quality: quality, Container: container,
+							TempDir: config.TempDirs["bot"], FilePrefix: "bot-", Playlist: playlist, UseProxy: true,
+							OnProgress: botProgress,
+						})
+					}
 				}
-				if util.HasProxy() {
-					log.Printf("[Bot] yt-dlp failed, retrying with proxy: %s", err)
-					job.Lock()
-					job.Message = "Retrying with proxy..."
-					job.Progress = 0
-					job.Speed = ""
-					job.ETA = ""
-					job.Unlock()
-					result, err = services.DownloadViaYtdlp(ctx, rawURL, jobID, services.DownloadOpts{
-						IsAudio: isAudio, AudioFormat: audioFormat, Quality: quality, Container: container,
-						TempDir: config.TempDirs["bot"], FilePrefix: "bot-", Playlist: playlist, UseProxy: true,
-						OnProgress: botProgress,
-					})
+				if err != nil {
+					log.Printf("[Bot] yt-dlp with proxy failed, falling back to Cobalt: %s", err)
+					job.SetMessage("Downloading via Cobalt...")
+					cobaltResult, cobaltErr := services.DownloadViaCobalt(ctx, rawURL, jobID, isAudio, func(progress float64, _, _ int64) {
+						job.SetProgress(progress)
+					}, services.CobaltDownloadOpts{})
+					if cobaltErr != nil {
+						botError(jobID, job, cobaltErr)
+						return
+					}
+					downloadedPath = cobaltResult.FilePath
+					downloadedExt = cobaltResult.Ext
+				} else {
+					downloadedPath = result.Path
+					downloadedExt = result.Ext
 				}
+				job.SetProgress(100)
 			}
-			if err != nil {
-				log.Printf("[Bot] yt-dlp with proxy failed, falling back to Cobalt: %s", err)
-				job.SetMessage("Downloading via Cobalt...")
-				cobaltResult, cobaltErr := services.DownloadViaCobalt(ctx, rawURL, jobID, isAudio, func(progress float64, _, _ int64) {
-					job.SetProgress(progress)
-				}, services.CobaltDownloadOpts{})
-				if cobaltErr != nil {
-					botError(jobID, job, cobaltErr)
-					return
-				}
-				downloadedPath = cobaltResult.FilePath
-				downloadedExt = cobaltResult.Ext
-			} else {
-				downloadedPath = result.Path
-				downloadedExt = result.Ext
-			}
-			job.SetProgress(100)
 		}
 	} else {
 		result, err := services.DownloadViaYtdlp(ctx, rawURL, jobID, services.DownloadOpts{

@@ -105,6 +105,25 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isYouTube && !downloadPlaylist {
+		if ytMeta, ytErr := services.FetchYouTubeMetadata(ctx, rawURL); ytErr == nil {
+			result := map[string]interface{}{
+				"title":        ytMeta.Title,
+				"ext":          ytMeta.Ext,
+				"id":           ytMeta.ID,
+				"uploader":     ytMeta.Uploader,
+				"duration":     ytMeta.Duration,
+				"thumbnail":    ytMeta.Thumbnail,
+				"isPlaylist":   false,
+				"viaCobalt":    false,
+				"usingCookies": false,
+			}
+			services.MetadataCache.Set(rawURL, result, 10*time.Minute)
+			respondJSON(w, 200, result)
+			return
+		} else {
+			log.Printf("[Metadata] YouTube innertube failed, falling back: %s", ytErr)
+		}
+
 		cobaltMeta, err := services.FetchMetadataViaCobalt(ctx, rawURL)
 		if err == nil {
 			result := map[string]interface{}{
@@ -512,76 +531,83 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			downloadedExt = result.Ext
 		} else {
 			services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading...", 0)
-			onProgress := func(progress float64, speed, eta string) {
-				msg := fmt.Sprintf("Downloading... %.0f%%", progress)
-				if speed != "" {
-					msg += fmt.Sprintf(" • %s", speed)
-				}
-				if eta != "" {
-					msg += fmt.Sprintf(" • ETA %s", eta)
-				}
-				services.Global.SendProgress(downloadID, "downloading", msg, &progress, map[string]interface{}{"speed": speed, "eta": eta})
+			result, err := services.DownloadYouTubeVideo(ctx, rawURL, downloadID, config.TempDirs["download"], quality, isAudio, func(progress float64, _, _ int64) {
+				services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, nil)
 				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
-			}
-			result, err := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-				IsAudio:     isAudio,
-				AudioFormat: audioFormat,
-				Quality:     quality,
-				Container:   container,
-				TempDir:     config.TempDirs["download"],
-				ProcessInfo: processInfo,
-				Playlist:    false,
-				UseProxy:    false,
-				OnProgress:  onProgress,
 			})
 			if err != nil {
-				if processInfo.IsCancelled() {
-					handleDownloadError(w, downloadID, outputExt, fmt.Errorf("Download cancelled"))
-					return
+				log.Printf("[%s] YouTube innertube failed, falling back to yt-dlp: %s", downloadID, err)
+				onProgress := func(progress float64, speed, eta string) {
+					msg := fmt.Sprintf("Downloading... %.0f%%", progress)
+					if speed != "" {
+						msg += fmt.Sprintf(" • %s", speed)
+					}
+					if eta != "" {
+						msg += fmt.Sprintf(" • ETA %s", eta)
+					}
+					services.Global.SendProgress(downloadID, "downloading", msg, &progress, map[string]interface{}{"speed": speed, "eta": eta})
+					services.Global.UpdatePendingJob(downloadID, progress, "downloading")
 				}
-				// Clean up partial files from failed attempt
-				if entries, cleanErr := os.ReadDir(config.TempDirs["download"]); cleanErr == nil {
-					for _, e := range entries {
-						if strings.HasPrefix(e.Name(), downloadID) {
-							os.Remove(filepath.Join(config.TempDirs["download"], e.Name()))
+				result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
+					IsAudio:     isAudio,
+					AudioFormat: audioFormat,
+					Quality:     quality,
+					Container:   container,
+					TempDir:     config.TempDirs["download"],
+					ProcessInfo: processInfo,
+					Playlist:    false,
+					UseProxy:    false,
+					OnProgress:  onProgress,
+				})
+				if err != nil {
+					if processInfo.IsCancelled() {
+						handleDownloadError(w, downloadID, outputExt, fmt.Errorf("Download cancelled"))
+						return
+					}
+					// Clean up partial files from failed attempt
+					if entries, cleanErr := os.ReadDir(config.TempDirs["download"]); cleanErr == nil {
+						for _, e := range entries {
+							if strings.HasPrefix(e.Name(), downloadID) {
+								os.Remove(filepath.Join(config.TempDirs["download"], e.Name()))
+							}
 						}
 					}
+					if util.HasProxy() {
+						log.Printf("[%s] yt-dlp failed, retrying with proxy: %s", downloadID, err)
+						services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying with proxy...", 0)
+						result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
+							IsAudio:     isAudio,
+							AudioFormat: audioFormat,
+							Quality:     quality,
+							Container:   container,
+							TempDir:     config.TempDirs["download"],
+							ProcessInfo: processInfo,
+							Playlist:    false,
+							UseProxy:    true,
+							OnProgress:  onProgress,
+						})
+					}
 				}
-				if util.HasProxy() {
-					log.Printf("[%s] yt-dlp failed, retrying with proxy: %s", downloadID, err)
-					services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying with proxy...", 0)
-					result, err = services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-						IsAudio:     isAudio,
-						AudioFormat: audioFormat,
-						Quality:     quality,
-						Container:   container,
-						TempDir:     config.TempDirs["download"],
-						ProcessInfo: processInfo,
-						Playlist:    false,
-						UseProxy:    true,
-						OnProgress:  onProgress,
-					})
+				if err != nil {
+					log.Printf("[%s] yt-dlp with proxy failed, falling back to Cobalt: %s", downloadID, err)
+					services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading via Cobalt...", 0)
+					cobaltResult, cobaltErr := services.DownloadViaCobalt(ctx, rawURL, downloadID, isAudio, func(progress float64, downloaded, total int64) {
+						services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, nil)
+						services.Global.UpdatePendingJob(downloadID, progress, "downloading")
+					}, services.CobaltDownloadOpts{})
+					if cobaltErr != nil {
+						handleDownloadError(w, downloadID, outputExt, cobaltErr)
+						return
+					}
+					downloadedPath = cobaltResult.FilePath
+					downloadedExt = cobaltResult.Ext
+				} else {
+					downloadedPath = result.Path
+					downloadedExt = result.Ext
 				}
+				p := float64(100)
+				services.Global.SendProgress(downloadID, "downloading", "Download complete", &p, nil)
 			}
-			if err != nil {
-				log.Printf("[%s] yt-dlp with proxy failed, falling back to Cobalt: %s", downloadID, err)
-				services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading via Cobalt...", 0)
-				cobaltResult, cobaltErr := services.DownloadViaCobalt(ctx, rawURL, downloadID, isAudio, func(progress float64, downloaded, total int64) {
-					services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, nil)
-					services.Global.UpdatePendingJob(downloadID, progress, "downloading")
-				}, services.CobaltDownloadOpts{})
-				if cobaltErr != nil {
-					handleDownloadError(w, downloadID, outputExt, cobaltErr)
-					return
-				}
-				downloadedPath = cobaltResult.FilePath
-				downloadedExt = cobaltResult.Ext
-			} else {
-				downloadedPath = result.Path
-				downloadedExt = result.Ext
-			}
-			p := float64(100)
-			services.Global.SendProgress(downloadID, "downloading", "Download complete", &p, nil)
 		}
 	} else if services.IsTikTokMusicURL(rawURL) {
 		services.Global.SendProgressWithPercent(downloadID, "downloading", "Fetching TikTok audio...", 0)
@@ -931,4 +957,3 @@ func parseHostname(rawURL string) (string, error) {
 	}
 	return "", fmt.Errorf("invalid URL")
 }
-
