@@ -37,6 +37,7 @@ func BotRoutes(r chi.Router) {
 	r.Get("/api/bot/status/{jobId}", handleBotStatus)
 	r.Get("/api/download/{token}", handleDownloadPage)
 	r.Get("/api/bot/download/{token}", handleBotFileDownload)
+	r.Head("/api/bot/download/{token}", handleBotFileDownload)
 }
 
 func checkBotAuth(r *http.Request) bool {
@@ -128,7 +129,7 @@ func processBotDownload(jobID string, job *services.AsyncJob, rawURL string, isA
 				return
 			}
 			job.SetMessage("Downloading clip...")
-			result, err := services.HandleClipDownload(ctx, clipData, jobID, config.TempDirs["bot"], func(progress float64, _, _ string) {
+			result, err := services.HandleClipDownload(ctx, clipData, jobID, config.TempDirs["bot"], quality, "h264", container, func(progress float64, _, _ string) {
 				job.SetProgressAndMessage(progress, fmt.Sprintf("Trimming... %.0f%%", progress))
 			})
 			if err != nil {
@@ -875,6 +876,9 @@ func handleBotFileDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", data.MimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, asciiFilename, url.PathEscape(data.FileName)))
+	if r.Method == http.MethodHead {
+		return
+	}
 
 	f, err := os.Open(data.FilePath)
 	if err != nil {
@@ -922,7 +926,7 @@ func StartPlaylistDownloadExpiry() {
 		for range ticker.C {
 			now := time.Now()
 			services.Global.ForEachBotDownload(func(token string, dl *services.BotDownload) bool {
-				if dl.IsWebPlaylist && now.Sub(dl.CreatedAt) > config.PlaylistDownloadExp {
+				if (dl.IsWebPlaylist || dl.IsPlaylist) && now.Sub(dl.CreatedAt) > config.PlaylistDownloadExp {
 					short := token
 					if len(short) > 8 {
 						short = short[:8]

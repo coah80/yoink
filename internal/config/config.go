@@ -87,7 +87,7 @@ var AudioMIMEs = map[string]string{
 	"flac": "audio/flac",
 }
 
-const TempDir = "/var/tmp/yoink"
+var TempDir = "/var/tmp/yoink"
 
 var TempDirs = map[string]string{
 	"download":   filepath.Join(TempDir, "downloads"),
@@ -167,12 +167,17 @@ var BotDetectionErrors = []string{
 var HeavyJobTypes = []string{"playlist", "convert", "compress", "transcribe"}
 
 func Load() {
+	TempDir = envOrDefault("YOINK_TEMP_DIR", "/var/tmp/yoink")
+	for kind, dir := range TempDirs {
+		TempDirs[kind] = filepath.Join(TempDir, filepath.Base(dir))
+	}
+
 	Port = envOrDefault("PORT", "3001")
 	EnvMode = envOrDefault("NODE_ENV", "development")
 
 	BotSecret = os.Getenv("BOT_SECRET")
 	if BotSecret == "" {
-		log.Println("[WARN] BOT_SECRET not set, bot endpoints will be unprotected")
+		log.Println("[WARN] BOT_SECRET not set, bot endpoints will reject requests")
 	}
 
 	CobaltAPIKey = os.Getenv("COBALT_API_KEY")

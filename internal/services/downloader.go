@@ -46,6 +46,7 @@ type DownloadOpts struct {
 	IsAudio     bool
 	AudioFormat string
 	Quality     string
+	Codec       string
 	Container   string
 	TempDir     string
 	FilePrefix  string
@@ -129,19 +130,12 @@ func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadO
 		"--newline",
 		"--progress-template", "%(progress._percent_str)s",
 		"-o", tempFile,
-		"--ffmpeg-location", "/usr/bin/ffmpeg",
 	)
 
 	if opts.IsAudio {
 		args = append(args, "-f", "bestaudio/best")
 	} else {
-		maxHeight := config.QualityHeight[opts.Quality]
-		if maxHeight > 0 {
-			args = append(args, "-f",
-				fmt.Sprintf("bv[vcodec^=avc][height<=%d]+ba[acodec^=mp4a]/bv[height<=%d]+ba/b", maxHeight, maxHeight))
-		} else {
-			args = append(args, "-f", "bv[vcodec^=avc]+ba[acodec^=mp4a]/bv+ba/b")
-		}
+		args = append(args, VideoFormatArgs(opts.Quality, opts.Codec, opts.Container)...)
 		args = append(args, "--merge-output-format", opts.Container)
 	}
 
@@ -256,6 +250,38 @@ func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadO
 	return nil, fmt.Errorf("Downloaded file not found")
 }
 
+// VideoFormatArgs prioritizes resolution before codec preference. A codec-only
+// fallback chain can select 480p H.264 even when 1080p VP9/AV1 is available.
+func VideoFormatArgs(quality, codec, container string) []string {
+	if quality == "" {
+		quality = "1080p"
+	}
+	if quality == "4k" { // Accept settings saved by older frontends.
+		quality = "2160p"
+	}
+	filter := ""
+	if height := config.QualityHeight[quality]; height > 0 {
+		filter = fmt.Sprintf("[height<=%d]", height)
+	}
+	video, audio := "bv*", "ba"
+	combined := "b"
+	if container == "webm" {
+		video += "[ext=webm]"
+		audio += "[ext=webm]"
+		combined += "[ext=webm]"
+	}
+	sort := "res,fps"
+	switch codec {
+	case "av1":
+		sort += ",vcodec:av01,acodec:opus"
+	case "vp9":
+		sort += ",vcodec:vp9,acodec:opus"
+	default:
+		sort += ",+vcodec:avc,+acodec:m4a"
+	}
+	return []string{"-f", video + filter + "+" + audio + "/" + combined + filter, "-S", sort}
+}
+
 func cleanupYtdlpOutputs(tempDir, prefix string) {
 	entries, err := os.ReadDir(tempDir)
 	if err != nil {
@@ -323,23 +349,23 @@ func GetPlaylistInfo(ctx context.Context, url string, useProxy bool) (*PlaylistI
 	}, nil
 }
 
-func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string, tempDir string, onProgress func(float64, string, string)) (*DownloadResult, error) {
+func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string, tempDir, quality, codec, container string, onProgress func(float64, string, string)) (*DownloadResult, error) {
 	startTime := float64(clipData.StartTimeMs) / 1000
 	endTime := float64(clipData.EndTimeMs) / 1000
 	clipFile := filepath.Join(tempDir, fmt.Sprintf("%s-ytclip.%%(ext)s", jobID))
 
 	args := append([]string{}, util.GetYouTubeAuthArgs()...)
 	args = append(args, util.GetProxyArgs()...)
+	args = append(args, VideoFormatArgs(quality, codec, container)...)
 	args = append(args,
+		"--remote-components", "ejs:github",
 		"--no-playlist",
 		"--download-sections", fmt.Sprintf("*%g-%g", startTime, endTime),
 		"--force-keyframes-at-cuts",
-		"-f", "bv[vcodec^=avc][height<=1080]+ba[acodec^=mp4a]/bv[height<=1080]+ba/b",
-		"--merge-output-format", "mp4",
+		"--merge-output-format", container,
 		"--newline",
 		"--progress-template", "%(progress._percent_str)s",
 		"-o", clipFile,
-		"--ffmpeg-location", "/usr/bin/ffmpeg",
 		clipData.FullVideoURL,
 	)
 
@@ -428,14 +454,14 @@ func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string,
 	return nil, fmt.Errorf("yt-dlp clip file not found")
 }
 
-func HandleClipDownload(ctx context.Context, clipData *ClipData, jobID string, tempDir string, onProgress func(float64, string, string)) (*DownloadResult, error) {
+func HandleClipDownload(ctx context.Context, clipData *ClipData, jobID string, tempDir, quality, codec, container string, onProgress func(float64, string, string)) (*DownloadResult, error) {
 	log.Printf("[%s] Trying yt-dlp --download-sections...", jobID)
-	result, err := DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, onProgress)
+	result, err := DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, quality, codec, container, onProgress)
 	if err == nil {
 		return result, nil
 	}
 	log.Printf("[%s] yt-dlp clip failed, retrying: %s", jobID, err)
-	if result, err = DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, onProgress); err == nil {
+	if result, err = DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, quality, codec, container, onProgress); err == nil {
 		return result, nil
 	}
 	log.Printf("[%s] yt-dlp clip retry failed: %s", jobID, err)

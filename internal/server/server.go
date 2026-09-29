@@ -36,20 +36,11 @@ func New() *http.Server {
 	routes.BotRoutes(r)
 
 	publicDir := filepath.Join(filepath.Dir(os.Args[0]), "public")
+	if _, err := os.Stat(publicDir); os.IsNotExist(err) {
+		publicDir = filepath.Join("frontend", "public")
+	}
 	if info, err := os.Stat(publicDir); err == nil && info.IsDir() {
-		fileServer := http.FileServer(http.Dir(publicDir))
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-			cleaned := filepath.Clean(filepath.Join(publicDir, strings.TrimPrefix(r.URL.Path, "/")))
-			if !strings.HasPrefix(cleaned, publicDir) {
-				http.NotFound(w, r)
-				return
-			}
-			if _, err := os.Stat(cleaned); os.IsNotExist(err) {
-				http.ServeFile(w, r, filepath.Join(publicDir, "index.html"))
-				return
-			}
-			fileServer.ServeHTTP(w, r)
-		})
+		r.Get("/*", spaHandler(publicDir))
 	}
 
 	return &http.Server{
@@ -60,6 +51,30 @@ func New() *http.Server {
 		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
+	}
+}
+
+func spaHandler(publicDir string) http.HandlerFunc {
+	root, _ := filepath.Abs(publicDir)
+	fileServer := http.FileServer(http.Dir(root))
+	return func(w http.ResponseWriter, r *http.Request) {
+		cleaned := filepath.Clean(filepath.Join(root, strings.TrimPrefix(r.URL.Path, "/")))
+		rel, err := filepath.Rel(root, cleaned)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			http.NotFound(w, r)
+			return
+		}
+		if info, err := os.Stat(cleaned); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Static directories such as /updates also have SPA routes. Serve the
+		// app for those routes, never a directory listing. Missing assets are 404s.
+		if filepath.Ext(r.URL.Path) != "" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(root, "index.html"))
 	}
 }
 

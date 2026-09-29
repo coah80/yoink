@@ -3,22 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>yoink.tools - Free YouTube Video Downloader, Converter & Compressor</title>
+  <title>yoink.tools - Free Video Downloader, Converter & Compressor</title>
   <meta name="description" content="Download videos from YouTube, TikTok, Twitter, Instagram, Reddit and 1000+ sites. Convert and compress video files online. Free, fast, no ads, no sign-up required.">
   <meta name="keywords" content="youtube downloader, video downloader, tiktok downloader, twitter video download, instagram video downloader, reddit video downloader, mp4 downloader, mp3 converter, youtube to mp3, youtube to mp4, video converter, video compressor, online video downloader, free video downloader, download youtube videos, audio extractor, playlist downloader">
   <link rel="canonical" href="https://yoink.tools/">
   <meta name="robots" content="index, follow">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://yoink.tools/">
-  <meta property="og:title" content="yoink.tools - Free Video Downloader & Converter">
-  <meta property="og:description" content="Download videos from YouTube, TikTok, Twitter, Instagram and 1000+ sites. Convert and compress for free. No ads, no sign-up.">
+  <meta property="og:title" content="yoink.tools - Free Video Downloader, Converter & Compressor">
+  <meta property="og:description" content="Download videos and audio, convert, compress, trim, and transcribe media. Free, no ads, no sign-up.">
   <meta property="og:image" content="https://yoink.tools/icons/og-image.png">
   <meta property="og:site_name" content="yoink.tools">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://yoink.tools/">
-  <meta name="twitter:title" content="yoink.tools - Free Video Downloader & Converter">
-  <meta name="twitter:description" content="Download videos from YouTube, TikTok, Twitter, Instagram and 1000+ sites. Convert and compress for free. No ads, no sign-up.">
+  <meta name="twitter:title" content="yoink.tools - Free Video Downloader, Converter & Compressor">
+  <meta name="twitter:description" content="Download videos and audio, convert, compress, trim, and transcribe media. Free, no ads, no sign-up.">
   <meta name="twitter:image" content="https://yoink.tools/icons/og-image.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
@@ -37,7 +37,7 @@
     "@type": "WebApplication",
     "name": "yoink.tools",
     "url": "https://yoink.tools",
-    "description": "Free online video downloader, converter, and compressor. Download videos from YouTube, TikTok, Twitter, Instagram, Reddit and 1000+ websites. Convert between MP4, WebM, MP3, M4A, WAV, and more. Compress videos to any size.",
+    "description": "Free online video downloader, converter, and compressor. Download videos from YouTube, TikTok, Twitter, Instagram, Reddit and 1000+ websites. Convert between MP4, WebM, MP3, M4A, WAV, and more. Compress videos to a target file size, trim and crop clips, and create transcripts and subtitles.",
     "applicationCategory": "MultimediaApplication",
     "operatingSystem": "Any",
     "offers": {
@@ -51,81 +51,18 @@
       "Convert videos to MP4, WebM, MKV",
       "Extract audio as MP3, M4A, OPUS, FLAC, WAV",
       "Compress videos to target file size",
-      "No ads, no sign-up, no tracking by default",
+      "Trim and crop videos",
+      "Create transcripts, subtitles, and captions",
+      "No ads or sign-up",
       "Works on mobile, tablet, and desktop",
       "PWA - install as an app"
     ],
     "browserRequirements": "Requires a modern web browser",
-    "softwareVersion": "2.0"
+    "softwareVersion": "2.2"
   }
   </script>
-  <script type="module" crossorigin src="/assets/index-B6PFl9IG.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-Qyt3V_0G.css">
   <style>
-    .youtube-status-notice {
-      width: min(620px, 100%);
-      margin: 0 auto 24px;
-      padding: 10px 14px;
-      border: 1px solid var(--border, #2a2a3a);
-      border-radius: var(--radius-md, 12px);
-      background: var(--surface, #12121a);
-      color: var(--text, #fafafa);
-      font-family: var(--font-body, "Poppins", sans-serif);
-      text-align: center;
-      box-shadow: none;
-      position: relative;
-      z-index: 1;
-      flex-shrink: 0;
-    }
-
-    .youtube-status-notice strong {
-      display: inline;
-      font-family: var(--font-heading, "Montserrat", sans-serif);
-      font-size: 0.86rem;
-      color: var(--purple-400, #a78bfa);
-      margin-right: 6px;
-    }
-
-    .youtube-status-notice span {
-      display: inline;
-      color: var(--text-secondary, #a1a1aa);
-      font-size: 0.82rem;
-      line-height: 1.45;
-    }
-
-    .youtube-status-notice .mobile-copy {
-      display: none;
-    }
-
-    @media (max-width: 760px) and (hover: none) and (pointer: coarse) {
-      .youtube-status-notice {
-        width: 100%;
-        margin-bottom: 16px;
-        padding: 9px 10px;
-        border-radius: 10px;
-      }
-
-      .youtube-status-notice strong {
-        display: block;
-        font-size: 0.82rem;
-        margin: 0 0 2px;
-      }
-
-      .youtube-status-notice span {
-        max-width: 38ch;
-        margin: 0 auto;
-        font-size: 0.76rem;
-        line-height: 1.38;
-      }
-
-      .youtube-status-notice .desktop-copy {
-        display: none;
-      }
-
-      .youtube-status-notice .mobile-copy {
-        display: block;
-      }
-
+    @media (max-width: 760px) {
       #app > .bottom-nav {
         justify-content: space-between;
         gap: 0;
@@ -148,61 +85,33 @@
       }
     }
   </style>
+  <script type="module" crossorigin src="/assets/index-BI33pdVJ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-kXw6tCon.css">
 </head>
 <body>
   <div id="app"></div>
-  <div class="youtube-status-notice" role="status" aria-live="polite" hidden>
-    <strong>Hey!</strong>
-    <span class="desktop-copy">YouTube downloads are not working right now because YouTube is blocking the server. I am working on a fix. It will come back, because it always will.</span>
-    <span class="mobile-copy">YouTube is paused while I fix a server block. It will come back. It always will.</span>
-  </div>
-  <script>
-    (() => {
-      const app = document.getElementById('app');
-      const notice = document.querySelector('.youtube-status-notice');
-      if (!app || !notice) return;
-
-      const mountNotice = () => {
-        const main = app.querySelector('main');
-        if (!main) return false;
-
-        if (notice.parentElement !== main || notice !== main.firstElementChild) {
-          main.prepend(notice);
-        }
-
-        notice.hidden = false;
-        return true;
-      };
-
-      if (mountNotice()) return;
-
-      const observer = new MutationObserver(() => {
-        mountNotice();
-      });
-      observer.observe(app, { childList: true, subtree: true });
-      window.addEventListener('load', mountNotice, { once: true });
-    })();
-  </script>
   <noscript>
     <div style="max-width:700px;margin:0 auto;padding:40px 24px;font-family:sans-serif;color:#fafafa;background:#0a0a0f;min-height:100vh;">
       <h1>yoink.tools - Free Online Video Downloader</h1>
       <p>Download videos and audio from YouTube, TikTok, Twitter/X, Instagram, Reddit, Twitch, SoundCloud, Vimeo, and 1000+ other websites. Completely free, no ads, no sign-up required.</p>
       <h2>Features</h2>
       <ul>
-        <li><strong>Video Downloader</strong> - Download videos from YouTube and other platforms in MP4, WebM, or MKV format. Choose quality from 360p to 8K.</li>
+        <li><strong>Video Downloader</strong> - Download videos from YouTube and other platforms in MP4, WebM, or MKV format. Choose a resolution cap from 360p to 4K, or the best available quality.</li>
         <li><strong>Audio Extractor</strong> - Extract audio from any video as MP3, M4A, OPUS, FLAC, or WAV. Adjustable bitrate from 128 to 320 kbps.</li>
         <li><strong>Playlist Downloader</strong> - Download entire YouTube playlists as a ZIP file with one click.</li>
         <li><strong>Video Converter</strong> - Convert video and audio files between formats. Supports MP4, WebM, MP3, M4A, WAV.</li>
         <li><strong>Video Compressor</strong> - Compress videos to a target file size. Perfect for Discord, email, or social media uploads.</li>
+        <li><strong>Trim &amp; Crop</strong> - Cut videos and change aspect ratios.</li>
+        <li><strong>Transcription</strong> - Create text transcripts, subtitles, and captions.</li>
         <li><strong>Image/Gallery Downloader</strong> - Download images and galleries from supported sites.</li>
       </ul>
       <h2>Supported Sites</h2>
       <p>YouTube, TikTok, Twitter/X, Instagram, Reddit, Twitch, SoundCloud, Vimeo, Dailymotion, Facebook, Pinterest, Tumblr, Bilibili, Niconico, and hundreds more. Powered by yt-dlp.</p>
       <h2>Why yoink.tools?</h2>
       <ul>
-        <li>No ads or popups</li>
+        <li>No ads</li>
         <li>No account required</li>
-        <li>No data collection by default</li>
+        <li>No advertising or analytics scripts</li>
         <li>Works on any device - phone, tablet, or desktop</li>
         <li>Install as a PWA app for quick access</li>
         <li>Open source</li>
