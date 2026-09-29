@@ -426,7 +426,7 @@
             <div class="file-name" title={selectedFile.name}>{selectedFile.name}</div>
             <div class="file-size">{formatBytes(selectedFile.size)}</div>
           </div>
-          <button class="file-remove" onclick={removeFile}>
+          <button class="file-remove" aria-label="remove file" onclick={removeFile}>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>

@@ -1,9 +1,5 @@
 export function apiBase() {
-  const hostname = window.location.hostname;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:3001';
-  }
-  return 'https://yoink.coah80.com';
+  return import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '';
 }
 
 export async function fetchJson(url, opts = {}) {
@@ -18,7 +14,7 @@ export async function fetchJson(url, opts = {}) {
     } else {
       const text = await res.text();
       console.error('Non-JSON error response:', text.substring(0, 500));
-      errorMsg = `Server error ${res.status} (likely VPN blocked)`;
+      errorMsg = `Server error ${res.status} - please try again`;
     }
     throw new Error(errorMsg);
   }

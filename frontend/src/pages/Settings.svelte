@@ -16,8 +16,8 @@
     { id: 'advanced', label: 'advanced' },
   ];
 
-  const qualityOptions = ['best', '4k', '1440p', '1080p', '720p', '480p', '360p'];
-  const qualityLabels = { best: '8k+', '4k': '4k', '1440p': '1440p', '1080p': '1080p', '720p': '720p', '480p': '480p', '360p': '360p' };
+  const qualityOptions = ['best', '2160p', '1440p', '1080p', '720p', '480p', '360p'];
+  const qualityLabels = { best: 'best', '2160p': '4k', '1440p': '1440p', '1080p': '1080p', '720p': '720p', '480p': '480p', '360p': '360p' };
 
   const codecOptions = [
     { value: 'h264', label: 'h264 + aac' },
@@ -128,7 +128,7 @@
             </button>
           {/each}
         </div>
-        <p class="setting-description">if preferred quality isn't available, the next best option will be used. 1080p is recommended for most uses.</p>
+        <p class="setting-description">downloads use the best available resolution up to your selection. best has no resolution cap. 1080p is recommended for most uses.</p>
       </div>
 
       <div class="settings-card">
@@ -144,7 +144,7 @@
             </button>
           {/each}
         </div>
-        <p class="setting-description">h264: best compatibility, max 1080p. av1: best quality & efficiency, supports 8k & HDR. vp9: same quality as av1 but ~2x larger.</p>
+        <p class="setting-description">resolution comes first, then your preferred codec when available. h264 has broad playback support. av1 and vp9 can save space, but playback support varies. webm uses compatible streams only. applies to yt-dlp downloads and playlists.</p>
       </div>
 
       <div class="settings-card">
@@ -182,7 +182,7 @@
             </button>
           {/each}
         </div>
-        <p class="setting-description">mp3: universal compatibility. m4a: better quality at same size. opus: best compression. flac/wav: lossless quality.</p>
+        <p class="setting-description">mp3: universal compatibility. m4a: better quality at same size. opus: best compression. flac/wav: lossless encoding, but cannot restore quality lost in the source.</p>
       </div>
 
       <div class="settings-card">
@@ -198,7 +198,7 @@
             </button>
           {/each}
         </div>
-        <p class="setting-description">higher bitrate = better quality but larger file size. 320kbps is CD-quality for most people.</p>
+        <p class="setting-description">higher bitrate = better quality but larger file size. 320kbps is a high bitrate for lossy audio, not lossless CD audio.</p>
       </div>
     </section>
   {/if}
@@ -234,6 +234,8 @@
           <button
             class="toggle"
             class:active={s.twitterGifs !== false}
+            aria-label="convert twitter gifs"
+            aria-pressed={s.twitterGifs !== false}
             onclick={() => set('twitterGifs', !s.twitterGifs || s.twitterGifs === undefined ? false : true)}
           ></button>
         </div>
@@ -276,36 +278,6 @@
   {#if activeTab === 'advanced'}
     <section class="settings-section">
       <h2 class="section-title">advanced</h2>
-
-      <div class="settings-card">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="setting-label">allow h265 codec</div>
-            <p class="setting-description">enables downloading h265/HEVC videos for platforms like TikTok. higher quality but may have compatibility issues with some players.</p>
-          </div>
-          <button
-            class="toggle"
-            class:active={s.h265}
-            onclick={() => set('h265', !s.h265)}
-          ></button>
-        </div>
-      </div>
-
-      <div class="settings-card">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="setting-label">embed metadata</div>
-            <p class="setting-description">include title, artist, and other metadata in downloaded files.</p>
-          </div>
-          <button
-            class="toggle"
-            class:active={s.metadata !== false}
-            onclick={() => set('metadata', s.metadata === false ? true : false)}
-          ></button>
-        </div>
-      </div>
-
-      <div class="divider"></div>
 
       <button class="reset-btn" onclick={resetAll}>
         reset all settings

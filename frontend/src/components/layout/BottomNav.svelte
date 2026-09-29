@@ -1,5 +1,5 @@
 <script>
-  import { path } from '../../lib/router.js';
+  import { path as routePath } from '../../lib/router.js';
   import { queue } from '../../stores/queue.js';
   import QueueDropdown from '../queue/QueueDropdown.svelte';
 
@@ -12,7 +12,7 @@
 
   let items = $derived($queue);
   let count = $derived(items.length);
-  let currentPath = $derived($path);
+  let currentPath = $derived($routePath);
 
   let activeCount = $derived(
     items.filter(i => ['starting', 'downloading', 'processing', 'zipping', 'sending', 'transcribing'].includes(i.stage)).length

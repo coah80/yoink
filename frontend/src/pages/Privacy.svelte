@@ -13,7 +13,7 @@
 
   <div class="tldr-box">
     <h3>tl;dr</h3>
-    <p>yoink doesn't collect anything. no tracking, no cookies, no analytics. your files are stored on an encrypted volume with a key that only exists in RAM, and get wiped automatically.</p>
+    <p>yoink has no accounts, advertising trackers, or analytics scripts. files are processed on the server and cleaned up automatically. settings and your download queue stay in your browser. server logs and optional integrations are described below.</p>
   </div>
 
   <div class="content-card">
@@ -24,30 +24,30 @@
 
   <div class="content-card">
     <h2>your files</h2>
-    <p>files are stored on a LUKS2 encrypted volume on the server. the encryption key is randomly generated at every boot, stored only in RAM, never written to disk, so if the server ever powers off the key is gone and the data is just unrecoverable.</p>
-    <p>once your download or conversion is done, the file gets deleted immediately from that encrypted volume. there's also a cleanup job that runs every 5 minutes and wipes anything older than 20 minutes no matter what, just in case something slips through.</p>
-    <p>we don't log what you download, what you convert, what you compress, or any filenames or URLs. none of that gets saved anywhere.</p>
+    <p>files are stored temporarily on the server while downloading, converting, compressing, trimming, or transcribing. storage encryption depends on how the server is deployed, it is not configured by the app itself.</p>
+    <p>ordinary download files are scheduled for deletion after they are sent. a cleanup job runs every 5 minutes and removes unused temporary files older than 20 minutes. files used by active jobs are kept. ordinary bot links expire after 5 minutes and playlist links after 12 hours. files for unexpired links are kept until they expire or are downloaded.</p>
+    <p>the server writes request and diagnostic logs. these can include IP addresses, requested URLs, filenames, and errors. the server operator controls where logs are stored and how long they are kept.</p>
   </div>
 
   <div class="content-card">
     <h2>what we collect</h2>
-    <p>nothing. literally zero.</p>
+    <p>the app needs some data to process requests and prevent abuse:</p>
     <ul>
-      <li><strong>no analytics</strong> - no tracking scripts, no usage stats, nothing</li>
-      <li><strong>no cookies</strong> - we don't set a single cookie</li>
-      <li><strong>no IP logging</strong> - your IP isn't stored or logged</li>
-      <li><strong>no content logging</strong> - URLs, filenames, and what you do here are not recorded</li>
+      <li><strong>no analytics scripts</strong> - no advertising or analytics scripts are included</li>
+      <li><strong>browser storage</strong> - settings and the download queue use local storage, and the temporary client ID uses session storage. the app does not set browser cookies</li>
+      <li><strong>rate limits</strong> - IP addresses are held in memory to limit requests, and may also appear in server logs</li>
+      <li><strong>processing data</strong> - URLs, job details, and temporary files are needed to complete your request</li>
       <li><strong>no accounts</strong> - there's nothing to sign up for, no emails collected</li>
-      <li><strong>no third party stuff</strong> - no google analytics, no facebook pixel, no ad networks</li>
+      <li><strong>external services</strong> - the app loads fonts from Google Fonts and previews from media sites. downloads contact the source platform and may use configured extractors or proxies. optional Discord alerts can include job details and errors</li>
     </ul>
   </div>
 
   <div class="content-card">
-    <h2>encryption</h2>
-    <p>two layers:</p>
+    <h2>connections and transcription</h2>
+    <p>external services may receive data when you use these features:</p>
     <ul>
-      <li><strong>in transit</strong>: everything goes through HTTPS, so your connection to yoink is encrypted end to end, nobody between you and the server can see what you're doing.</li>
-      <li><strong>at rest</strong>: all temporary files go on a LUKS2 encrypted volume (AES-256). the decryption key is generated fresh at every server boot using /dev/urandom, kept only in RAM, never written anywhere. no way to recover files after a reboot, and no way to read them without the key that only exists in memory.</li>
+      <li><strong>connections</strong>: HTTPS protects data between your browser and an HTTPS deployment of yoink. the server receives and processes the media. self-hosted deployments need to configure HTTPS separately.</li>
+      <li><strong>transcription</strong>: local Whisper models process audio on the server. the large model uses the OpenAI API when configured, which sends audio to OpenAI for transcription.</li>
     </ul>
   </div>
 
@@ -63,7 +63,7 @@
 
   <div class="content-card">
     <h2>changes</h2>
-    <p>if this policy changes, it gets updated here. no sneaky edits. last updated: <strong>february 23, 2026</strong>.</p>
+    <p>if this policy changes, it gets updated here. no sneaky edits. last updated: <strong>september 29, 2026</strong>.</p>
   </div>
 </main>
 

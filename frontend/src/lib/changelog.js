@@ -1,6 +1,31 @@
-export const CURRENT_VERSION = '2.1';
+export const CURRENT_VERSION = '2.2';
 
 export const changelog = [
+  {
+    version: '2.2',
+    date: 'upcoming',
+    title: 'youtube quality and website fixes',
+    image: '/icons/og-image.png',
+    summary: 'youtube uses yt-dlp across all tools. downloads now prioritize resolution, and settings, limits, credits, and documentation match the current app.',
+    content: `## youtube downloads
+
+youtube downloads use yt-dlp, including links pasted into convert, compress, trim, and transcribe. cobalt is no longer the youtube backend.
+
+video downloads now prioritize resolution before codec preference, so a lower-resolution h264 stream cannot override a higher-resolution stream. 4k and preferred codec settings are passed through to downloads and playlists.
+
+## website and documentation
+
+- restored the svelte source and missing service worker and update images
+- corrected credits, privacy details, audio quality descriptions, and file-size limits
+- removed settings that did not affect downloads
+- fixed cancel requests and download links
+- protected active jobs and unexpired playlist files from temporary-file cleanup
+- removed the permanent youtube outage notice
+- made page titles consistent
+- updated self-hosting instructions and restored the server build entry point
+
+older posts below describe earlier versions and may not reflect the current app.`,
+  },
   {
     version: '2.1',
     date: 'february 23, 2026',

@@ -650,7 +650,7 @@
             <div class="file-name" title={fetchedFile ? fetchedFile.fileName : selectedFile.name}>{fetchedFile ? fetchedFile.fileName : selectedFile.name}</div>
             <div class="file-size">{fetchedFile ? formatBytes(fetchedFile.fileSize) : formatBytes(selectedFile.size)}{videoWidth && videoHeight ? ` \u2022 ${videoWidth}x${videoHeight}` : ''}</div>
           </div>
-          <button class="file-remove" onclick={removeFile}>
+          <button class="file-remove" aria-label="remove file" onclick={removeFile}>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -756,8 +756,9 @@
         <div class="section-label">trim times (seconds or MM:SS)</div>
         <div class="manual-time-inputs">
           <div class="time-field">
-            <label>start</label>
+            <label for="trim-start">start</label>
             <input
+              id="trim-start"
               type="text"
               placeholder="0:00"
               value={startTimeInput}
@@ -766,8 +767,9 @@
           </div>
           <span class="trim-arrow">→</span>
           <div class="time-field">
-            <label>end</label>
+            <label for="trim-end">end</label>
             <input
+              id="trim-end"
               type="text"
               placeholder="0:30"
               value={endTimeInput}

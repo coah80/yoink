@@ -11,7 +11,6 @@ export const splashTexts = [
   { text: 'funny message here' },
   { text: 'SHOUTOUT TO COAH' },
   { text: 'new feature: yoink!' },
-  { text: 'new feature: ai download' },
   { text: 'welcome to yoink.tools' },
   { text: "feelin' yoinky?" },
   { text: 'im parched' },
@@ -28,7 +27,7 @@ export const splashTexts = [
   { text: 'powered by yt-dlp' },
   { text: 'hello world!' },
   { text: '1000+ sites!', link: 'https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md', classes: ['clickable'] },
-  { text: "yes, that site works. even the one you're thinking of." },
+  { text: "site support depends on availability and access restrictions." },
 ];
 
 export const pornSites = [

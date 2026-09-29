@@ -84,7 +84,7 @@ function createQueueStore() {
 
       if (item && ACTIVE_STAGES.includes(item.stage)) {
         const cancelId = item.serverJobId || id;
-        fetch(`${apiBase()}/api/cancel/${cancelId}`, { method: 'POST' }).catch(() => {});
+        fetch(`${apiBase()}/api/cancel/${cancelId}?clientId=${encodeURIComponent(get(clientId) || '')}`, { method: 'POST' }).catch(() => {});
       }
 
       update((q) => {
@@ -112,7 +112,7 @@ function createQueueStore() {
         cleanupJob(item.id);
         if (ACTIVE_STAGES.includes(item.stage)) {
           const cancelId = item.serverJobId || item.id;
-          fetch(`${apiBase()}/api/cancel/${cancelId}`, { method: 'POST' }).catch(() => {});
+          fetch(`${apiBase()}/api/cancel/${cancelId}?clientId=${encodeURIComponent(get(clientId) || '')}`, { method: 'POST' }).catch(() => {});
         }
       });
       sseConnections.clear();
@@ -205,10 +205,12 @@ function createQueueStore() {
         format: item.format,
         filename: item.title,
         quality: s.quality,
+        codec: s.codec,
         container: s.container,
         audioFormat: s.audioFormat,
         audioBitrate: s.audioBitrate,
         progressId: item.id,
+        clientId: get(clientId) || '',
         twitterGifs: s.twitterGifs !== false ? 'true' : 'false',
       });
 
@@ -243,6 +245,7 @@ function createQueueStore() {
           url: item.url,
           format: item.format,
           quality: s.quality,
+          codec: s.codec,
           container: s.container,
           audioFormat: s.audioFormat,
           audioBitrate: s.audioBitrate,
@@ -444,7 +447,7 @@ function createQueueStore() {
       const item = q.find((i) => i.id === id);
       const cancelId = item?.serverJobId || id;
       try {
-        await fetch(`${apiBase()}/api/finish-early/${cancelId}`, { method: 'POST' });
+        await fetch(`${apiBase()}/api/finish-early/${cancelId}?clientId=${encodeURIComponent(get(clientId) || '')}`, { method: 'POST' });
       } catch {
         addToast('failed to finish early', 'error');
       }

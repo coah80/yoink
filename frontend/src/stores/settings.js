@@ -10,6 +10,8 @@ function createSettingsStore() {
     }
   } catch {}
 
+  if (initial.quality === '4k') initial.quality = '2160p';
+
   const { subscribe, set, update } = writable(initial);
 
   function save(val) {

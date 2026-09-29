@@ -1,5 +1,5 @@
 <script>
-  import { path } from '../../lib/router.js';
+  import { path as routePath } from '../../lib/router.js';
 
   let { extraContent } = $props();
 
@@ -13,8 +13,8 @@
     { href: '/transcribe', label: 'transcribe', icon: 'transcribe' },
   ];
 
-  let currentItem = $derived(navItems.find(i => i.href === $path) || navItems[0]);
-  let settingsActive = $derived($path === '/settings');
+  let currentItem = $derived(navItems.find(i => i.href === $routePath) || navItems[0]);
+  let settingsActive = $derived($routePath === '/settings');
 </script>
 
 <header>

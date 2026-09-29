@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func newTestState() *State {
@@ -47,5 +48,29 @@ func TestTryReserveClientJobCapsPerClient(t *testing.T) {
 	state.UnlinkJobFromClient("job-0")
 	if !state.TryReserveClientJob("job-after-release", clientID, 3) {
 		t.Fatal("reservation after release was rejected")
+	}
+}
+
+func TestKeepTempFile(t *testing.T) {
+	s := newTestState()
+	now := time.Now()
+	s.SetProcess("active-job", &ProcessInfo{JobType: "playlist"})
+	s.SetBotDownload("playlist", &BotDownload{FilePath: "/tmp/playlist.zip", CreatedAt: now.Add(-time.Hour), IsWebPlaylist: true})
+	s.SetBotDownload("expired", &BotDownload{FilePath: "/tmp/expired.zip", CreatedAt: now.Add(-13 * time.Hour), IsPlaylist: true})
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/tmp/active-job", true},
+		{"/tmp/active-job.part", true},
+		{"/tmp/active-job-final.mp4", true},
+		{"/tmp/active-job2", false},
+		{"/tmp/playlist.zip", true},
+		{"/tmp/expired.zip", false},
+		{"/tmp/orphan.zip", false},
+	} {
+		if got := s.KeepTempFile(tc.path, now); got != tc.want {
+			t.Errorf("KeepTempFile(%q) = %v, want %v", tc.path, got, tc.want)
+		}
 	}
 }

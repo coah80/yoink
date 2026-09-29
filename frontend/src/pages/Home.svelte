@@ -532,6 +532,8 @@
           <button
             class="segment"
             class:active={currentFormat === fmt.id}
+            aria-label={fmt.label}
+            aria-pressed={currentFormat === fmt.id}
             onclick={() => currentFormat = fmt.id}
           >
             {#if fmt.icon === 'bolt'}
@@ -576,7 +578,7 @@
           </svg>
           {loading ? 'loading...' : 'yoink'}
         </button>
-        <button class="yoink-dropdown-toggle" type="button" onclick={(e) => { e.stopPropagation(); yoinkDropdownOpen = !yoinkDropdownOpen; }}>
+        <button class="yoink-dropdown-toggle" type="button" aria-label="download options" onclick={(e) => { e.stopPropagation(); yoinkDropdownOpen = !yoinkDropdownOpen; }}>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
@@ -605,6 +607,8 @@
         {/if}
       </div>
     </div>
+
+    <p class="source-note">downloads use the best available quality up to your setting. site support depends on source availability and access restrictions.</p>
 
     {#if statusType}
       <div class="status {statusType}">
@@ -764,6 +768,14 @@
 }} />
 
 <style>
+  .source-note {
+    margin-top: 16px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    text-align: center;
+  }
+
   main {
     flex: 1;
     display: flex;

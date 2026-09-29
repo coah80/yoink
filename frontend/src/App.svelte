@@ -33,70 +33,30 @@
   };
 
   const pageTitles = {
-    '/': [
-      'yoink - download youtube videos, audio, and clips for free',
-      'yoink - free video downloader for youtube, twitter, tiktok',
-      'yoink - save videos from any site in seconds',
-      'yoink - fast youtube downloader, no ads, no signup',
-      'yoink - download videos and audio from 1000+ sites',
-    ],
-    '/convert': [
-      'yoink - convert videos to mp4, webm, mp3, and more',
-      'yoink - free online video and audio converter',
-      'yoink - convert any video format instantly',
-      'yoink - turn videos into mp3, mp4, wav, flac, and more',
-      'yoink - fast video converter, no file size limit',
-    ],
-    '/compress': [
-      'yoink - compress videos to any file size for free',
-      'yoink - shrink video files without losing quality',
-      'yoink - free video compressor for discord, email, and more',
-      'yoink - make videos smaller in seconds',
-      'yoink - reduce video file size online, fast and free',
-    ],
-    '/trim': [
-      'yoink - trim and crop videos online for free',
-      'yoink - cut videos to any length and aspect ratio',
-      'yoink - clip videos for reels, shorts, and tiktok',
-      'yoink - free video trimmer with crop and preview',
-      'yoink - trim videos to 9:16, 16:9, 1:1, and more',
-    ],
-    '/transcribe': [
-      'yoink - transcribe videos and audio to text for free',
-      'yoink - free video transcription with subtitles and captions',
-      'yoink - generate subtitles from any video or audio file',
-      'yoink - turn speech into text, srt, or burned-in captions',
-      'yoink - free audio transcription, no account needed',
-    ],
-    '/settings': [
-      'yoink - settings',
-    ],
-    '/privacy': [
-      'yoink - privacy',
-    ],
-    '/updates': [
-      'yoink - updates and changelog',
-    ],
+    '/': 'yoink.tools - Free Video Downloader, Converter & Compressor',
+    '/convert': 'yoink.tools - Video & Audio Converter',
+    '/compress': 'yoink.tools - Video Compressor',
+    '/trim': 'yoink.tools - Trim & Crop Videos',
+    '/transcribe': 'yoink.tools - Transcripts, Subtitles & Captions',
+    '/settings': 'yoink.tools - Settings',
+    '/privacy': 'yoink.tools - Privacy',
+    '/download': 'yoink.tools - Download',
+    '/updates': 'yoink.tools - Updates',
   };
 
-  function pickTitle(route) {
-    const titles = pageTitles[route];
-    if (!titles) return 'yoink.tools';
-    return titles[Math.floor(Math.random() * titles.length)];
-  }
-
   let currentPath = $derived($path);
-  let CurrentPage = $derived(routes[currentPath] || NotFound);
+  let CurrentPage = $derived(routes[currentPath] || (currentPath.startsWith('/download/') ? Download : NotFound));
 
   $effect(() => {
-    document.title = pickTitle(currentPath);
+    document.title = pageTitles[currentPath] || (currentPath.startsWith('/download/') ? pageTitles['/download'] : 'yoink.tools - Page Not Found');
   });
 
   function handleClick(e) {
     const a = e.target.closest('a');
     if (!a) return;
     const href = a.getAttribute('href');
-    if (!href || !href.startsWith('/') || a.target === '_blank') return;
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!href || !href.startsWith('/') || href.startsWith('//') || a.target === '_blank' || a.hasAttribute('download')) return;
     e.preventDefault();
     navigate(href);
   }

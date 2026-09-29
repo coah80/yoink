@@ -20,7 +20,7 @@
       return;
     }
 
-    const downloadUrl = `${apiBase()}/api/bot/download/${finalToken}`;
+    const downloadUrl = `${apiBase()}/api/bot/download/${encodeURIComponent(finalToken)}`;
     statusText = 'starting download...';
 
     fetch(downloadUrl, { method: 'HEAD' })
@@ -39,7 +39,7 @@
       })
       .catch(() => {
         stage = 'error';
-        statusText = 'the download link has expired (5 minute limit)';
+        statusText = 'could not start the download. the link may have expired, or the server may be unavailable.';
       });
   });
 </script>

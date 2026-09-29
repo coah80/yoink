@@ -651,6 +651,36 @@ func (s *State) GetBotDownload(token string) *BotDownload {
 	return s.botDownloads[token]
 }
 
+// KeepTempFile prevents the general 20-minute cleanup from deleting active
+// jobs or files still promised by an unexpired download link.
+func (s *State) KeepTempFile(path string, now time.Time) bool {
+	name := filepath.Base(path)
+	s.muProcesses.Lock()
+	for id := range s.activeProcesses {
+		if name == id || strings.HasPrefix(name, id+"-") || strings.HasPrefix(name, id+".") {
+			s.muProcesses.Unlock()
+			return true
+		}
+	}
+	s.muProcesses.Unlock()
+
+	s.muBot.RLock()
+	defer s.muBot.RUnlock()
+	for _, dl := range s.botDownloads {
+		if filepath.Clean(dl.FilePath) != filepath.Clean(path) {
+			continue
+		}
+		expiry := config.BotDownloadExpiry
+		if dl.IsWebPlaylist || dl.IsPlaylist {
+			expiry = config.PlaylistDownloadExp
+		}
+		if now.Sub(dl.CreatedAt) < expiry {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *State) DeleteBotDownload(token string) {
 	s.muBot.Lock()
 	delete(s.botDownloads, token)

@@ -8,6 +8,10 @@
 
   onMount(() => {
     const dismissed = localStorage.getItem('yoink-update-dismissed');
+    if (new URLSearchParams(window.location.search).has('updates')) {
+      localStorage.setItem('yoink-update-dismissed', CURRENT_VERSION);
+      return;
+    }
     if (dismissed !== CURRENT_VERSION) {
       show = true;
     }

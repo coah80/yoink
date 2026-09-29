@@ -30,7 +30,7 @@ func ClearTempDir() {
 	fmt.Println("✓ Cleared temp directories")
 }
 
-func CleanupTempFiles() {
+func CleanupTempFiles(keep func(string, time.Time) bool) {
 	now := time.Now()
 	for _, dir := range config.TempDirs {
 		entries, err := os.ReadDir(dir)
@@ -39,6 +39,9 @@ func CleanupTempFiles() {
 		}
 		for _, e := range entries {
 			p := filepath.Join(dir, e.Name())
+			if keep != nil && keep(p, now) {
+				continue
+			}
 			info, err := e.Info()
 			if err != nil {
 				continue
@@ -94,11 +97,11 @@ func SanitizeFilename(filename string) string {
 	return s
 }
 
-func StartCleanupInterval() {
+func StartCleanupInterval(keep func(string, time.Time) bool) {
 	ticker := time.NewTicker(5 * time.Minute)
 	go func() {
 		for range ticker.C {
-			CleanupTempFiles()
+			CleanupTempFiles(keep)
 		}
 	}()
 }

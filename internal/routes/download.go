@@ -317,6 +317,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	format := orDefault(q.Get("format"), "video")
 	filename := q.Get("filename")
 	quality := orDefault(q.Get("quality"), "1080p")
+	codec := q.Get("codec")
 	container := orDefault(q.Get("container"), "mp4")
 	audioFormat := orDefault(q.Get("audioFormat"), "mp3")
 	audioBitrate := orDefault(q.Get("audioBitrate"), "320")
@@ -470,7 +471,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			services.Global.SendProgressWithPercent(downloadID, "downloading", "Trimming clip from stream...", 0)
-			result, err := services.HandleClipDownload(ctx, clipData, downloadID, config.TempDirs["download"], func(progress float64, speed, eta string) {
+			result, err := services.HandleClipDownload(ctx, clipData, downloadID, config.TempDirs["download"], quality, codec, container, func(progress float64, speed, eta string) {
 				services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Trimming... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
 				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
 			})
@@ -497,6 +498,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 				IsAudio:     isAudio,
 				AudioFormat: audioFormat,
 				Quality:     quality,
+				Codec:       codec,
 				Container:   container,
 				TempDir:     config.TempDirs["download"],
 				ProcessInfo: processInfo,
@@ -559,6 +561,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 				IsAudio:     isAudio,
 				AudioFormat: audioFormat,
 				Quality:     quality,
+				Codec:       codec,
 				Container:   container,
 				TempDir:     config.TempDirs["download"],
 				ProcessInfo: processInfo,
@@ -594,6 +597,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 				IsAudio:     isAudio,
 				AudioFormat: audioFormat,
 				Quality:     quality,
+				Codec:       codec,
 				Container:   container,
 				TempDir:     config.TempDirs["download"],
 				ProcessInfo: processInfo,
@@ -621,6 +625,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			IsAudio:     isAudio,
 			AudioFormat: audioFormat,
 			Quality:     quality,
+			Codec:       codec,
 			Container:   container,
 			TempDir:     config.TempDirs["download"],
 			ProcessInfo: processInfo,

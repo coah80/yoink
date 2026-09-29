@@ -1,7 +1,7 @@
 import { writable, derived } from 'svelte/store';
 
 function getPathFromUrl() {
-  return window.location.pathname || '/';
+  return window.location.pathname.replace(/\/+$/, '') || '/';
 }
 
 function getQsFromUrl() {
