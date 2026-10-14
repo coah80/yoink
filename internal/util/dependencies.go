@@ -37,12 +37,12 @@ func CheckDependencies() {
 	}
 
 	if _, err := exec.LookPath("python3"); err == nil {
-		cmd := exec.Command("python3", "-c", "import whisper")
+		cmd := exec.Command("python3", "-c", "import faster_whisper")
 		if err := cmd.Run(); err == nil {
 			WhisperAvailable = true
-			fmt.Println("✓ whisper module available")
+			fmt.Println("✓ faster-whisper available")
 		} else {
-			fmt.Println("- whisper module not found (optional)")
+			fmt.Println("- faster-whisper not found (optional, needed for local transcription)")
 		}
 	}
 }

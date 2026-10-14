@@ -31,6 +31,7 @@ func main() {
 	util.OnSessionTokenRecovered = alerts.SessionTokenRecovered
 
 	server.PrintBanner()
+	util.CheckDependencies()
 	server.EnsureTempDirs()
 
 	util.StartCleanupInterval(services.Global.KeepTempFile)
