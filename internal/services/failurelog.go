@@ -40,6 +40,7 @@ func failureLogFile() string {
 	}
 	return filepath.Join(config.TempDir, "state", "failures.jsonl")
 }
+
 var failureLogMu sync.Mutex
 var loggedURLRe = regexp.MustCompile(`https?://\S+`)
 
