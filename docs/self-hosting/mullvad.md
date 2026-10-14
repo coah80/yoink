@@ -17,6 +17,9 @@ This page assumes you have finished [Installing yoink](install.md).
 This works anywhere the [Mullvad app](https://mullvad.net/download) runs, and needs a paid [Mullvad](https://mullvad.net) account.
 
 > [!NOTE]
+> Don't want the whole machine on the VPN? [Mullvad in Docker](mullvad-docker.md) puts only yt-dlp inside a VPN container, with PO tokens, and rotates exits on its own.
+
+> [!NOTE]
 > Using a different proxy provider instead? Set the `PROXY_*` settings described in [Configuration reference](configuration.md#proxy).
 
 ## What you need
@@ -32,7 +35,7 @@ This works anywhere the [Mullvad app](https://mullvad.net/download) runs, and ne
 In this section, you will connect the yoink machine to Mullvad.
 
 > [!WARNING]
-> On a remote server, connecting the whole machine to a VPN can cut off your SSH session. Make sure you can reach the server another way first, such as your hosting provider's web console.
+> On a remote server, connecting the whole machine to a VPN can cut off your SSH session. Make sure you can reach the server another way first, such as your hosting provider's web console, or use [Mullvad in Docker](mullvad-docker.md) instead.
 
 1. Run `curl https://am.i.mullvad.net/connected`
     + You should see `You are not connected to Mullvad. Your IP address is …`. Note the address, so that you can tell it changed.

@@ -12,6 +12,8 @@ yoink reads `.env` from the folder you start it in. Restart yoink after any chan
 | `YOINK_TEMP_DIR` | `/var/tmp/yoink` (`.env.example` sets `./tmp`) | Where downloads and conversions are stored while they run. **Its subfolders are emptied on every start**, so use a folder only yoink touches. |
 | `NODE_ENV` | `development` | Read but currently has no effect |
 | `BOT_SECRET` | empty | Shared password for the Discord bot. Empty means the bot endpoints refuse every request. See [Discord bot](discord-bot.md). |
+| `YOINK_ADMIN_TOKEN` | empty | Token for `POST /api/admin/drain` and `/api/admin/resume`, sent as `Authorization: Bearer <token>`. `scripts/deploy-yoink` uses them to stop new jobs before swapping the binary. Empty turns both endpoints off. |
+| `REQUIRE_TEMP_MOUNT` | `false` | When `true`, yoink refuses to start unless `YOINK_TEMP_DIR` is its own mount point, for example an encrypted volume. This keeps files off the main disk if the mount failed at boot. |
 
 Files next to `.env`:
 
@@ -59,6 +61,8 @@ See [YouTube cookies and PO tokens](youtube-auth.md) for setup.
 
 | Setting | Default | What it does |
 |---|---|---|
+| `YTDLP_BIN` | `yt-dlp` | yt-dlp program to run. Set it to `scripts/mullvad-vpn/yt-dlp-vpn` for the [Mullvad Docker wrapper](mullvad-docker.md). |
+| `WGET_BIN` | `wget` | wget program used for a few direct media downloads |
 | `EXTRACTOR_URL` | `http://localhost:3099` | Address of the [TikTok and Instagram extractor](extractor.md) |
 | `COBALT_APIS` | empty | Cobalt instances for Instagram, separated by commas. Empty skips Cobalt. Not used for YouTube. |
 | `COBALT_API_KEY` | empty | API key sent to those Cobalt instances |

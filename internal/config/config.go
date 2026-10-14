@@ -184,7 +184,7 @@ var BotDetectionErrors = []string{
 var HeavyJobTypes = []string{"playlist", "convert", "compress", "transcribe"}
 
 func Load() {
-	TempDir = envOrDefault("YOINK_TEMP_DIR", "/var/tmp/yoink")
+	TempDir = configuredTempDir()
 	for kind, dir := range TempDirs {
 		TempDirs[kind] = filepath.Join(TempDir, filepath.Base(dir))
 	}

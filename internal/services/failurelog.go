@@ -30,7 +30,16 @@ type FailureRecord struct {
 	Repairable bool      `json:"repairable"`
 }
 
-var failureLogPath = filepath.Join(config.TempDir, "state", "failures.jsonl")
+// failureLogPath overrides the log location (tests). Empty means it follows
+// config.TempDir, which is only final after config.Load has read .env.
+var failureLogPath string
+
+func failureLogFile() string {
+	if failureLogPath != "" {
+		return failureLogPath
+	}
+	return filepath.Join(config.TempDir, "state", "failures.jsonl")
+}
 var failureLogMu sync.Mutex
 var loggedURLRe = regexp.MustCompile(`https?://\S+`)
 
@@ -59,7 +68,7 @@ func classifyFailure(message string) (string, bool) {
 }
 
 func rotateFailureLog() error {
-	info, err := os.Stat(failureLogPath)
+	info, err := os.Stat(failureLogFile())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -69,8 +78,8 @@ func rotateFailureLog() error {
 	if info.Size() < 10*1024*1024 {
 		return nil
 	}
-	_ = os.Remove(failureLogPath + ".1")
-	return os.Rename(failureLogPath, failureLogPath+".1")
+	_ = os.Remove(failureLogFile() + ".1")
+	return os.Rename(failureLogFile(), failureLogFile()+".1")
 }
 
 func RecordDownloadFailure(downloadID, rawURL, stage string, failure error) error {
@@ -99,13 +108,13 @@ func RecordDownloadFailure(downloadID, rawURL, stage string, failure error) erro
 
 	failureLogMu.Lock()
 	defer failureLogMu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(failureLogPath), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(failureLogFile()), 0o700); err != nil {
 		return err
 	}
 	if err := rotateFailureLog(); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(failureLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(failureLogFile(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

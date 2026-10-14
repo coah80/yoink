@@ -21,9 +21,12 @@ if [[ -z "$current" && -f "$STATE_FILE" ]]; then
 	current="$(cat "$STATE_FILE")"
 fi
 
+# matches Gluetun's SERVER_COUNTRIES name, e.g. USA, Sweden, Germany
+COUNTRY="${YOINK_VPN_COUNTRY:-USA}"
+
 live_servers="$(curl -fsSL https://api.mullvad.net/public/relays/wireguard/v1/ \
-	| jq -r '.countries[]
-		| select(.name == "USA" or .name == "United States")
+	| jq -r --arg country "$COUNTRY" '.countries[]
+		| select(.name == $country or ($country == "USA" and .name == "United States"))
 		| .cities[]
 		| .relays[]
 		| select((.active // true) == true)
@@ -31,9 +34,9 @@ live_servers="$(curl -fsSL https://api.mullvad.net/public/relays/wireguard/v1/ \
 	| sort -u)"
 
 known_servers="$(docker exec "$CONTAINER" cat /gluetun/servers/mullvad.json 2>/dev/null \
-	| jq -r '.servers[]
+	| jq -r --arg country "$COUNTRY" '.servers[]
 		| select(.vpn == "wireguard")
-		| select(.country == "USA" or .country == "United States")
+		| select(.country == $country or ($country == "USA" and .country == "United States"))
 		| .hostname' \
 	| sort -u)"
 
@@ -44,7 +47,7 @@ fi
 
 servers="$(comm -12 <(printf '%s\n' "$live_servers") <(printf '%s\n' "$known_servers"))"
 if [[ -z "$servers" ]]; then
-	printf 'No active USA Mullvad WireGuard servers are known to Gluetun\n' >&2
+	printf 'No active %s Mullvad WireGuard servers are known to Gluetun\n' "$COUNTRY" >&2
 	exit 1
 fi
 

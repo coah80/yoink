@@ -58,7 +58,7 @@ func TestPendingJobsSurviveStateReload(t *testing.T) {
 	}
 
 	reloaded.RemovePendingJob("restart-job")
-	entries, err := os.ReadDir(pendingJobsDir)
+	entries, err := os.ReadDir(jobsDir())
 	if err != nil {
 		t.Fatal(err)
 	}

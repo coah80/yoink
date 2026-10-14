@@ -14,7 +14,16 @@ import (
 	"github.com/coah80/yoink/internal/config"
 )
 
-var pendingJobsDir = filepath.Join(config.TempDir, "state", "jobs")
+// pendingJobsDir overrides the journal location (tests). Empty means it
+// follows config.TempDir, which is only final after config.Load has read .env.
+var pendingJobsDir string
+
+func jobsDir() string {
+	if pendingJobsDir != "" {
+		return pendingJobsDir
+	}
+	return filepath.Join(config.TempDir, "state", "jobs")
+}
 
 func shortJobID(jobID string) string {
 	if len(jobID) > 12 {
@@ -25,21 +34,21 @@ func shortJobID(jobID string) string {
 
 func pendingJobPath(jobID string) string {
 	sum := sha256.Sum256([]byte(jobID))
-	return filepath.Join(pendingJobsDir, hex.EncodeToString(sum[:])+".json")
+	return filepath.Join(jobsDir(), hex.EncodeToString(sum[:])+".json")
 }
 
 func persistPendingJob(job *PendingJob) error {
 	if job == nil || job.ID == "" {
 		return fmt.Errorf("pending job has no ID")
 	}
-	if err := os.MkdirAll(pendingJobsDir, 0o700); err != nil {
+	if err := os.MkdirAll(jobsDir(), 0o700); err != nil {
 		return err
 	}
 	data, err := json.Marshal(job)
 	if err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(pendingJobsDir, ".job-*.tmp")
+	temp, err := os.CreateTemp(jobsDir(), ".job-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -76,10 +85,10 @@ func removePersistedPendingJob(jobID string) error {
 }
 
 func (s *State) LoadPendingJobs() (int, error) {
-	if err := os.MkdirAll(pendingJobsDir, 0o700); err != nil {
+	if err := os.MkdirAll(jobsDir(), 0o700); err != nil {
 		return 0, err
 	}
-	entries, err := os.ReadDir(pendingJobsDir)
+	entries, err := os.ReadDir(jobsDir())
 	if err != nil {
 		return 0, err
 	}
@@ -88,7 +97,7 @@ func (s *State) LoadPendingJobs() (int, error) {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(pendingJobsDir, entry.Name()))
+		data, err := os.ReadFile(filepath.Join(jobsDir(), entry.Name()))
 		if err != nil {
 			log.Printf("[Recovery] Failed to read %s: %v", entry.Name(), err)
 			continue
