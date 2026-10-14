@@ -29,7 +29,7 @@ func CoreRoutes(r chi.Router) {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{
 		"status":  "ok",
-		"version": "1.0.0",
+		"version": config.Version,
 		"queue":   services.Global.GetQueueStatus(),
 	})
 }
@@ -69,7 +69,7 @@ func handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 func handleLimits(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{
 		"limits":            config.JobLimits,
-		"maxFileSize":       15 * 1024 * 1024 * 1024,
+		"maxFileSize":       config.FileSizeLimit,
 		"maxPlaylistVideos": config.MaxPlaylistVideos,
 		"maxVideoDuration":  config.MaxVideoDuration,
 	})

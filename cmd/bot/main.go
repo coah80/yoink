@@ -25,7 +25,7 @@ func main() {
 	}
 	apiURL := os.Getenv("YOINK_API_URL")
 	if apiURL == "" {
-		apiURL = "http://localhost:3003"
+		apiURL = "http://localhost:3001"
 	}
 	publicURL := os.Getenv("YOINK_PUBLIC_URL")
 	if publicURL == "" {

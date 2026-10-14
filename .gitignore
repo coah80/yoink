@@ -6,9 +6,14 @@ cookies.txt
 youtube-cookies.txt
 cors-origins.txt
 discord-config.json
-yoink
+/yoink
 yoink-linux-amd64
 yoink-linux
 yoink-go-linux
 yoink-bot-linux
 bot-data.db*
+
+frontend/node_modules/
+frontend/dist/
+/public/
+__pycache__/

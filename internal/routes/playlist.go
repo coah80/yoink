@@ -35,6 +35,7 @@ func handlePlaylistStart(w http.ResponseWriter, r *http.Request) {
 		URL          string `json:"url"`
 		Format       string `json:"format"`
 		Quality      string `json:"quality"`
+		Codec        string `json:"codec"`
 		Container    string `json:"container"`
 		AudioFormat  string `json:"audioFormat"`
 		AudioBitrate string `json:"audioBitrate"`
@@ -109,10 +110,10 @@ func handlePlaylistStart(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, 200, map[string]string{"jobId": jobID})
 
-	go processPlaylistAsync(jobID, job, body.URL, isAudio, body.AudioFormat, outputExt, body.Quality, body.Container, body.AudioBitrate, body.ResumeFrom)
+	go processPlaylistAsync(jobID, job, body.URL, isAudio, body.AudioFormat, outputExt, body.Quality, body.Codec, body.Container, body.AudioBitrate, body.ResumeFrom)
 }
 
-func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, isAudio bool, audioFormat, outputExt, quality, container, audioBitrate string, resumeFrom int) {
+func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, isAudio bool, audioFormat, outputExt, quality, codec, container, audioBitrate string, resumeFrom int) {
 	playlistDir := filepath.Join(config.TempDirs["playlist"], jobID)
 	os.MkdirAll(playlistDir, 0755)
 
@@ -235,7 +236,7 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 		downloadErr := func() error {
 			if isYT {
 				result, err := services.DownloadViaYtdlp(ctx, actualURL, fmt.Sprintf("temp_%d", videoNum), services.DownloadOpts{
-					IsAudio: isAudio, Quality: quality, Container: container,
+					IsAudio: isAudio, Quality: quality, Codec: codec, Container: container,
 					TempDir: playlistDir, ProcessInfo: processInfo, UseProxy: true,
 					OnProgress: func(prog float64, speed, eta string) {
 						overallProg := (float64(videoNum-1)/float64(totalVideos))*100 + (prog / float64(totalVideos))
@@ -252,7 +253,7 @@ func processPlaylistAsync(jobID string, job *services.AsyncJob, rawURL string, i
 				tempPath = result.Path
 			} else {
 				result, err := services.DownloadViaYtdlp(ctx, actualURL, fmt.Sprintf("temp_%d", videoNum), services.DownloadOpts{
-					IsAudio: isAudio, Quality: quality, Container: container,
+					IsAudio: isAudio, Quality: quality, Codec: codec, Container: container,
 					TempDir: playlistDir, ProcessInfo: processInfo,
 				})
 				if err != nil {

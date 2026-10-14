@@ -34,19 +34,19 @@ var (
 
 var WhisperScript string
 
-func init() {
+func InitTranscription() {
 	WhisperScript = os.Getenv("WHISPER_SCRIPT")
 	if WhisperScript == "" {
 		exe, err := os.Executable()
 		if err == nil {
 			dir := filepath.Dir(exe)
-			candidate := filepath.Join(dir, "whisper.py")
+			candidate := filepath.Join(dir, "scripts", "transcribe.py")
 			if _, err := os.Stat(candidate); err == nil {
 				WhisperScript = candidate
 			}
 		}
 		if WhisperScript == "" {
-			WhisperScript = "whisper.py"
+			WhisperScript = filepath.Join("scripts", "transcribe.py")
 		}
 	}
 }
@@ -582,4 +582,3 @@ func probeDuration(inputPath string) float64 {
 	fmt.Sscanf(strings.TrimSpace(string(out)), "%f", &dur)
 	return dur
 }
-

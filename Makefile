@@ -1,10 +1,15 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS = -ldflags "-s -w -X github.com/coah80/yoink/internal/config.Version=$(VERSION)"
 
-.PHONY: build bot run clean linux linux-bot windows
+.PHONY: build frontend bot run clean linux linux-bot windows
 
-build:
+frontend:
+	cd frontend && npm ci && npm run build
+
+build: frontend
 	go build $(LDFLAGS) -o yoink ./cmd/yoink
+	mkdir -p public
+	cp -R frontend/public/. public/
 
 bot:
 	go build $(LDFLAGS) -o yoink-bot ./cmd/bot
