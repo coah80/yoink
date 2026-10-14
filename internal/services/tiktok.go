@@ -209,7 +209,7 @@ func DownloadTikTokVideo(ctx context.Context, rawURL, jobID, tempDir string, isA
 		if downloadURL == "" {
 			return nil, fmt.Errorf("no audio available for this TikTok")
 		}
-		log.Printf("[TikTok] [%s] Downloading audio: %s", jobID, result.Data.Title)
+		log.Printf("[TikTok] [%s] Downloading audio", jobID)
 	} else {
 		downloadURL = result.Data.Play
 		ext = "mp4"
@@ -225,17 +225,17 @@ func DownloadTikTokVideo(ctx context.Context, rawURL, jobID, tempDir string, isA
 					}
 				}
 				if len(imageURLs) > 1 {
-					log.Printf("[TikTok] [%s] Packaging %d TikTok images with audio: %s", jobID, len(imageURLs), result.Data.Title)
+					log.Printf("[TikTok] [%s] Packaging %d TikTok images with audio", jobID, len(imageURLs))
 					return packageTikTokImagesWithAudio(ctx, imageURLs, result.Data.Music, jobID, tempDir, progressCb)
 				}
 			}
-			log.Printf("[TikTok] [%s] Rendering TikTok image post with audio: %s", jobID, result.Data.Title)
+			log.Printf("[TikTok] [%s] Rendering TikTok image post with audio", jobID)
 			return renderTikTokImageVideo(ctx, result.Data.Images[0].URL, result.Data.Music, jobID, tempDir, progressCb)
 		}
 		if downloadURL == "" {
 			return nil, fmt.Errorf("no video URL available for this TikTok")
 		}
-		log.Printf("[TikTok] [%s] Downloading video (no watermark): %s", jobID, result.Data.Title)
+		log.Printf("[TikTok] [%s] Downloading video (no watermark)", jobID)
 	}
 
 	outputPath := filepath.Join(tempDir, fmt.Sprintf("%s-tiktok.%s", jobID, ext))
@@ -443,14 +443,14 @@ func DownloadTikTokMusic(ctx context.Context, rawURL, jobID, tempDir string, pro
 		return nil, fmt.Errorf("could not extract TikTok music ID from URL")
 	}
 
-	log.Printf("[TikTok] [%s] Fetching music URL for ID: %s", jobID, musicID)
+	log.Printf("[TikTok] [%s] Fetching music URL", jobID)
 
-	musicURL, title, err := fetchTikTokMusicURL(ctx, musicID)
+	musicURL, _, err := fetchTikTokMusicURL(ctx, musicID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TikTok audio: %w", err)
 	}
 
-	log.Printf("[TikTok] [%s] Got music URL, title: %s", jobID, title)
+	log.Printf("[TikTok] [%s] Got music URL", jobID)
 
 	outputPath := filepath.Join(tempDir, fmt.Sprintf("%s-tiktok.mp3", jobID))
 

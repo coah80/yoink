@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,7 +115,7 @@ func ServerStopping() {
 func DownloadFailed(jobID, url string, err error) {
 	send("download", 5*time.Second, true, colorRed, "Download Failed", err.Error(), map[string]string{
 		"Job":   jobID,
-		"URL":   truncate(url, 200),
+		"Site":  siteOf(url),
 		"Error": truncate(err.Error(), 500),
 	})
 }
@@ -121,7 +123,7 @@ func DownloadFailed(jobID, url string, err error) {
 func PlaylistFailed(jobID, url string, err error) {
 	send("playlist", 5*time.Second, true, colorRed, "Playlist Failed", err.Error(), map[string]string{
 		"Job":   jobID,
-		"URL":   truncate(url, 200),
+		"Site":  siteOf(url),
 		"Error": truncate(err.Error(), 500),
 	})
 }
@@ -144,7 +146,7 @@ func CompressionFailed(jobID string, err error) {
 func GalleryFailed(jobID, url string, err error) {
 	send("gallery", 5*time.Second, true, colorRed, "Gallery Failed", err.Error(), map[string]string{
 		"Job":   jobID,
-		"URL":   truncate(url, 200),
+		"Site":  siteOf(url),
 		"Error": truncate(err.Error(), 500),
 	})
 }
@@ -159,7 +161,7 @@ func TranscriptionFailed(jobID string, err error) {
 func BotJobFailed(jobID, url string, err error) {
 	send("bot", 5*time.Second, true, colorRed, "Bot Download Failed", err.Error(), map[string]string{
 		"Job":   jobID,
-		"URL":   truncate(url, 200),
+		"Site":  siteOf(url),
 		"Error": truncate(err.Error(), 500),
 	})
 }
@@ -171,7 +173,7 @@ func CookieIssue(details string) {
 func CobaltAllFailed(jobID, url string, err error) {
 	send("cobalt", 10*time.Second, false, colorOrange, "Cobalt All Instances Failed", err.Error(), map[string]string{
 		"Job":   jobID,
-		"URL":   truncate(url, 200),
+		"Site":  siteOf(url),
 		"Error": truncate(err.Error(), 500),
 	})
 }
@@ -186,6 +188,16 @@ func SessionTokenFailed(details string) {
 
 func SessionTokenRecovered() {
 	send("session-token-recovered", 0, false, colorGreen, "Session Token Recovered", "YouTube session tokens are being refreshed successfully again.", nil)
+}
+
+// siteOf keeps just the host so alerts say which site broke without
+// recording what someone was downloading.
+func siteOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "unknown"
+	}
+	return strings.TrimPrefix(u.Hostname(), "www.")
 }
 
 func truncate(s string, maxLen int) string {
