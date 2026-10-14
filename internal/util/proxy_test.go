@@ -73,3 +73,40 @@ func TestGetProxyArgs_Empty(t *testing.T) {
 		t.Fatal("no host should yield no args")
 	}
 }
+
+func TestGetRandomProxyURL_SinglePoolUser(t *testing.T) {
+	resetProxyConfig()
+	t.Cleanup(resetProxyConfig)
+	config.ProxyHost = "proxy.example"
+	config.ProxyUserPrefix = "yoink"
+	config.ProxyPassword = "secret"
+	config.ProxyCount = 1
+	if got, want := GetRandomProxyURL(), "http://yoink-1:secret@proxy.example:80"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestGetRandomProxyURL_EscapesCredentials(t *testing.T) {
+	resetProxyConfig()
+	t.Cleanup(resetProxyConfig)
+	config.ProxyHost = "proxy.example"
+	config.ProxyUserPrefix = "yoink"
+	config.ProxyPassword = "p@ss:word"
+	if got, want := GetRandomProxyURL(), "http://yoink:p%40ss%3Aword@proxy.example:80"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestShouldRetryWithNewProxy(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"Sign in to confirm you're not a bot":                            true,
+		"Video unavailable. This video is private":                       true,
+		"Video unavailable. This video has been removed by the uploader": false,
+		"Download cancelled":                                             false,
+		"Unsupported URL: https://example.com":                           false,
+	} {
+		if got := ShouldRetryWithNewProxy(msg); got != want {
+			t.Errorf("ShouldRetryWithNewProxy(%q) = %v, want %v", msg, got, want)
+		}
+	}
+}

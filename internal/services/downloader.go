@@ -83,7 +83,7 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 
 	filePrefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
 	tries := 1
-	if opts.UseProxy {
+	if opts.UseProxy && util.HasProxy() {
 		tries = 3
 	}
 
@@ -98,10 +98,10 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 			return result, nil
 		}
 		lastErr = err
-		if opts.ProcessInfo != nil && opts.ProcessInfo.IsCancelled() {
+		if ctx.Err() != nil || (opts.ProcessInfo != nil && opts.ProcessInfo.IsCancelled()) {
 			return nil, err
 		}
-		if strings.Contains(strings.ToLower(err.Error()), "cancel") {
+		if !util.ShouldRetryWithNewProxy(err.Error()) {
 			return nil, err
 		}
 	}
@@ -460,7 +460,11 @@ func HandleClipDownload(ctx context.Context, clipData *ClipData, jobID string, t
 	if err == nil {
 		return result, nil
 	}
-	log.Printf("[%s] yt-dlp clip failed, retrying: %s", jobID, err)
+	if ctx.Err() != nil || !util.HasProxy() || !util.ShouldRetryWithNewProxy(err.Error()) {
+		return nil, err
+	}
+	log.Printf("[%s] yt-dlp clip failed, retrying with a new proxy: %s", jobID, err)
+	cleanupYtdlpOutputs(tempDir, jobID+"-ytclip")
 	if result, err = DownloadClipViaYtdlp(ctx, clipData, jobID, tempDir, quality, codec, container, onProgress); err == nil {
 		return result, nil
 	}

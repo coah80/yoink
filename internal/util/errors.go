@@ -88,3 +88,35 @@ func ToUserError(message string) string {
 	}
 	return "Download failed"
 }
+
+// permanentYtdlpErrors are failures a fresh proxy can't fix. "Private video"
+// and "video unavailable" stay retryable since youtube also says those when it
+// blocks the IP (see config.BotDetectionErrors).
+var permanentYtdlpErrors = []string{
+	"has been removed",
+	"account associated with this video has been terminated",
+	"copyright claim",
+	"not made this video available in your country",
+	"this live event will begin",
+	"premieres in",
+	"members-only",
+	"join this channel",
+	"unsupported url",
+	"incomplete youtube id",
+	"is not a valid url",
+}
+
+// ShouldRetryWithNewProxy reports whether a yt-dlp failure is worth another go
+// through a different proxy.
+func ShouldRetryWithNewProxy(message string) bool {
+	msg := strings.ToLower(message)
+	if strings.Contains(msg, "cancel") {
+		return false
+	}
+	for _, p := range permanentYtdlpErrors {
+		if strings.Contains(msg, p) {
+			return false
+		}
+	}
+	return true
+}

@@ -236,6 +236,10 @@ func DownloadViaCobalt(ctx context.Context, videoURL, jobID string, isAudio bool
 		opts.RetryDelay = 2 * time.Second
 	}
 
+	if len(config.CobaltAPIs) == 0 {
+		return nil, fmt.Errorf("no cobalt instances configured")
+	}
+
 	var lastErr error
 	attemptCount := 0
 	startTime := time.Now()

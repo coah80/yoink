@@ -223,11 +223,21 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[Metadata] yt-dlp retry %d/%d with a new proxy", attempt, tries)
 		}
 		outText, errOutput, timedOut, err = runYtdlpMetadata()
+		if ctx.Err() != nil {
+			return
+		}
 		if timedOut {
+			// a hung relay is the main reason to rotate, so only give up on the last try
+			if attempt < tries {
+				continue
+			}
 			respondJSON(w, 504, map[string]string{"error": "Metadata fetch timed out (30s)"})
 			return
 		}
 		if err == nil {
+			break
+		}
+		if !util.ShouldRetryWithNewProxy(errOutput) {
 			break
 		}
 		if util.NeedsCookiesRetry(errOutput) && util.RefreshCookies("YouTube bot detection during metadata fetch") {
