@@ -62,39 +62,22 @@ settings and the download queue are saved in browser storage. temporary media is
 
 ## self-hosting
 
-install Go 1.24 or newer, Node.js 20.19 or newer, npm, [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation), ffmpeg, and ffprobe. youtube extraction also needs a supported JavaScript runtime such as Deno and yt-dlp's EJS components. keep yt-dlp current, youtube extraction changes frequently.
+you can run your own yoink in about 20 minutes. the [self-hosting guide](docs/self-hosting/README.md) walks you through it step by step:
+
+- [installing yoink](docs/self-hosting/install.md) on linux, macOS or windows (WSL)
+- [routing youtube through mullvad](docs/self-hosting/mullvad.md) when youtube blocks your server
+- [youtube cookies and PO tokens](docs/self-hosting/youtube-auth.md), [transcription](docs/self-hosting/transcription.md), the [tiktok/instagram extractor](docs/self-hosting/extractor.md) and the [discord bot](docs/self-hosting/discord-bot.md)
+- [working on the code](docs/self-hosting/development.md), the [configuration reference](docs/self-hosting/configuration.md) and [troubleshooting](docs/self-hosting/troubleshooting.md)
+
+the short version, if you already have Go 1.24+, Node.js 20+, yt-dlp, ffmpeg and Deno:
 
 ```bash
 git clone https://github.com/coah80/yoink.git
 cd yoink
-cp .env.example .env  # configure the values you need
-make build           # builds the frontend and server, copies assets to public/
-./yoink              # serves API + frontend on :3001
+cp .env.example .env
+make build
+./yoink    # open http://localhost:3001
 ```
-
-`frontend/src` contains the Svelte source. `frontend/static` contains source assets, and `npm run build` in `frontend` produces `frontend/public`, which is checked in for existing deployments.
-
-for development, run `make run` from the repo root and `npm run dev` from `frontend` in another terminal. Vite proxies `/api` to `localhost:3001`, and production uses the same origin as the website. set `VITE_API_URL` when building for a separate API host. if you change `PORT`, also update the Vite proxy target. when distributing the binary, put the built `public/` folder beside it, and include `scripts/transcribe.py` if you want transcription.
-
-optional features:
-
-- **images**: install gallery-dl.
-- **transcription**: the included `scripts/transcribe.py` helper uses `python3`, install `openai-whisper` for local models, or `openai` and set `OPENAI_API_KEY` for the large API model. the API model sends audio to OpenAI.
-- **browser extractor**: run `npm ci`, `npm run install-browser`, and `npm start` in `extractor`; configure `EXTRACTOR_URL` if it is not on `localhost:3099`.
-- **discord bot**: set `DISCORD_TOKEN`, `DISCORD_APP_ID`, `BOT_SECRET`, `YOINK_API_URL`, and `YOINK_PUBLIC_URL`, then run `make bot` and `./yoink-bot`. use the same `BOT_SECRET` for the bot and API.
-- **youtube authentication**: cookie files, proxies, and a PO token provider may be needed for restricted videos or blocked server IPs. the PO token provider requires the matching yt-dlp provider plugin.
-
-configure HTTPS and any encrypted temporary storage separately. `.env.example` lists optional services and paths. `YOINK_TEMP_DIR` defaults to `/var/tmp/yoink`; use a directory dedicated to yoink, its contents are cleared at server startup.
-
-## checks
-
-```bash
-go test ./...
-go vet ./...
-cd frontend && npm ci && npm run build
-```
-
-the format-selection regression tests use installed yt-dlp with offline fixtures, they do not download media or contact youtube. they are skipped if yt-dlp is unavailable.
 
 ## credits
 
