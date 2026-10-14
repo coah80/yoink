@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-time setup: Mullvad WireGuard config, the yt-dlp image, the Gluetun
-# container, then point yoink at the wrapper and rotate exits every ~55 min.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 

@@ -55,9 +55,6 @@ func handleAdminResume(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"draining": false})
 }
 
-// checkAdminAuth requires "Authorization: Bearer <YOINK_ADMIN_TOKEN>". The
-// endpoints don't exist without a token. A loopback check isn't enough: behind
-// cloudflared every public request also arrives from 127.0.0.1.
 func checkAdminAuth(w http.ResponseWriter, r *http.Request) bool {
 	if config.AdminToken == "" {
 		http.NotFound(w, r)

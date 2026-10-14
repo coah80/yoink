@@ -323,7 +323,6 @@ func VideoFormatArgs(quality, codec, container string) []string {
 	filter, portrait := "", ""
 	if height := config.QualityHeight[quality]; height > 0 {
 		filter = fmt.Sprintf("[height<=%d]", height)
-		// vertical video keeps the cap on its short side, which is the width
 		portrait = fmt.Sprintf("[width<=%d]", height)
 	}
 	video, audio := "bv*", "ba"

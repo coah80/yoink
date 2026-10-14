@@ -94,7 +94,6 @@ func GetYouTubeAuthArgs() []string {
 	if providerArgs := GetPOTProviderArgs(); providerArgs != nil {
 		args = append(args, providerArgs...)
 	} else {
-		// let an installed PO token plugin (bgutil on its default port) kick in
 		args = append(args, "--extractor-args", "youtube:fetch_pot=always")
 	}
 	if tokenArgs := GetSessionTokenArgs(); tokenArgs != nil {

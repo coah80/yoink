@@ -53,9 +53,6 @@ func New() *http.Server {
 	}
 }
 
-// spaHandler serves built files and falls back to index.html for app routes.
-// Static directories such as /updates also have SPA routes, so they get the
-// app, never a directory listing. Missing assets are 404s.
 func spaHandler(publicDir string) http.HandlerFunc {
 	root, _ := filepath.Abs(publicDir)
 	fileServer := http.FileServer(http.Dir(root))

@@ -5,9 +5,7 @@ new_binary=${1:?usage: deploy-yoink /absolute/path/to/new-binary}
 install_path=${YOINK_INSTALL_PATH:?set YOINK_INSTALL_PATH to the running yoink binary}
 service_name=${YOINK_SERVICE_NAME:-yoink-go.service}
 health_url=${YOINK_HEALTH_URL:-http://127.0.0.1:3001/health}
-# pgrep -f pattern for a tunnel to pause during the swap, e.g. "cloudflared tunnel"
 tunnel_pattern=${YOINK_TUNNEL_PATTERN:-}
-# must match YOINK_ADMIN_TOKEN in the server .env, or drain/resume are skipped
 admin_token=${YOINK_ADMIN_TOKEN:-}
 drain_timeout=${YOINK_DRAIN_TIMEOUT:-3600}
 

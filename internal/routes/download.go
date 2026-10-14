@@ -325,7 +325,6 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 	var metadata map[string]interface{}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(outText)), &metadata); err != nil {
-		// older yt-dlp builds or wrappers may still print one field per line
 		get := func(i int) string {
 			if i < len(lines) {
 				return lines[i]

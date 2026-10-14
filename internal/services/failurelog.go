@@ -30,8 +30,6 @@ type FailureRecord struct {
 	Repairable bool      `json:"repairable"`
 }
 
-// failureLogPath overrides the log location (tests). Empty means it follows
-// config.TempDir, which is only final after config.Load has read .env.
 var failureLogPath string
 
 func failureLogFile() string {
@@ -44,8 +42,6 @@ func failureLogFile() string {
 var failureLogMu sync.Mutex
 var loggedURLRe = regexp.MustCompile(`https?://\S+`)
 
-// failureHost keeps only the site, so the failure log can say which site
-// broke without recording what someone was downloading.
 func failureHost(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

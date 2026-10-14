@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// RealIP swaps RemoteAddr for the client address a reverse proxy reports, but
-// only when the request actually came through one running on this machine or
-// the local network (cloudflared, nginx, caddy). A client talking to yoink
-// directly can't pick its own IP with a header, which would dodge rate limits
-// and per-person job caps.
 func RealIP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if peerIsLocal(r.RemoteAddr) {
@@ -32,14 +27,12 @@ func peerIsLocal(remoteAddr string) bool {
 }
 
 func forwardedIP(r *http.Request) string {
-	// Cloudflare overwrites CF-Connecting-IP, so a client can't fake it.
 	for _, header := range []string{"CF-Connecting-IP", "X-Real-IP"} {
 		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get(header))); ip != nil {
 			return ip.String()
 		}
 	}
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		// the last hop was added by the local proxy, earlier ones by the client
 		parts := strings.Split(forwarded, ",")
 		if ip := net.ParseIP(strings.TrimSpace(parts[len(parts)-1])); ip != nil {
 			return ip.String()

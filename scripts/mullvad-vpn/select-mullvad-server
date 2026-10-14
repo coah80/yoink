@@ -21,7 +21,6 @@ if [[ -z "$current" && -f "$STATE_FILE" ]]; then
 	current="$(cat "$STATE_FILE")"
 fi
 
-# matches Gluetun's SERVER_COUNTRIES name, e.g. USA, Sweden, Germany
 COUNTRY="${YOINK_VPN_COUNTRY:-USA}"
 
 live_servers="$(curl -fsSL https://api.mullvad.net/public/relays/wireguard/v1/ \

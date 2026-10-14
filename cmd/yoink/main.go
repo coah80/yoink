@@ -88,9 +88,6 @@ func main() {
 	}
 }
 
-// startIdleTempCleanup sweeps old temp files every 5 minutes, but only while
-// nothing is running, and never touches finished files that a recovered
-// download, async job or unexpired link still points to.
 func startIdleTempCleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	go func() {

@@ -14,8 +14,6 @@ import (
 	"github.com/coah80/yoink/internal/config"
 )
 
-// pendingJobsDir overrides the journal location (tests). Empty means it
-// follows config.TempDir, which is only final after config.Load has read .env.
 var pendingJobsDir string
 
 func jobsDir() string {
