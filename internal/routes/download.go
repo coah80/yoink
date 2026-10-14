@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -23,9 +23,16 @@ import (
 	"github.com/coah80/yoink/internal/util"
 )
 
+var resolveSocialMedia = services.ResolveSocialMedia
+
+const statusClientClosedRequest = 499
+
 func DownloadRoutes(r chi.Router) {
 	r.Get("/api/metadata", handleMetadata)
 	r.Get("/api/download", handleDownload)
+	r.Get("/api/recovered/{id}", handleRecoveredDownload)
+	r.Head("/api/recovered/{id}", handleRecoveredDownload)
+	r.Get("/api/recovered/{id}/status", handleRecoveredDownloadStatus)
 }
 
 func handleMetadata(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +53,8 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	isClip := strings.Contains(rawURL, "/clip/")
+	isYouTubeURL := util.IsYouTubeURL(rawURL)
+	isClip := isYouTubeURL && strings.Contains(rawURL, "/clip/")
 	ctx := r.Context()
 
 	if isClip {
@@ -117,13 +125,9 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("[Metadata] TikTok tikwm failed, falling back to yt-dlp: %s", err)
 		} else {
-			ext := "mp4"
-			if meta.IsSlideshow {
-				ext = "mp4"
-			}
 			result := map[string]interface{}{
 				"title":       meta.Title,
-				"ext":         ext,
+				"ext":         "mp4",
 				"uploader":    meta.Author,
 				"duration":    meta.Duration,
 				"thumbnail":   meta.Thumbnail,
@@ -157,57 +161,73 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Metadata] Twitter extractor failed, falling back to yt-dlp: %s", err)
 	}
 
-	usingCookies := util.HasCookiesFile()
-	isYouTubeURL := strings.Contains(rawURL, "youtube.com") || strings.Contains(rawURL, "youtu.be")
+	usingCookies := isYouTubeURL && util.HasCookiesFile()
+	resolved, handled, resolveErr := resolveSocialMedia(ctx, rawURL, 0)
+	if resolveErr != nil {
+		respondJSON(w, 500, map[string]string{"error": util.ToUserError(resolveErr.Error())})
+		return
+	}
+	if handled {
+		respondJSON(w, 200, map[string]interface{}{
+			"title":        resolved.Title,
+			"ext":          resolved.Ext,
+			"id":           resolved.ID,
+			"uploader":     resolved.Uploader,
+			"duration":     fmt.Sprint(resolved.Duration),
+			"thumbnail":    resolved.Thumbnail,
+			"isPlaylist":   false,
+			"usingCookies": false,
+		})
+		return
+	}
 
+	ytdlpURL := util.NormalizeYtdlpURL(rawURL)
 	buildYtdlpMetadataArgs := func() []string {
-		args := append([]string{}, util.GetYouTubeAuthArgs()...)
+		args := append([]string{}, util.YtdlpArgsForURL(ytdlpURL)...)
 		if isYouTubeURL {
 			args = append(args, util.GetProxyArgs()...)
 		}
-		args = append(args, "-t", "sleep", "--remote-components", "ejs:github")
-		if !downloadPlaylist {
-			return append(args, "--no-playlist",
-				"--print", "%(title)s", "--print", "%(ext)s", "--print", "%(id)s",
-				"--print", "%(uploader)s", "--print", "%(duration)s", "--print", "%(thumbnail)s",
-				rawURL,
-			)
+		args = append(args, "--remote-components", "ejs:github")
+		if !downloadPlaylist && !util.IsBilibiliURL(ytdlpURL) {
+			args = append(args, "-t", "sleep")
 		}
-		return append(args, "--yes-playlist", "--flat-playlist", "-J", rawURL)
+		if !downloadPlaylist {
+			return append(args, "--no-playlist", "--dump-single-json", ytdlpURL)
+		}
+		return append(args, "--yes-playlist", "--flat-playlist",
+			"--print", "%(playlist_title)s", "--print", "%(playlist_count)s", "--print", "%(title)s",
+			ytdlpURL,
+		)
 	}
 
 	runYtdlpMetadata := func() (string, string, bool, error) {
 		cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		cmd := exec.CommandContext(cmdCtx, "yt-dlp", buildYtdlpMetadataArgs()...)
+		cmd := exec.CommandContext(cmdCtx, util.YtdlpBinary(), buildYtdlpMetadataArgs()...)
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
+		stopCancellation := services.ConfigureYtdlpCancellation(cmd, 5*time.Second, stdout, stderr)
+		defer stopCancellation()
 
 		if err := cmd.Start(); err != nil {
-			return "", "", false, err
+			return "", "yt-dlp not found. Please install yt-dlp.", false, err
 		}
 
 		var outBuf, errBuf strings.Builder
-		done := make(chan struct{}, 2)
+		var streamWG sync.WaitGroup
+		streamWG.Add(2)
 		go func() {
-			scanner := bufio.NewScanner(stdout)
-			for scanner.Scan() {
-				outBuf.WriteString(scanner.Text() + "\n")
-			}
-			done <- struct{}{}
+			defer streamWG.Done()
+			_, _ = io.Copy(&outBuf, stdout)
 		}()
 		go func() {
-			scanner := bufio.NewScanner(stderr)
-			for scanner.Scan() {
-				errBuf.WriteString(scanner.Text() + "\n")
-			}
-			done <- struct{}{}
+			defer streamWG.Done()
+			_, _ = io.Copy(&errBuf, stderr)
 		}()
 
+		streamWG.Wait()
 		err := cmd.Wait()
-		<-done
-		<-done
 		return outBuf.String(), errBuf.String(), cmdCtx.Err() != nil, err
 	}
 
@@ -224,6 +244,7 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		outText, errOutput, timedOut, err = runYtdlpMetadata()
 		if ctx.Err() != nil {
+			respondJSON(w, 504, map[string]string{"error": "Metadata fetch cancelled"})
 			return
 		}
 		if timedOut {
@@ -252,6 +273,9 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
+		if util.NeedsCookiesRetry(errOutput) && isYouTubeURL && !usingCookies {
+			alerts.CookieIssue("YouTube bot detection - cookies.txt may be stale or missing")
+		}
 		if !downloadPlaylist {
 			galleryMeta, galleryErr := tryGalleryDlMetadata(ctx, rawURL)
 			if galleryErr == nil {
@@ -266,40 +290,42 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 	lines := strings.Split(strings.TrimSpace(outText), "\n")
 	if downloadPlaylist {
-		var raw struct {
-			Title         string `json:"title"`
-			PlaylistCount int    `json:"playlist_count"`
-			Entries       []struct {
-				Title string `json:"title"`
-			} `json:"entries"`
+		playlistTitle := "Playlist"
+		if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+			playlistTitle = lines[0]
 		}
-		if err := json.Unmarshal([]byte(outText), &raw); err != nil {
-			respondJSON(w, 500, map[string]string{"error": "Failed to parse playlist info"})
-			return
+		videoCount := 0
+		if len(lines) > 1 {
+			fmt.Sscanf(lines[1], "%d", &videoCount)
 		}
-		playlistTitle := orDefault(raw.Title, "Playlist")
-		videoCount := raw.PlaylistCount
-		cap := 50
-		if len(raw.Entries) < cap {
-			cap = len(raw.Entries)
-		}
-		videoTitles := make([]string, 0, cap)
-		for _, entry := range raw.Entries[:cap] {
-			if title := strings.TrimSpace(entry.Title); title != "" {
-				videoTitles = append(videoTitles, title)
+		videoTitles := []string{}
+		if len(lines) > 2 {
+			for _, t := range lines[2:] {
+				if t = strings.TrimSpace(t); t != "" {
+					videoTitles = append(videoTitles, t)
+				}
 			}
 		}
 		if videoCount == 0 {
-			videoCount = len(raw.Entries)
+			videoCount = len(videoTitles)
+		}
+		cap := 50
+		if len(videoTitles) < cap {
+			cap = len(videoTitles)
 		}
 		respondJSON(w, 200, map[string]interface{}{
 			"title":        playlistTitle,
 			"isPlaylist":   true,
 			"videoCount":   videoCount,
-			"videoTitles":  videoTitles,
+			"videoTitles":  videoTitles[:cap],
 			"usingCookies": usingCookies,
 		})
-	} else {
+		return
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(outText)), &metadata); err != nil {
+		// older yt-dlp builds or wrappers may still print one field per line
 		get := func(i int) string {
 			if i < len(lines) {
 				return lines[i]
@@ -318,7 +344,31 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		services.MetadataCache.Set(rawURL, result, 10*time.Minute)
 		respondJSON(w, 200, result)
+		return
 	}
+	getString := func(key, fallback string) string {
+		value, ok := metadata[key].(string)
+		if !ok || value == "" || value == "NA" {
+			return fallback
+		}
+		return value
+	}
+	duration := ""
+	if value, ok := metadata["duration"]; ok && value != nil {
+		duration = fmt.Sprint(value)
+	}
+	result := map[string]interface{}{
+		"title":        getString("title", "download"),
+		"ext":          getString("ext", "mp4"),
+		"id":           getString("id", ""),
+		"uploader":     getString("uploader", ""),
+		"duration":     duration,
+		"thumbnail":    getString("thumbnail", ""),
+		"isPlaylist":   false,
+		"usingCookies": usingCookies,
+	}
+	services.MetadataCache.Set(rawURL, result, 10*time.Minute)
+	respondJSON(w, 200, result)
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request) {
@@ -327,7 +377,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	format := orDefault(q.Get("format"), "video")
 	filename := q.Get("filename")
 	quality := orDefault(q.Get("quality"), "1080p")
-	codec := q.Get("codec")
 	container := orDefault(q.Get("container"), "mp4")
 	audioFormat := orDefault(q.Get("audioFormat"), "mp3")
 	audioBitrate := orDefault(q.Get("audioBitrate"), "320")
@@ -335,6 +384,19 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	clientID := effectiveClientID(r, q.Get("clientId"))
 	twitterGifs := q.Get("twitterGifs") != "false"
 	downloadPlaylist := q.Get("playlist") == "true"
+	recovery := q.Get("recovery") == "true"
+	preferences := services.DownloadPreferences{Codec: q.Get("codec"), H265: q.Get("h265") == "true", FilenameStyle: q.Get("filenameStyle"), Uploader: q.Get("uploader")}
+	if q.Has("metadata") {
+		enabled := q.Get("metadata") != "false"
+		preferences.Metadata = &enabled
+	}
+	if err := preferences.Validate(); err != nil {
+		respondJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	filenamePreferences := preferences
+	filenamePreferences.Codec = preferences.EffectiveCodec(container)
+	filename = services.DownloadFilename(filename, quality, filenamePreferences)
 
 	downloadID := progressID
 	if downloadID == "" {
@@ -346,6 +408,17 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 400, map[string]string{"error": check.Error})
 		return
 	}
+	if pending := services.Global.GetPendingJob(downloadID); pending != nil && pending.Ready && util.NormalizeYouTubeURL(pending.URL) == rawURL {
+		if info, err := os.Stat(pending.OutputPath); err == nil && info.Size() > 0 {
+			streamReadyPendingDownload(w, r, pending)
+			return
+		}
+		services.Global.RemovePendingJob(downloadID)
+	}
+	if services.Global.GetProcess(downloadID) != nil {
+		respondJSON(w, http.StatusConflict, map[string]string{"error": "Download already in progress"})
+		return
+	}
 
 	if !services.Global.TryReserveClientJob(downloadID, clientID, config.MaxJobsPerClient) {
 		services.Global.SendProgressSimple(downloadID, "error", fmt.Sprintf("too many active jobs, max %d at once per person", config.MaxJobsPerClient))
@@ -353,7 +426,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobCheck := services.Global.CanStartJob("download")
+	jobCheck := services.Global.WaitForJobSlot(r.Context(), "download")
 	if !jobCheck.OK {
 		services.Global.UnlinkJobFromClient(downloadID)
 		services.Global.SendProgressSimple(downloadID, "error", jobCheck.Reason)
@@ -371,7 +444,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	finalFile := filepath.Join(config.TempDirs["download"], fmt.Sprintf("%s-final.%s", downloadID, outputExt))
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := newDownloadWorkContext(r.Context())
 	defer cancel()
 
 	processInfo := &services.ProcessInfo{
@@ -379,14 +452,40 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		JobType:    "download",
 		CancelFunc: cancel,
 	}
-	services.Global.SetProcess(downloadID, processInfo)
+	if !services.Global.TrySetProcess(downloadID, processInfo) {
+		cancel()
+		services.Global.DecrementJob("download")
+		respondJSON(w, http.StatusConflict, map[string]string{"error": "Download already in progress"})
+		return
+	}
+	if clientID != "" {
+		services.Global.RegisterClient(clientID)
+		services.Global.LinkJobToClient(downloadID, clientID)
+	}
 
-	services.Global.RegisterPendingJob(downloadID, &services.PendingJob{
-		Type:     "download",
-		URL:      rawURL,
-		ClientID: clientID,
-		Status:   "starting",
-	})
+	pending := &services.PendingJob{
+		DownloadPreferences: preferences,
+		Type:                "download",
+		URL:                 rawURL,
+		ClientID:            clientID,
+		Status:              "starting",
+		Filename:            filename,
+		Format:              format,
+		Quality:             quality,
+		Container:           container,
+		AudioFormat:         audioFormat,
+		AudioBitrate:        audioBitrate,
+		TwitterGifs:         twitterGifs,
+		Playlist:            downloadPlaylist,
+	}
+	if recovery {
+		if existing := services.Global.GetPendingJob(downloadID); existing != nil {
+			pending.CreatedAt = existing.CreatedAt
+			pending.Progress = existing.Progress
+		}
+		pending.Status = "resuming"
+	}
+	services.Global.RegisterPendingJob(downloadID, pending)
 
 	jobs := services.Global.GetJobsByType()
 	jobsJSON, _ := json.Marshal(jobs)
@@ -457,16 +556,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		services.StreamFile(w, r, thumbPath, orDefault(filename, "thumbnail"), "jpg", "image/jpeg", downloadID, rawURL, "download", nil)
 		return
 	}
-
-	go func() {
-		<-r.Context().Done()
-		if !processInfo.IsCancelled() {
-			processInfo.SetCancelled(true)
-			cancel()
-			processInfo.KillProcess()
-		}
-	}()
-
 	services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading from source...", 0)
 
 	var downloadedPath, downloadedExt string
@@ -481,7 +570,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			services.Global.SendProgressWithPercent(downloadID, "downloading", "Trimming clip from stream...", 0)
-			result, err := services.HandleClipDownload(ctx, clipData, downloadID, config.TempDirs["download"], quality, codec, container, func(progress float64, speed, eta string) {
+			result, err := services.HandleClipDownload(ctx, clipData, downloadID, config.TempDirs["download"], quality, preferences.EffectiveCodec(container), container, func(progress float64, speed, eta string) {
 				services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Trimming... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
 				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
 			})
@@ -492,29 +581,21 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			downloadedPath = result.Path
 			downloadedExt = result.Ext
 		} else {
-			services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading...", 0)
-			onProgress := func(progress float64, speed, eta string) {
-				msg := fmt.Sprintf("Downloading... %.0f%%", progress)
-				if speed != "" {
-					msg += fmt.Sprintf(" • %s", speed)
-				}
-				if eta != "" {
-					msg += fmt.Sprintf(" • ETA %s", eta)
-				}
-				services.Global.SendProgress(downloadID, "downloading", msg, &progress, map[string]interface{}{"speed": speed, "eta": eta})
-				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
-			}
+			services.Global.SendProgressWithPercent(downloadID, "downloading", "Downloading via yt-dlp...", 0)
 			result, err := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-				IsAudio:     isAudio,
-				AudioFormat: audioFormat,
-				Quality:     quality,
-				Codec:       codec,
-				Container:   container,
-				TempDir:     config.TempDirs["download"],
-				ProcessInfo: processInfo,
-				Playlist:    false,
-				UseProxy:    true,
-				OnProgress:  onProgress,
+				DownloadPreferences: preferences,
+				IsAudio:             isAudio,
+				AudioFormat:         audioFormat,
+				Quality:             quality,
+				Container:           container,
+				TempDir:             config.TempDirs["download"],
+				ProcessInfo:         processInfo,
+				Playlist:            false,
+				UseProxy:            isYouTube,
+				OnProgress: func(progress float64, speed, eta string) {
+					services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
+					services.Global.UpdatePendingJob(downloadID, progress, "downloading")
+				},
 			})
 			if err != nil {
 				handleDownloadError(w, downloadID, outputExt, err)
@@ -522,8 +603,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			}
 			downloadedPath = result.Path
 			downloadedExt = result.Ext
-			p := float64(100)
-			services.Global.SendProgress(downloadID, "downloading", "Download complete", &p, nil)
 		}
 	} else if services.IsTikTokMusicURL(rawURL) {
 		services.Global.SendProgressWithPercent(downloadID, "downloading", "Fetching TikTok audio...", 0)
@@ -568,15 +647,15 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[%s] Twitter fxtwitter failed, falling back to yt-dlp: %s", downloadID, err)
 			services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying via yt-dlp...", 0)
 			ytResult, ytErr := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-				IsAudio:     isAudio,
-				AudioFormat: audioFormat,
-				Quality:     quality,
-				Codec:       codec,
-				Container:   container,
-				TempDir:     config.TempDirs["download"],
-				ProcessInfo: processInfo,
-				Playlist:    false,
-				UseProxy:    false,
+				IsAudio:             isAudio,
+				AudioFormat:         audioFormat,
+				Quality:             quality,
+				DownloadPreferences: preferences,
+				Container:           container,
+				TempDir:             config.TempDirs["download"],
+				ProcessInfo:         processInfo,
+				Playlist:            false,
+				UseProxy:            false,
 				OnProgress: func(progress float64, speed, eta string) {
 					services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
 					services.Global.UpdatePendingJob(downloadID, progress, "downloading")
@@ -604,15 +683,15 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[%s] Instagram Cobalt failed, falling back to yt-dlp: %s", downloadID, err)
 			services.Global.SendProgressWithPercent(downloadID, "downloading", "Retrying via yt-dlp...", 0)
 			ytResult, ytErr := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-				IsAudio:     isAudio,
-				AudioFormat: audioFormat,
-				Quality:     quality,
-				Codec:       codec,
-				Container:   container,
-				TempDir:     config.TempDirs["download"],
-				ProcessInfo: processInfo,
-				Playlist:    false,
-				UseProxy:    false,
+				IsAudio:             isAudio,
+				AudioFormat:         audioFormat,
+				Quality:             quality,
+				DownloadPreferences: preferences,
+				Container:           container,
+				TempDir:             config.TempDirs["download"],
+				ProcessInfo:         processInfo,
+				Playlist:            false,
+				UseProxy:            false,
 				OnProgress: func(progress float64, speed, eta string) {
 					services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
 					services.Global.UpdatePendingJob(downloadID, progress, "downloading")
@@ -632,15 +711,15 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		services.Global.SendProgress(downloadID, "downloading", "Download complete", &p, nil)
 	} else {
 		result, err := services.DownloadViaYtdlp(ctx, rawURL, downloadID, services.DownloadOpts{
-			IsAudio:     isAudio,
-			AudioFormat: audioFormat,
-			Quality:     quality,
-			Codec:       codec,
-			Container:   container,
-			TempDir:     config.TempDirs["download"],
-			ProcessInfo: processInfo,
-			Playlist:    downloadPlaylist,
-			UseProxy:    isYouTube,
+			DownloadPreferences: preferences,
+			IsAudio:             isAudio,
+			AudioFormat:         audioFormat,
+			Quality:             quality,
+			Container:           container,
+			TempDir:             config.TempDirs["download"],
+			ProcessInfo:         processInfo,
+			Playlist:            downloadPlaylist,
+			UseProxy:            isYouTube,
 			OnProgress: func(progress float64, speed, eta string) {
 				services.Global.SendProgress(downloadID, "downloading", fmt.Sprintf("Downloading... %.0f%%", progress), &progress, map[string]interface{}{"speed": speed, "eta": eta})
 				services.Global.UpdatePendingJob(downloadID, progress, "downloading")
@@ -668,14 +747,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isTwitter := strings.Contains(rawURL, "twitter.com") || strings.Contains(rawURL, "x.com")
-	isGif := false
-	if isTwitter && !isAudio && twitterGifs {
-		// Skip ffprobe for files > 20MB — real GIFs are short/small
-		if fi, err := os.Stat(downloadedPath); err == nil && fi.Size() < 20*1024*1024 {
-			isGif = services.ProbeForGif(downloadedPath)
-		}
-	}
+	isGif := shouldOutputGIF(rawURL, downloadedExt, isAudio, twitterGifs, downloadedPath)
 
 	actualOutputExt := outputExt
 	actualFinalFile := finalFile
@@ -689,15 +761,17 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		msg = "Converting to GIF..."
 	}
 	p := float64(100)
+	services.Global.UpdatePendingJob(downloadID, 100, "processing")
 	services.Global.SendProgress(downloadID, "processing", msg, &p, nil)
 
 	processed, err := services.ProcessVideo(downloadedPath, actualFinalFile, services.ProcessVideoOpts{
-		IsAudio:      isAudio,
-		IsGif:        isGif,
-		AudioFormat:  audioFormat,
-		AudioBitrate: audioBitrate,
-		Container:    container,
-		JobID:        downloadID,
+		DownloadPreferences: preferences,
+		IsAudio:             isAudio,
+		IsGif:               isGif,
+		AudioFormat:         audioFormat,
+		AudioBitrate:        audioBitrate,
+		Container:           container,
+		JobID:               downloadID,
 	})
 	if err != nil {
 		handleDownloadError(w, downloadID, outputExt, err)
@@ -723,19 +797,74 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if recovery {
+		if err := services.Global.MarkPendingJobReady(downloadID, streamPath, actualOutputExt); err != nil {
+			handleDownloadError(w, downloadID, outputExt, err)
+			return
+		}
+		downloadURL := "/api/recovered/" + downloadID
+		services.Global.SendProgress(downloadID, "ready", "Recovered download is ready...", &p, map[string]interface{}{
+			"downloadUrl": downloadURL,
+			"filename":    orDefault(filename, "download"),
+			"ext":         actualOutputExt,
+		})
+		services.Global.ReleaseJobKeepingPending(downloadID)
+		respondJSON(w, 200, map[string]interface{}{"ready": true, "downloadUrl": downloadURL})
+		return
+	}
+
+	_ = downloadedExt
 	services.StreamFile(w, r, streamPath, orDefault(filename, "download"), actualOutputExt,
 		services.GetMimeType(actualOutputExt, isAudio, isGif),
 		downloadID, rawURL, "download", nil)
 }
 
+func newDownloadWorkContext(requestContext context.Context) (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.WithoutCancel(requestContext))
+}
+
+func shouldOutputGIF(rawURL, downloadedExt string, isAudio, twitterGifs bool, downloadedPath string) bool {
+	if isAudio {
+		return false
+	}
+	if strings.EqualFold(downloadedExt, "gif") {
+		return true
+	}
+	isTwitter := strings.Contains(rawURL, "twitter.com") || strings.Contains(rawURL, "x.com")
+	return isTwitter && twitterGifs && services.ProbeForGif(downloadedPath)
+}
+
 func handleDownloadError(w http.ResponseWriter, downloadID, outputExt string, err error) {
+	if services.Global.IsShuttingDown() {
+		log.Printf("[%s] Server restart interrupted the request; preserving its journal and partial media", downloadID)
+		services.Global.ReleaseJobKeepingPending(downloadID)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(err.Error()), "Download cancelled") {
+		log.Printf("[%s] Download cancelled", downloadID)
+		util.CleanupJobFiles(downloadID)
+		services.Global.ReleaseJob(downloadID)
+		respondJSON(w, statusClientClosedRequest, map[string]string{"error": "Download cancelled"})
+		return
+	}
+	pending := services.Global.GetPendingJob(downloadID)
+	rawURL := ""
+	stage := "download"
+	if pending != nil {
+		rawURL = pending.URL
+		if pending.Status != "" {
+			stage = pending.Status
+		}
+	}
 	log.Printf("[%s] Error: %s", downloadID, err)
+	if logErr := services.RecordDownloadFailure(downloadID, rawURL, stage, err); logErr != nil {
+		log.Printf("[%s] Failed to write structured failure log: %v", downloadID, logErr)
+	}
 	alerts.DownloadFailed(downloadID, "", err)
 	if util.NeedsCookiesRetry(err.Error()) {
 		util.TriggerCookieRefresh("YouTube bot detection during download")
 	}
 	services.Global.SendProgressSimple(downloadID, "error", util.ToUserError(err.Error()))
-	services.Global.ReleaseJob(downloadID)
 
 	entries, _ := os.ReadDir(config.TempDirs["download"])
 	for _, e := range entries {
@@ -743,6 +872,7 @@ func handleDownloadError(w http.ResponseWriter, downloadID, outputExt string, er
 			os.Remove(filepath.Join(config.TempDirs["download"], e.Name()))
 		}
 	}
+	services.Global.ReleaseJob(downloadID)
 
 	if flusher, ok := w.(http.Flusher); ok {
 		_ = flusher

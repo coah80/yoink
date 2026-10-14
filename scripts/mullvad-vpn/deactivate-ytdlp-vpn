@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_FILE="${YOINK_ENV_FILE:?set YOINK_ENV_FILE to the path of the yoink .env file}"
+SERVICE="${YOINK_SERVICE_NAME:-yoink-go.service}"
+HEALTH_URL="${YOINK_HEALTH_URL:-http://127.0.0.1:3001/health}"
+QUEUE_URL="${YOINK_QUEUE_URL:-http://127.0.0.1:3001/api/queue-status}"
+
+QUEUE_JSON="$(curl -fsS --max-time 5 -A yoink-vpn-deactivate "$QUEUE_URL")"
+ACTIVE_TOTAL="$(jq -r '[.active[]?] | add // 0' <<<"$QUEUE_JSON")"
+if (( ACTIVE_TOTAL > 0 )); then
+	printf 'Yoink has %s active jobs; not restarting\n' "$ACTIVE_TOTAL" >&2
+	exit 1
+fi
+
+cp "$ENV_FILE" "$ENV_FILE.before-ytdlp-vpn-off-$(date -u +%Y%m%dT%H%M%SZ)"
+sed -i '/^YTDLP_BIN=/d' "$ENV_FILE"
+
+pid="$(systemctl show "$SERVICE" -p MainPID --value)"
+if [[ "$pid" =~ ^[0-9]+$ && "$pid" != "0" ]]; then
+	kill -TERM "$pid"
+fi
+
+for _ in $(seq 1 30); do
+	if curl -fsS --max-time 3 -A yoink-vpn-deactivate "$HEALTH_URL" >/dev/null 2>&1; then
+		printf 'Yoink is back on native yt-dlp\n'
+		exit 0
+	fi
+	sleep 1
+done
+
+journalctl -u "$SERVICE" --no-pager -n 80 >&2 || true
+exit 1

@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+BASE_DIR="${YOINK_VPN_BASE_DIR:-$HOME/yoink-vpn-ytdlp}"
+ENV_FILE="$BASE_DIR/config/gluetun.env"
+STATE_FILE="$BASE_DIR/config/current-server"
+CONTAINER="${YOINK_VPN_CONTAINER:-yoink-mullvad}"
+BGUTIL_CONTAINER="${YOINK_BGUTIL_CONTAINER:-yoink-bgutil-vpn}"
+BGUTIL_IMAGE="${YOINK_BGUTIL_IMAGE:-brainicism/bgutil-ytdlp-pot-provider:2.0.0}"
+YTDLP_IMAGE="${YTDLP_DOCKER_IMAGE:-yoink-ytdlp:latest}"
+YOUTUBE_PROBE_URL="${YOINK_YOUTUBE_PROBE_URL:-https://www.youtube.com/watch?v=jNQXAC9IVRw}"
+MAX_YOUTUBE_TRIES="${YOINK_YOUTUBE_TRIES:-5}"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+	printf 'Missing %s. Run %s/generate-mullvad-env first.\n' "$ENV_FILE" "$SCRIPT_DIR" >&2
+	exit 1
+fi
+
+select_server() {
+	if [[ "${YOINK_VPN_SELECT_SERVER:-1}" != "1" ]]; then
+		return 0
+	fi
+	if "$SCRIPT_DIR/select-mullvad-server"; then
+		return 0
+	fi
+	if ! grep -q '^SERVER_HOSTNAMES=' "$ENV_FILE"; then
+		return 1
+	fi
+	printf 'Keeping existing Mullvad server filter\n' >&2
+}
+
+start_bgutil() {
+	docker rm -f "$BGUTIL_CONTAINER" >/dev/null 2>&1 || true
+	docker run -d \
+		--name "$BGUTIL_CONTAINER" \
+		--restart unless-stopped \
+		--network "container:$CONTAINER" \
+		"$BGUTIL_IMAGE" \
+		--host 127.0.0.1 --port 4416 >/dev/null
+}
+
+youtube_ok() {
+	docker run --rm \
+		--network "container:$CONTAINER" \
+		--user "$(id -u):$(id -g)" \
+		-e HOME=/tmp \
+		"$YTDLP_IMAGE" \
+		--skip-download --no-playlist --print id \
+		--extractor-args "youtube:fetch_pot=always" \
+		"$YOUTUBE_PROBE_URL" >/dev/null 2>&1
+}
+
+launch() {
+	docker rm -f "$BGUTIL_CONTAINER" >/dev/null 2>&1 || true
+	docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+	docker run -d \
+		--name "$CONTAINER" \
+		--restart unless-stopped \
+		--cap-add=NET_ADMIN \
+		--device /dev/net/tun:/dev/net/tun \
+		--env-file "$ENV_FILE" \
+		qmcgaw/gluetun >/dev/null
+
+	for _ in $(seq 1 45); do
+		state="$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || true)"
+		if [[ "$state" == "healthy" ]]; then
+			printf '%s is healthy\n' "$CONTAINER"
+			return 0
+		fi
+		sleep 2
+	done
+	return 1
+}
+
+try_exit() {
+	if ! launch; then
+		return 1
+	fi
+	start_bgutil
+	if youtube_ok; then
+		printf '%s youtube ok\n' "$CONTAINER"
+		return 0
+	fi
+	printf 'YouTube blocked on this Mullvad exit\n' >&2
+	return 1
+}
+
+for _ in $(seq 1 "$MAX_YOUTUBE_TRIES"); do
+	select_server || exit 1
+	if try_exit; then
+		exit 0
+	fi
+done
+
+docker logs --tail 80 "$CONTAINER" >&2 || true
+exit 1

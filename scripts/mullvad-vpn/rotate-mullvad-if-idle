@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTAINER="${YOINK_VPN_CONTAINER:-yoink-mullvad}"
+QUEUE_URL="${YOINK_QUEUE_URL:-http://127.0.0.1:3001/api/queue-status}"
+
+if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" != "true" ]]; then
+	exit 0
+fi
+
+QUEUE_JSON="$(curl -fsS --max-time 5 -A yoink-vpn-rotate "$QUEUE_URL" 2>/dev/null || true)"
+if [[ -z "$QUEUE_JSON" ]]; then
+	printf '%s skip: queue endpoint unavailable\n' "$(date -Is)"
+	exit 0
+fi
+
+ACTIVE_TOTAL="$(jq -r '[.active[]?] | add // 0' <<<"$QUEUE_JSON" 2>/dev/null || true)"
+if [[ ! "$ACTIVE_TOTAL" =~ ^[0-9]+$ ]]; then
+	printf '%s skip: queue json malformed\n' "$(date -Is)"
+	exit 0
+fi
+
+if (( ACTIVE_TOTAL > 0 )); then
+	printf '%s skip: %s active jobs\n' "$(date -Is)" "$ACTIVE_TOTAL"
+	exit 0
+fi
+
+"$(dirname -- "${BASH_SOURCE[0]}")/start-mullvad"
+printf '%s recreated %s\n' "$(date -Is)" "$CONTAINER"

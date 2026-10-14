@@ -37,6 +37,10 @@ func ConvertRoutes(r chi.Router) {
 	r.Get("/api/job/{jobId}/download", handleJobDownload)
 }
 
+var asyncFFmpegCommand = exec.Command
+var fetchURLCommand = exec.CommandContext
+var fetchURLID = func() string { return "fetch-" + uuid.New().String() }
+
 var allowedUploadExts = map[string]bool{
 	".mp4": true, ".webm": true, ".mkv": true, ".mov": true, ".avi": true, ".flv": true, ".wmv": true,
 	".mp3": true, ".m4a": true, ".wav": true, ".flac": true, ".ogg": true, ".opus": true, ".aac": true, ".wma": true,
@@ -128,6 +132,10 @@ func handleUploadInit(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 400, map[string]string{
 			"error": fmt.Sprintf("File too large. Maximum size is %dGB", config.FileSizeLimit/(1024*1024*1024)),
 		})
+		return
+	}
+	if body.TotalChunks < 1 {
+		respondJSON(w, 400, map[string]string{"error": "totalChunks must be positive"})
 		return
 	}
 	if body.TotalChunks > 200 {
@@ -233,6 +241,7 @@ func handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var assembledBytes int64
 	for i := 0; i < uploadData.TotalChunks; i++ {
 		chunkPath := filepath.Join(config.TempDirs["upload"],
 			fmt.Sprintf("chunk-%s-%04d", uploadID, i))
@@ -243,11 +252,33 @@ func handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 			respondJSON(w, 500, map[string]string{"error": "Failed to assemble file"})
 			return
 		}
-		io.Copy(outFile, chunk)
+		written, copyErr := io.Copy(outFile, io.LimitReader(chunk, uploadData.FileSize-assembledBytes+1))
+		assembledBytes += written
 		chunk.Close()
-		os.Remove(chunkPath)
+		if copyErr != nil || assembledBytes > uploadData.FileSize {
+			outFile.Close()
+			os.Remove(assembledPath)
+			if copyErr != nil {
+				respondJSON(w, 500, map[string]string{"error": "Failed to assemble file"})
+			} else {
+				respondJSON(w, 400, map[string]string{"error": "Uploaded size does not match fileSize"})
+			}
+			return
+		}
 	}
-	outFile.Close()
+	if err := outFile.Close(); err != nil {
+		os.Remove(assembledPath)
+		respondJSON(w, 500, map[string]string{"error": "Failed to assemble file"})
+		return
+	}
+	if assembledBytes != uploadData.FileSize {
+		os.Remove(assembledPath)
+		respondJSON(w, 400, map[string]string{"error": "Uploaded size does not match fileSize"})
+		return
+	}
+	for i := 0; i < uploadData.TotalChunks; i++ {
+		os.Remove(filepath.Join(config.TempDirs["upload"], fmt.Sprintf("chunk-%s-%04d", uploadID, i)))
+	}
 
 	services.Global.DeleteChunkedUpload(uploadID)
 
@@ -270,6 +301,9 @@ func handleJobStatus(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobId")
 	job := services.Global.GetAsyncJob(jobID)
 	if job == nil {
+		job = services.Global.RestoreCompletedAsyncJob(jobID)
+	}
+	if job == nil {
 		respondJSON(w, 404, map[string]string{"error": "Job not found or expired"})
 		return
 	}
@@ -290,6 +324,9 @@ func handleJobStatus(w http.ResponseWriter, r *http.Request) {
 func handleJobDownload(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobId")
 	job := services.Global.GetAsyncJob(jobID)
+	if job == nil {
+		job = services.Global.RestoreCompletedAsyncJob(jobID)
+	}
 	if job == nil {
 		respondJSON(w, 404, map[string]string{"error": "Job not found or expired"})
 		return
@@ -325,12 +362,21 @@ func handleJobDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	io.Copy(w, f)
+	if r.Header.Get("Range") != "" {
+		http.ServeContent(w, r, outputFilename, stat.ModTime(), f)
+		return
+	}
+
+	written, err := io.Copy(w, f)
+	if err != nil || written != stat.Size() {
+		return
+	}
 
 	go func() {
 		time.Sleep(5 * time.Second)
 		os.Remove(outputPath)
 		services.Global.DeleteAsyncJob(jobID)
+		services.Global.RemoveCompletedAsyncJob(jobID)
 	}()
 }
 
@@ -349,31 +395,37 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := fetchURLID()
 	fetchCheck := services.Global.CanStartJob("fetchUrl")
 	if !fetchCheck.OK {
 		respondJSON(w, 503, map[string]string{"error": fetchCheck.Reason})
 		return
 	}
+	processInfo := &services.ProcessInfo{JobType: "fetchUrl"}
+	services.Global.SetProcess(id, processInfo)
+	defer services.Global.ReleaseJob(id)
 
-	id := "fetch-" + uuid.New().String()
 	isYouTube := strings.Contains(trimmedURL, "youtube.com") || strings.Contains(trimmedURL, "youtu.be")
 	log.Printf("[%s] Fetching URL (yt-dlp)\n", id)
 
 	ytdlpFetch := func() (string, error) {
-		args := append([]string{}, util.GetYouTubeAuthArgs()...)
+		args := append([]string{}, util.YtdlpArgsForURL(trimmedURL)...)
 		if isYouTube {
 			args = append(args, util.GetProxyArgs()...)
 		}
 		args = append(args,
 			"--no-playlist",
+			"--playlist-items", "1",
 			"-f", "bv*+ba/b",
 			"-o", filepath.Join(config.TempDirs["upload"], id+"-%(title)s.%(ext)s"),
 			"--print", "after_move:filepath",
 			"--no-warnings",
-			trimmedURL,
+			util.NormalizeYtdlpURL(trimmedURL),
 		)
-		cmd := exec.Command("yt-dlp", args...)
-		out, err := cmd.Output()
+		cmd := fetchURLCommand(r.Context(), util.YtdlpBinary(), args...)
+		stopCancellation := services.ConfigureYtdlpCancellation(cmd, 5*time.Second)
+		defer stopCancellation()
+		out, err := processInfo.OutputCmd(cmd)
 		if err != nil {
 			var stderrMsg string
 			if ee, ok := err.(*exec.ExitError); ok {
@@ -423,14 +475,12 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if fetchErr != nil {
-			services.Global.DecrementJob("fetchUrl")
 			respondJSON(w, 400, map[string]string{"error": fetchErr.Error()})
 			return
 		}
 	} else {
 		filePath, fetchErr = ytdlpFetch()
 		if fetchErr != nil {
-			services.Global.DecrementJob("fetchUrl")
 			respondJSON(w, 400, map[string]string{"error": fetchErr.Error()})
 			return
 		}
@@ -438,14 +488,12 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 
 	stat, err := os.Stat(filePath)
 	if err != nil {
-		services.Global.DecrementJob("fetchUrl")
 		respondJSON(w, 500, map[string]string{"error": "Failed to stat downloaded file"})
 		return
 	}
 
 	if stat.Size() > config.FileSizeLimit {
 		os.Remove(filePath)
-		services.Global.DecrementJob("fetchUrl")
 		respondJSON(w, 400, map[string]string{
 			"error": fmt.Sprintf("Downloaded file too large (%.1fGB). Maximum is %dGB.",
 				float64(stat.Size())/(1024*1024*1024), config.FileSizeLimit/(1024*1024*1024)),
@@ -465,7 +513,6 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	})
 
-	services.Global.DecrementJob("fetchUrl")
 	respondJSON(w, 200, map[string]interface{}{
 		"filePath": fileToken,
 		"fileName": fileName,
@@ -791,8 +838,7 @@ func handleCompress(w http.ResponseWriter, r *http.Request) {
 		if sourceFileSizeMB <= targetMB {
 			services.Global.SendProgressWithPercent(compressID, "compressing", "File already small enough...", 50)
 			cmd := exec.Command("ffmpeg", "-y", "-i", filePath, "-c:v", "copy", "-c:a", "copy", "-movflags", "+faststart", outputPath)
-			processInfo.SetCmd(cmd)
-			if err := cmd.Run(); err != nil {
+			if err := processInfo.RunCmd(cmd); err != nil {
 				compressError(w, compressID, processInfo, fmt.Errorf("Remux failed"), filePath, outputPath, passLogFile)
 				return
 			}
@@ -1059,6 +1105,8 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 		job.SetError(convertCheck.Reason)
 		return nil
 	}
+	processInfo := &services.ProcessInfo{TempFile: outputPath, JobType: "convert"}
+	services.Global.SetProcess(convertID, processInfo)
 
 	if clientID != "" {
 		services.Global.RegisterClient(clientID)
@@ -1069,22 +1117,19 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 
 	if cropRatio != "" && !config.Contains(config.AllowedCropRatios, cropRatio) {
 		os.Remove(inputPath)
-		services.Global.DecrementJob("convert")
-		services.Global.UnlinkJobFromClient(convertID)
+		services.Global.ReleaseJob(convertID)
 		job.SetError("Invalid crop ratio")
 		return nil
 	}
 	if startTime != "" && util.ValidateTimeParam(startTime) == "" {
 		os.Remove(inputPath)
-		services.Global.DecrementJob("convert")
-		services.Global.UnlinkJobFromClient(convertID)
+		services.Global.ReleaseJob(convertID)
 		job.SetError("Invalid startTime format")
 		return nil
 	}
 	if endTime != "" && util.ValidateTimeParam(endTime) == "" {
 		os.Remove(inputPath)
-		services.Global.DecrementJob("convert")
-		services.Global.UnlinkJobFromClient(convertID)
+		services.Global.ReleaseJob(convertID)
 		job.SetError("Invalid endTime format")
 		return nil
 	}
@@ -1098,7 +1143,7 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 	}
 	hasCrop := cropOpts != nil
 
-	hasSegments := len(segments) > 1
+	hasSegments := len(segments) > 0
 
 	var tempClips []string
 
@@ -1113,11 +1158,18 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 
 	var cropFilter string
 	if hasCrop {
+		var cropErr error
 		switch v := cropOpts.(type) {
 		case *rawCropParams:
-			cropFilter, _ = buildCropFilter(inputPath, "", v, convertID)
+			cropFilter, cropErr = buildCropFilter(inputPath, "", v, convertID)
 		case string:
-			cropFilter, _ = buildCropFilter(inputPath, v, nil, convertID)
+			cropFilter, cropErr = buildCropFilter(inputPath, v, nil, convertID)
+		}
+		if cropErr != nil {
+			os.Remove(inputPath)
+			services.Global.ReleaseJob(convertID)
+			job.SetError(cropErr.Error())
+			return nil
 		}
 	}
 
@@ -1176,8 +1228,7 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 		for _, c := range tempClips {
 			os.Remove(c)
 		}
-		services.Global.DecrementJob("convert")
-		services.Global.UnlinkJobFromClient(convertID)
+		services.Global.ReleaseJob(convertID)
 	}
 
 	if hasSegments {
@@ -1203,9 +1254,9 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 
 			job.SetMessage(fmt.Sprintf("Processing segment %d/%d...", i+1, len(segments)))
 
-			cmd := exec.Command("ffmpeg", segArgs...)
+			cmd := asyncFFmpegCommand("ffmpeg", segArgs...)
 			stderrPipe, _ := cmd.StderrPipe()
-			if err := cmd.Start(); err != nil {
+			if err := processInfo.StartCmd(cmd); err != nil {
 				cleanupOnError()
 				job.SetError(fmt.Sprintf("Segment %d failed", i+1))
 				return nil
@@ -1260,8 +1311,8 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 		}
 		concatArgs = append(concatArgs, outputPath)
 
-		cmd := exec.Command("ffmpeg", concatArgs...)
-		if err := cmd.Run(); err != nil {
+		cmd := asyncFFmpegCommand("ffmpeg", concatArgs...)
+		if err := processInfo.RunCmd(cmd); err != nil {
 			cleanupOnError()
 			job.SetError("Failed to join segments")
 			return nil
@@ -1302,9 +1353,9 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 
 		job.SetProgressAndMessage(10, "Converting...")
 
-		cmd := exec.Command("ffmpeg", finalArgs...)
+		cmd := asyncFFmpegCommand("ffmpeg", finalArgs...)
 		stderrPipe, _ := cmd.StderrPipe()
-		if err := cmd.Start(); err != nil {
+		if err := processInfo.StartCmd(cmd); err != nil {
 			cleanupOnError()
 			job.SetError("Conversion failed")
 			return nil
@@ -1373,9 +1424,11 @@ func handleConvertAsync(inputPath, originalName, format, clientID, quality, reen
 	job.OutputFilename = outputFilename
 	job.MimeType = mimeType
 	job.Unlock()
+	if err := services.Global.PersistCompletedAsyncJob(convertID); err != nil {
+		log.Printf("[%s] Failed to persist completed conversion: %v\n", convertID, err)
+	}
 
-	services.Global.DecrementJob("convert")
-	services.Global.UnlinkJobFromClient(convertID)
+	services.Global.ReleaseJob(convertID)
 	return nil
 }
 
@@ -1388,7 +1441,7 @@ func handleCompressAsync(inputPath, originalName, clientID, targetSizeStr, durat
 	}
 
 	targetMB, _ := strconv.ParseFloat(targetSizeStr, 64)
-	videoDuration, _ := strconv.ParseFloat(durationStr, 64)
+	videoDuration, durationErr := strconv.ParseFloat(durationStr, 64)
 
 	compressID := jobID
 	outputPath := filepath.Join(config.TempDirs["compress"], compressID+"-compressed.mp4")
@@ -1399,7 +1452,7 @@ func handleCompressAsync(inputPath, originalName, clientID, targetSizeStr, durat
 		job.SetError("Invalid target size")
 		return nil
 	}
-	if math.IsNaN(videoDuration) || videoDuration <= 0 {
+	if durationErr != nil || math.IsNaN(videoDuration) || math.IsInf(videoDuration, 0) || videoDuration < 0 {
 		os.Remove(inputPath)
 		job.SetError("Invalid video duration")
 		return nil
@@ -1443,6 +1496,11 @@ func handleCompressAsync(inputPath, originalName, clientID, targetSizeStr, durat
 	if actualDuration <= 0 {
 		actualDuration = probe.duration
 	}
+	if actualDuration > float64(config.MaxVideoDuration) {
+		cleanupOnError()
+		job.SetError(fmt.Sprintf("Video too long. Maximum duration is %d hours.", config.MaxVideoDuration/3600))
+		return nil
+	}
 	sourceFileSizeMB := float64(fileSizeBytes(inputPath)) / (1024 * 1024)
 	sourceBitrateMbps := (sourceFileSizeMB * 8) / actualDuration
 
@@ -1473,8 +1531,7 @@ func handleCompressAsync(inputPath, originalName, clientID, targetSizeStr, durat
 		if sourceFileSizeMB <= targetMB {
 			job.SetProgressAndMessage(50, "Already under target...")
 			cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-c:v", "copy", "-c:a", "copy", "-movflags", "+faststart", outputPath)
-			processInfo.SetCmd(cmd)
-			if err := cmd.Run(); err != nil {
+			if err := processInfo.RunCmd(cmd); err != nil {
 				cleanupOnError()
 				job.SetError("Remux failed")
 				return nil
@@ -1541,10 +1598,9 @@ func runCrfEncode(inputPath, outputPath string, crf int, ffmpegPreset, vfArg, x2
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
 
 	cmd := exec.Command("ffmpeg", args...)
-	processInfo.SetCmd(cmd)
 
 	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return err
 	}
 
@@ -1613,10 +1669,9 @@ func runCrfEncodeAsync(inputPath, outputPath string, crf int, ffmpegPreset, vfAr
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
 
 	cmd := exec.Command("ffmpeg", args...)
-	processInfo.SetCmd(cmd)
 
 	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return err
 	}
 
@@ -1753,10 +1808,9 @@ func runPassWithProgress(args []string, processInfo *services.ProcessInfo, compr
 	duration, baseProgress, progressRange float64, label string) error {
 
 	cmd := exec.Command("ffmpeg", args...)
-	processInfo.SetCmd(cmd)
 
 	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return err
 	}
 
@@ -1816,10 +1870,9 @@ func runPassWithJobProgress(args []string, processInfo *services.ProcessInfo,
 	duration, baseProgress, progressRange float64, label string, job *services.AsyncJob) error {
 
 	cmd := exec.Command("ffmpeg", args...)
-	processInfo.SetCmd(cmd)
 
 	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return err
 	}
 
@@ -1863,8 +1916,7 @@ func buildCropFilter(inputPath, cropRatio string, rawCrop *rawCropParams, logID 
 	if rawCrop != nil && rawCrop.W > 0 && rawCrop.H > 0 {
 		probe := probeVideoFull(inputPath)
 		if rawCrop.X+rawCrop.W > probe.width || rawCrop.Y+rawCrop.H > probe.height {
-			log.Printf("[%s] Crop skipped: crop rect exceeds video bounds\n", logID)
-			return "", nil
+			return "", fmt.Errorf("Crop rectangle exceeds video bounds (%dx%d)", probe.width, probe.height)
 		}
 		filter := fmt.Sprintf("crop=%d:%d:%d:%d", rawCrop.W, rawCrop.H, rawCrop.X, rawCrop.Y)
 		log.Printf("[%s] Crop (raw): %s\n", logID, filter)

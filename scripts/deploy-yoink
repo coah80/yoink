@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+new_binary=${1:?usage: deploy-yoink /absolute/path/to/new-binary}
+install_path=${YOINK_INSTALL_PATH:?set YOINK_INSTALL_PATH to the running yoink binary}
+service_name=${YOINK_SERVICE_NAME:-yoink-go.service}
+health_url=${YOINK_HEALTH_URL:-http://127.0.0.1:3001/health}
+# pgrep -f pattern for a tunnel to pause during the swap, e.g. "cloudflared tunnel"
+tunnel_pattern=${YOINK_TUNNEL_PATTERN:-}
+# must match YOINK_ADMIN_TOKEN in the server .env, or drain/resume are skipped
+admin_token=${YOINK_ADMIN_TOKEN:-}
+drain_timeout=${YOINK_DRAIN_TIMEOUT:-3600}
+
+new_binary=$(readlink -f "$new_binary")
+install_path=$(readlink -f "$install_path")
+[ -f "$new_binary" ]
+[ -x "$new_binary" ]
+[ -f "$install_path" ]
+
+drain_supported=0
+start_epoch=$(date +%s)
+last_active=
+while :; do
+	body=$(curl -fsS "$health_url")
+	active=$(printf '%s' "$body" | jq '[.queue.active[]] | add')
+	if [ "$active" != "$last_active" ]; then
+		printf '%s active_jobs=%s\n' "$(date -u +%H:%M:%S)" "$active"
+		last_active=$active
+	fi
+	[ "$active" -eq 0 ] && break
+	if [ $(( $(date +%s) - start_epoch )) -ge "$drain_timeout" ]; then
+		printf 'drain timed out with %s active job(s)\n' "$active" >&2
+		exit 1
+	fi
+	sleep 2
+done
+
+tunnel_pids=
+paused=0
+resume_tunnels() {
+	if [ "$paused" -eq 1 ] && [ -n "$tunnel_pids" ]; then
+		kill -CONT $tunnel_pids 2>/dev/null || true
+		paused=0
+	fi
+}
+resume_server() {
+	if [ "$drain_supported" -eq 1 ]; then
+		curl -sS -o /dev/null -X POST -H "Authorization: Bearer $admin_token" "${health_url%/health}/api/admin/resume" 2>/dev/null || true
+	fi
+}
+cleanup_deploy() {
+	resume_tunnels
+	resume_server
+}
+trap cleanup_deploy EXIT INT TERM
+
+tunnel_pids=
+if [ -n "$tunnel_pattern" ]; then
+	tunnel_pids=$(pgrep -f -- "$tunnel_pattern" | tr '\n' ' ' || true)
+fi
+if [ -n "$tunnel_pids" ]; then
+	kill -STOP $tunnel_pids
+	paused=1
+fi
+sleep 1
+
+drain_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $admin_token" "${health_url%/health}/api/admin/drain" || true)
+if [ "$drain_code" = "200" ]; then
+	drain_supported=1
+fi
+
+last_active=
+while :; do
+	body=$(curl -fsS "$health_url")
+	active=$(printf '%s' "$body" | jq '[.queue.active[]] | add')
+	if [ "$active" != "$last_active" ]; then
+		printf '%s final_active_jobs=%s\n' "$(date -u +%H:%M:%S)" "$active"
+		last_active=$active
+	fi
+	[ "$active" -eq 0 ] && break
+	if [ $(( $(date +%s) - start_epoch )) -ge "$drain_timeout" ]; then
+		printf 'drain timed out with %s active job(s)\n' "$active" >&2
+		exit 1
+	fi
+	sleep 2
+done
+
+old_pid=$(systemctl show -p MainPID --value "$service_name")
+[ "$old_pid" -gt 0 ]
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+backup="${install_path}.before-${stamp}"
+cp -p "$install_path" "$backup"
+install -m 0755 "$new_binary" "${install_path}.next"
+mv "${install_path}.next" "$install_path"
+expected_hash=$(sha256sum "$install_path" | awk '{print $1}')
+kill -TERM "$old_pid"
+
+for _ in $(seq 1 60); do
+	new_pid=$(systemctl show -p MainPID --value "$service_name")
+	if [ "$new_pid" -gt 0 ] && [ "$new_pid" != "$old_pid" ] && curl -fsS "$health_url" >/dev/null; then
+		running_hash=$(sha256sum "/proc/$new_pid/exe" | awk '{print $1}')
+		[ "$running_hash" = "$expected_hash" ]
+		resume_tunnels
+		trap - EXIT INT TERM
+		printf 'deployed old_pid=%s new_pid=%s hash=%s backup=%s\n' "$old_pid" "$new_pid" "$running_hash" "$backup"
+		exit 0
+	fi
+	sleep 1
+done
+
+printf 'restart verification failed\n' >&2
+exit 1

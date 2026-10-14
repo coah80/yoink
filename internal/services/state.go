@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -59,6 +60,43 @@ func (p *ProcessInfo) SetCmd(c *exec.Cmd) {
 	p.mu.Unlock()
 }
 
+func (p *ProcessInfo) StartCmd(cmd *exec.Cmd) error {
+	if p == nil {
+		return cmd.Start()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cancelled {
+		return context.Canceled
+	}
+	p.cmd = cmd
+	return cmd.Start()
+}
+
+func (p *ProcessInfo) RunCmd(cmd *exec.Cmd) error {
+	if err := p.StartCmd(cmd); err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+func (p *ProcessInfo) OutputCmd(cmd *exec.Cmd) ([]byte, error) {
+	if cmd.Stdout != nil {
+		return nil, fmt.Errorf("exec: Stdout already set")
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	captureStderr := cmd.Stderr == nil
+	if captureStderr {
+		cmd.Stderr = &stderr
+	}
+	err := p.RunCmd(cmd)
+	if exitErr, ok := err.(*exec.ExitError); ok && captureStderr {
+		exitErr.Stderr = stderr.Bytes()
+	}
+	return stdout.Bytes(), err
+}
+
 func (p *ProcessInfo) GetCmd() *exec.Cmd {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -69,7 +107,11 @@ func (p *ProcessInfo) KillProcess() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.cmd != nil && p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+		if p.cmd.Cancel != nil {
+			_ = p.cmd.Cancel()
+		} else {
+			_ = p.cmd.Process.Kill()
+		}
 	}
 }
 
@@ -259,6 +301,7 @@ func (j *AsyncJob) Unlock() {
 }
 
 type BotDownload struct {
+	JobID         string
 	FilePath      string
 	FileName      string
 	FileSize      int64
@@ -326,14 +369,27 @@ type ResumedJob struct {
 }
 
 type PendingJob struct {
-	Type      string
-	URL       string
-	Options   map[string]interface{}
-	ClientID  string
-	Status    string
-	Progress  float64
-	CreatedAt time.Time
-	Resumable bool
+	DownloadPreferences
+	ID           string    `json:"id"`
+	Type         string    `json:"type"`
+	URL          string    `json:"url"`
+	ClientID     string    `json:"clientId,omitempty"`
+	Status       string    `json:"status"`
+	Progress     float64   `json:"progress"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	Resumable    bool      `json:"resumable"`
+	Filename     string    `json:"filename"`
+	Format       string    `json:"format"`
+	Quality      string    `json:"quality"`
+	Container    string    `json:"container"`
+	AudioFormat  string    `json:"audioFormat"`
+	AudioBitrate string    `json:"audioBitrate"`
+	TwitterGifs  bool      `json:"twitterGifs"`
+	Playlist     bool      `json:"playlist"`
+	Ready        bool      `json:"ready"`
+	OutputPath   string    `json:"outputPath,omitempty"`
+	OutputExt    string    `json:"outputExt,omitempty"`
 }
 
 type State struct {
@@ -343,8 +399,9 @@ type State struct {
 	muProcesses     sync.Mutex
 	activeProcesses map[string]*ProcessInfo
 
-	muJobs     sync.Mutex
-	jobsByType map[string]int
+	muJobs       sync.Mutex
+	jobsByType   map[string]int
+	queuedByType map[string]int
 
 	muSessions  sync.Mutex
 	sessions    map[string]*ClientSession
@@ -370,6 +427,10 @@ type State struct {
 
 	muFileRefs sync.Mutex
 	fileRefs   map[string]*FileRef
+
+	muShutdown   sync.RWMutex
+	shuttingDown bool
+	draining     bool
 }
 
 type FileRef struct {
@@ -379,9 +440,14 @@ type FileRef struct {
 }
 
 var Global *State
+var diskSpaceAvailableGB = getDiskSpaceGB
 
 func init() {
-	Global = &State{
+	Global = newState()
+}
+
+func newState() *State {
+	return &State{
 		activeDownloads: make(map[string]*DownloadWriter),
 		activeProcesses: make(map[string]*ProcessInfo),
 		jobsByType: map[string]int{
@@ -392,6 +458,7 @@ func init() {
 			"transcribe": 0,
 			"fetchUrl":   0,
 		},
+		queuedByType:   make(map[string]int),
 		sessions:       make(map[string]*ClientSession),
 		jobToClient:    make(map[string]string),
 		asyncJobs:      make(map[string]*AsyncJob),
@@ -442,6 +509,16 @@ func (s *State) SetProcess(id string, info *ProcessInfo) {
 	s.muProcesses.Unlock()
 }
 
+func (s *State) TrySetProcess(id string, info *ProcessInfo) bool {
+	s.muProcesses.Lock()
+	defer s.muProcesses.Unlock()
+	if _, exists := s.activeProcesses[id]; exists {
+		return false
+	}
+	s.activeProcesses[id] = info
+	return true
+}
+
 func (s *State) GetProcess(id string) *ProcessInfo {
 	s.muProcesses.Lock()
 	defer s.muProcesses.Unlock()
@@ -460,6 +537,12 @@ type JobCheck struct {
 }
 
 func (s *State) CanStartJob(jobType string) JobCheck {
+	s.muShutdown.RLock()
+	draining := s.draining
+	s.muShutdown.RUnlock()
+	if draining {
+		return JobCheck{false, "Server update in progress, retry shortly"}
+	}
 	s.muJobs.Lock()
 	defer s.muJobs.Unlock()
 
@@ -468,13 +551,73 @@ func (s *State) CanStartJob(jobType string) JobCheck {
 		return JobCheck{false, fmt.Sprintf("server is busy, too many %s jobs are running right now (limit: %d)", jobType, limit)}
 	}
 
-	availGB := getDiskSpaceGB()
-	if availGB < float64(config.DiskSpaceMinGB) {
-		return JobCheck{false, fmt.Sprintf("Low disk space (%.1fGB free, need %dGB)", availGB, config.DiskSpaceMinGB)}
+	availGB := diskSpaceAvailableGB()
+	requiredGB := float64(config.DiskSpaceMinGB)
+	reserveGB := 0
+	switch jobType {
+	case "download":
+		reserveGB = config.DownloadReserveGB
+	case "playlist":
+		reserveGB = config.PlaylistReserveGB
+	case "fetchUrl":
+		reserveGB = config.FetchURLReserveGB
+	}
+	if reserveGB > 0 {
+		requiredGB += float64(s.jobsByType[jobType]+1) * float64(reserveGB)
+	}
+	if availGB < requiredGB {
+		if reserveGB > 0 && s.jobsByType[jobType] > 0 {
+			return JobCheck{false, fmt.Sprintf("Too many active %s jobs for available disk (%.1fGB free, need %.1fGB reserved)", jobType, availGB, requiredGB)}
+		}
+		return JobCheck{false, fmt.Sprintf("Low disk space (%.1fGB free, need %.1fGB)", availGB, requiredGB)}
 	}
 
 	s.jobsByType[jobType]++
 	return JobCheck{true, ""}
+}
+
+func (s *State) WaitForJobSlot(ctx context.Context, jobType string) JobCheck {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	queued := false
+	defer func() {
+		if queued {
+			s.muJobs.Lock()
+			s.queuedByType[jobType]--
+			s.muJobs.Unlock()
+		}
+	}()
+
+	for {
+		if ctx.Err() != nil {
+			return JobCheck{false, "Request cancelled while queued"}
+		}
+
+		check := s.CanStartJob(jobType)
+		if check.OK {
+			if ctx.Err() != nil {
+				s.DecrementJob(jobType)
+				return JobCheck{false, "Request cancelled while queued"}
+			}
+			return check
+		}
+		if !strings.Contains(strings.ToLower(check.Reason), fmt.Sprintf("too many %s jobs", jobType)) {
+			return check
+		}
+
+		if !queued {
+			s.muJobs.Lock()
+			s.queuedByType[jobType]++
+			s.muJobs.Unlock()
+			queued = true
+		}
+
+		select {
+		case <-ctx.Done():
+			return JobCheck{false, "Request cancelled while queued"}
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *State) DecrementJob(jobType string) {
@@ -488,14 +631,18 @@ func (s *State) DecrementJob(jobType string) {
 func (s *State) GetQueueStatus() map[string]interface{} {
 	s.muJobs.Lock()
 	active := make(map[string]int)
+	queued := 0
 	for k, v := range s.jobsByType {
 		active[k] = v
+	}
+	for _, v := range s.queuedByType {
+		queued += v
 	}
 	s.muJobs.Unlock()
 
 	return map[string]interface{}{
 		"active":      active,
-		"queued":      0,
+		"queued":      queued,
 		"limits":      config.JobLimits,
 		"diskSpaceGB": getDiskSpaceGB(),
 	}
@@ -539,8 +686,20 @@ func (s *State) UpdateHeartbeat(clientID string) bool {
 	if !exists {
 		return false
 	}
-	session.LastHeartbeat = time.Now()
+	now := time.Now()
+	session.LastHeartbeat = now
+	session.LastActivity = now
 	return true
+}
+
+func (s *State) ClientHeartbeatFresh(clientID string, now time.Time) bool {
+	if clientID == "" {
+		return false
+	}
+	s.muSessions.Lock()
+	defer s.muSessions.Unlock()
+	session, exists := s.sessions[clientID]
+	return exists && now.Sub(session.LastHeartbeat) <= config.HeartbeatTimeout
 }
 
 func (s *State) GetClientSession(clientID string) *ClientSession {
@@ -699,27 +858,48 @@ func (s *State) ForEachBotDownload(fn func(token string, dl *BotDownload) bool) 
 
 func (s *State) RegisterPendingJob(jobID string, job *PendingJob) {
 	s.muPending.Lock()
-	job.CreatedAt = time.Now()
+	now := time.Now().UTC()
+	job.ID = jobID
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
 	job.Resumable = true
 	s.pendingJobs[jobID] = job
+	copy := *job
 	s.muPending.Unlock()
+	if err := persistPendingJob(&copy); err != nil {
+		log.Printf("[Recovery] Failed to persist job %s: %v", shortJobID(jobID), err)
+	}
 }
 
 func (s *State) UpdatePendingJob(jobID string, progress float64, status string) {
+	var copy *PendingJob
 	s.muPending.Lock()
 	if job, ok := s.pendingJobs[jobID]; ok {
 		job.Progress = progress
 		if status != "" {
 			job.Status = status
 		}
+		job.UpdatedAt = time.Now().UTC()
+		cloned := *job
+		copy = &cloned
 	}
 	s.muPending.Unlock()
+	if copy != nil {
+		if err := persistPendingJob(copy); err != nil {
+			log.Printf("[Recovery] Failed to update job %s: %v", shortJobID(jobID), err)
+		}
+	}
 }
 
 func (s *State) RemovePendingJob(jobID string) {
 	s.muPending.Lock()
 	delete(s.pendingJobs, jobID)
 	s.muPending.Unlock()
+	if err := removePersistedPendingJob(jobID); err != nil && !os.IsNotExist(err) {
+		log.Printf("[Recovery] Failed to remove job %s: %v", shortJobID(jobID), err)
+	}
 }
 
 func (s *State) GetResumedJob(id string) *ResumedJob {
@@ -840,6 +1020,14 @@ func (s *State) SendProgressWithPercent(downloadID, stage, message string, progr
 }
 
 func (s *State) ReleaseJob(jobID string) bool {
+	return s.releaseJob(jobID, true)
+}
+
+func (s *State) ReleaseJobKeepingPending(jobID string) bool {
+	return s.releaseJob(jobID, false)
+}
+
+func (s *State) releaseJob(jobID string, removePending bool) bool {
 	s.muProcesses.Lock()
 	processInfo, exists := s.activeProcesses[jobID]
 	if !exists {
@@ -852,7 +1040,9 @@ func (s *State) ReleaseJob(jobID string) bool {
 	if processInfo.JobType != "" {
 		s.DecrementJob(processInfo.JobType)
 	}
-	s.RemovePendingJob(jobID)
+	if removePending {
+		s.RemovePendingJob(jobID)
+	}
 	s.UnlinkJobFromClient(jobID)
 
 	s.muProgress.Lock()
@@ -868,86 +1058,79 @@ type sessionCleanupAction struct {
 	idle     bool
 }
 
+func (s *State) cleanupTimedOutSessions(now time.Time, cleanupJobFiles func(string)) {
+	var actions []sessionCleanupAction
+
+	s.muSessions.Lock()
+	for clientID, session := range s.sessions {
+		hasActive := len(session.ActiveJobs) > 0
+
+		if hasActive && !session.SkipHeartbeat && now.Sub(session.LastHeartbeat) > config.HeartbeatTimeout {
+			short := clientID
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			log.Printf("[Session] Client %s... heartbeat timeout, cancelling %d jobs", short, len(session.ActiveJobs))
+
+			var jobIDs []string
+			for jobID := range session.ActiveJobs {
+				jobIDs = append(jobIDs, jobID)
+			}
+			actions = append(actions, sessionCleanupAction{clientID: clientID, jobIDs: jobIDs})
+			delete(s.sessions, clientID)
+
+		} else if !hasActive && now.Sub(session.LastActivity) > config.SessionIdleTimeout {
+			short := clientID
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			log.Printf("[Session] Client %s... idle timeout", short)
+			actions = append(actions, sessionCleanupAction{clientID: clientID, idle: true})
+			delete(s.sessions, clientID)
+		}
+	}
+	s.muSessions.Unlock()
+
+	for _, action := range actions {
+		if action.idle {
+			continue
+		}
+		for _, jobID := range action.jobIDs {
+			aj := s.GetAsyncJob(jobID)
+			if aj != nil && aj.Type == "playlist" {
+				s.muSessions.Lock()
+				delete(s.jobToClient, jobID)
+				s.muSessions.Unlock()
+				continue
+			}
+
+			pi := s.GetProcess(jobID)
+			if pi != nil {
+				pi.SetCancelled(true)
+				pi.SignalProcess(syscall.SIGTERM)
+				if pi.CancelFunc != nil {
+					pi.CancelFunc()
+				}
+				s.SendProgressSimple(jobID, "cancelled", "Connection lost - task cancelled")
+				continue
+			}
+
+			s.RemovePendingJob(jobID)
+
+			s.muSessions.Lock()
+			delete(s.jobToClient, jobID)
+			s.muSessions.Unlock()
+
+			cleanupJobFiles(jobID)
+		}
+	}
+}
+
 func (s *State) StartSessionCleanup(cleanupJobFiles func(string)) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
-		for range ticker.C {
-			var actions []sessionCleanupAction
-
-			s.muSessions.Lock()
-			now := time.Now()
-			for clientID, session := range s.sessions {
-				hasActive := len(session.ActiveJobs) > 0
-
-				if hasActive && !session.SkipHeartbeat && now.Sub(session.LastHeartbeat) > config.HeartbeatTimeout {
-					short := clientID
-					if len(short) > 8 {
-						short = short[:8]
-					}
-					log.Printf("[Session] Client %s... heartbeat timeout, cancelling %d jobs", short, len(session.ActiveJobs))
-
-					var jobIDs []string
-					for jobID := range session.ActiveJobs {
-						jobIDs = append(jobIDs, jobID)
-					}
-					actions = append(actions, sessionCleanupAction{clientID: clientID, jobIDs: jobIDs})
-					delete(s.sessions, clientID)
-
-				} else if !hasActive && now.Sub(session.LastActivity) > config.SessionIdleTimeout {
-					short := clientID
-					if len(short) > 8 {
-						short = short[:8]
-					}
-					log.Printf("[Session] Client %s... idle timeout", short)
-					actions = append(actions, sessionCleanupAction{clientID: clientID, idle: true})
-					delete(s.sessions, clientID)
-				}
-			}
-			s.muSessions.Unlock()
-
-			for _, action := range actions {
-				if action.idle {
-					continue
-				}
-				for _, jobID := range action.jobIDs {
-					aj := s.GetAsyncJob(jobID)
-					if aj != nil && aj.Type == "playlist" {
-						s.muSessions.Lock()
-						delete(s.jobToClient, jobID)
-						s.muSessions.Unlock()
-						continue
-					}
-
-					pi := s.GetProcess(jobID)
-					if pi != nil {
-						pi.SetCancelled(true)
-						pi.SignalProcess(syscall.SIGTERM)
-						if pi.CancelFunc != nil {
-							pi.CancelFunc()
-						}
-						s.SendProgressSimple(jobID, "cancelled", "Connection lost - task cancelled")
-					}
-
-					var jobType string
-					s.muProcesses.Lock()
-					if procInfo, ok := s.activeProcesses[jobID]; ok {
-						jobType = procInfo.JobType
-						delete(s.activeProcesses, jobID)
-					}
-					s.muProcesses.Unlock()
-					if jobType != "" {
-						s.DecrementJob(jobType)
-					}
-
-					s.RemovePendingJob(jobID)
-
-					s.muSessions.Lock()
-					delete(s.jobToClient, jobID)
-					s.muSessions.Unlock()
-
-					cleanupJobFiles(jobID)
-				}
-			}
+		for now := range ticker.C {
+			s.cleanupTimedOutSessions(now, cleanupJobFiles)
 		}
 	}()
 }
@@ -958,9 +1141,9 @@ func (s *State) StartCounterReconciliation() {
 		for range ticker.C {
 			s.muProcesses.Lock()
 			actualCounts := make(map[string]int)
-			for _, proc := range s.activeProcesses {
-				if proc.JobType != "" {
-					actualCounts[proc.JobType]++
+			for _, p := range s.activeProcesses {
+				if p.JobType != "" {
+					actualCounts[p.JobType]++
 				}
 			}
 			s.muProcesses.Unlock()

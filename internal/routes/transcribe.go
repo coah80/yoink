@@ -52,16 +52,16 @@ func InitTranscription() {
 }
 
 type transcribeOpts struct {
-	OutputMode         string
-	Model              string
-	SubtitleFormat     string
-	Language           string
-	CaptionSize        int
-	MaxWordsPerCaption int
-	MaxCharsPerLine    int
-	MinDuration        float64
-	CaptionGap         float64
-	ClientID           string
+	OutputMode         string  `json:"outputMode"`
+	Model              string  `json:"model"`
+	SubtitleFormat     string  `json:"subtitleFormat"`
+	Language           string  `json:"language"`
+	CaptionSize        int     `json:"captionSize"`
+	MaxWordsPerCaption int     `json:"maxWordsPerCaption"`
+	MaxCharsPerLine    int     `json:"maxCharsPerLine"`
+	MinDuration        float64 `json:"minDuration"`
+	CaptionGap         float64 `json:"captionGap"`
+	ClientID           string  `json:"clientId"`
 }
 
 func extractTranscribeOpts(r *http.Request) transcribeOpts {
@@ -129,8 +129,9 @@ func handleTranscribeChunked(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		FilePath string `json:"filePath"`
 		FileName string `json:"fileName"`
-		ClientID string `json:"clientId"`
+		transcribeOpts
 	}
+	body.transcribeOpts = transcribeOpts{OutputMode: "text", Model: "base", SubtitleFormat: "srt", CaptionSize: 72}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respondJSON(w, 400, map[string]string{"error": "Invalid request body"})
 		return
@@ -160,13 +161,7 @@ func handleTranscribeChunked(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	})
 
-	opts := transcribeOpts{
-		OutputMode:     "text",
-		Model:          "base",
-		SubtitleFormat: "srt",
-		CaptionSize:    72,
-		ClientID:       body.ClientID,
-	}
+	opts := body.transcribeOpts
 	respondJSON(w, 200, map[string]string{"jobId": jobID})
 
 	go func() {
@@ -280,9 +275,7 @@ func handleTranscribeAsync(inputPath, originalName string, opts transcribeOpts, 
 		os.Remove(wavPath)
 		os.Remove(whisperOutputPath)
 		os.Remove(captionedPath)
-		services.Global.DeleteProcess(transcribeID)
-		services.Global.DecrementJob("transcribe")
-		services.Global.UnlinkJobFromClient(transcribeID)
+		services.Global.ReleaseJob(transcribeID)
 	}
 
 	job.SetProgressAndMessage(1, "Analyzing file...")
@@ -304,8 +297,7 @@ func handleTranscribeAsync(inputPath, originalName string, opts transcribeOpts, 
 	job.SetProgressAndMessage(2, "Extracting audio...")
 
 	cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath)
-	processInfo.SetCmd(cmd)
-	if err := cmd.Run(); err != nil {
+	if err := processInfo.RunCmd(cmd); err != nil {
 		if processInfo.IsCancelled() {
 			cleanupAll()
 			job.SetError("Cancelled")
@@ -358,12 +350,11 @@ func handleTranscribeAsync(inputPath, originalName string, opts transcribeOpts, 
 	}
 
 	whisperCmd := exec.Command("python3", whisperArgs...)
-	processInfo.SetCmd(whisperCmd)
 
 	whisperStdout, _ := whisperCmd.StdoutPipe()
 	whisperStderr, _ := whisperCmd.StderrPipe()
 
-	if err := whisperCmd.Start(); err != nil {
+	if err := processInfo.StartCmd(whisperCmd); err != nil {
 		cleanupAll()
 		return fmt.Errorf("Failed to start whisper: %w", err)
 	}
@@ -493,10 +484,9 @@ func handleTranscribeAsync(inputPath, originalName string, opts transcribeOpts, 
 			"-movflags", "+faststart",
 			captionedPath,
 		)
-		processInfo.SetCmd(captionCmd)
 
 		captionStderr, _ := captionCmd.StderrPipe()
-		if err := captionCmd.Start(); err != nil {
+		if err := processInfo.StartCmd(captionCmd); err != nil {
 			cleanupAll()
 			return fmt.Errorf("Failed to start caption burn-in: %w", err)
 		}
@@ -554,9 +544,7 @@ func handleTranscribeAsync(inputPath, originalName string, opts transcribeOpts, 
 		os.Remove(whisperOutputPath)
 	}
 
-	services.Global.DeleteProcess(transcribeID)
-	services.Global.DecrementJob("transcribe")
-	services.Global.UnlinkJobFromClient(transcribeID)
+	services.Global.ReleaseJob(transcribeID)
 
 	return nil
 }

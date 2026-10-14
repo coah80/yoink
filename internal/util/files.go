@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,8 +31,39 @@ func ClearTempDir() {
 	fmt.Println("✓ Cleared temp directories")
 }
 
-func CleanupTempFiles(keep func(string, time.Time) bool) {
+func EnsureTempDirMounted() error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	dir, err := filepath.Abs(config.TempDir)
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return fmt.Errorf("cannot verify temp mount: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 4 && fields[4] == dir {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is not mounted; refusing to use unencrypted temp storage", dir)
+}
+
+func CleanupTempFiles(keep func(string, time.Time) bool, protectedPaths ...string) {
 	now := time.Now()
+	protected := make(map[string]struct{}, len(protectedPaths))
+	for _, path := range protectedPaths {
+		absolute, err := filepath.Abs(path)
+		if err == nil {
+			protected[filepath.Clean(absolute)] = struct{}{}
+		}
+	}
 	for _, dir := range config.TempDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -41,6 +73,12 @@ func CleanupTempFiles(keep func(string, time.Time) bool) {
 			p := filepath.Join(dir, e.Name())
 			if keep != nil && keep(p, now) {
 				continue
+			}
+			absolute, err := filepath.Abs(p)
+			if err == nil {
+				if _, ok := protected[filepath.Clean(absolute)]; ok {
+					continue
+				}
 			}
 			info, err := e.Info()
 			if err != nil {

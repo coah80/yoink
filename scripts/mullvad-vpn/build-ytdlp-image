@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+docker build --pull --no-cache -t "${YTDLP_DOCKER_IMAGE:-yoink-ytdlp:latest}" -f "$SCRIPT_DIR/Dockerfile.ytdlp" "$SCRIPT_DIR"

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_DIR="${YOINK_VPN_BASE_DIR:-$HOME/yoink-vpn-ytdlp}"
+ENV_FILE="$BASE_DIR/config/gluetun.env"
+STATE_FILE="$BASE_DIR/config/current-server"
+CONTAINER="${YOINK_VPN_CONTAINER:-yoink-mullvad}"
+
+command -v curl >/dev/null
+command -v docker >/dev/null
+command -v jq >/dev/null
+command -v shuf >/dev/null
+
+if [[ ! -f "$ENV_FILE" ]]; then
+	printf 'Missing %s\n' "$ENV_FILE" >&2
+	exit 1
+fi
+
+current="$(awk -F= '$1=="SERVER_HOSTNAMES"{print $2; exit}' "$ENV_FILE" 2>/dev/null || true)"
+if [[ -z "$current" && -f "$STATE_FILE" ]]; then
+	current="$(cat "$STATE_FILE")"
+fi
+
+live_servers="$(curl -fsSL https://api.mullvad.net/public/relays/wireguard/v1/ \
+	| jq -r '.countries[]
+		| select(.name == "USA" or .name == "United States")
+		| .cities[]
+		| .relays[]
+		| select((.active // true) == true)
+		| .hostname' \
+	| sort -u)"
+
+known_servers="$(docker exec "$CONTAINER" cat /gluetun/servers/mullvad.json 2>/dev/null \
+	| jq -r '.servers[]
+		| select(.vpn == "wireguard")
+		| select(.country == "USA" or .country == "United States")
+		| .hostname' \
+	| sort -u)"
+
+if [[ -z "$known_servers" ]]; then
+	printf 'Could not read the current Gluetun Mullvad server list\n' >&2
+	exit 1
+fi
+
+servers="$(comm -12 <(printf '%s\n' "$live_servers") <(printf '%s\n' "$known_servers"))"
+if [[ -z "$servers" ]]; then
+	printf 'No active USA Mullvad WireGuard servers are known to Gluetun\n' >&2
+	exit 1
+fi
+
+choice="$(printf '%s\n' "$servers" | awk -v current="$current" '$0 != current' | shuf -n 1)"
+if [[ -z "$choice" ]]; then
+	choice="$(printf '%s\n' "$servers" | shuf -n 1)"
+fi
+
+if grep -q '^SERVER_HOSTNAMES=' "$ENV_FILE"; then
+	sed -i "s/^SERVER_HOSTNAMES=.*/SERVER_HOSTNAMES=$choice/" "$ENV_FILE"
+else
+	printf '\nSERVER_HOSTNAMES=%s\n' "$choice" >>"$ENV_FILE"
+fi
+
+printf '%s\n' "$choice" >"$STATE_FILE"
+chmod 600 "$ENV_FILE" "$STATE_FILE"
+printf 'Selected Mullvad server: %s\n' "$choice"

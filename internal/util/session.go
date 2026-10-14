@@ -61,9 +61,6 @@ func GetSessionTokenArgs() []string {
 
 func GetPOTProviderArgs() []string {
 	providerURL := os.Getenv("YOUTUBE_POT_PROVIDER_URL")
-	if providerURL == "" && strings.Contains(config.SessionGeneratorURL, "4416") {
-		providerURL = config.SessionGeneratorURL
-	}
 	if providerURL == "" {
 		return nil
 	}
