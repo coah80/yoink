@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"net"
 	"net/url"
 	"strings"
 
@@ -29,12 +30,11 @@ func GetRandomProxyURL() string {
 		return host
 	}
 
-	scheme := proxyScheme()
-	user, pass := proxyUserPass()
-	if user != "" {
-		return fmt.Sprintf("%s://%s:%s@%s:%s", scheme, url.PathEscape(user), url.PathEscape(pass), host, proxyPort())
+	u := url.URL{Scheme: proxyScheme(), Host: net.JoinHostPort(host, proxyPort())}
+	if user, pass := proxyUserPass(); user != "" {
+		u.User = url.UserPassword(user, pass)
 	}
-	return fmt.Sprintf("%s://%s:%s", scheme, host, proxyPort())
+	return u.String()
 }
 
 func GetProxyArgs() []string {
@@ -81,7 +81,8 @@ func proxyUserPass() (string, string) {
 		return "", ""
 	}
 	user := config.ProxyUserPrefix
-	if config.ProxyCount > 1 {
+	// numbered pool users (prefix-1..prefix-N) whenever a count is set, same as before mullvad
+	if config.ProxyCount > 0 {
 		user = fmt.Sprintf("%s-%d", config.ProxyUserPrefix, randIndex(config.ProxyCount)+1)
 	}
 	return user, config.ProxyPassword

@@ -414,7 +414,11 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			if r.Context().Err() != nil || !util.ShouldRetryWithNewProxy(fetchErr.Error()) {
+				break
+			}
 			if attempt < tries {
+				cleanupFetchPartials(id)
 				log.Printf("[%s] yt-dlp retry %d/%d with a new proxy: %s\n", id, attempt+1, tries, fetchErr)
 			}
 		}
@@ -2112,6 +2116,15 @@ func compressError(w http.ResponseWriter, compressID string, processInfo *servic
 		services.Global.SendProgressSimple(compressID, "error", err.Error())
 	}
 	respondJSON(w, 500, map[string]string{"error": err.Error()})
+}
+
+// cleanupFetchPartials drops a failed fetch's leftovers so the next try
+// doesn't resume from a broken .part file.
+func cleanupFetchPartials(id string) {
+	matches, _ := filepath.Glob(filepath.Join(config.TempDirs["upload"], id+"-*"))
+	for _, m := range matches {
+		os.Remove(m)
+	}
 }
 
 func StartChunkedUploadCleanup() {
