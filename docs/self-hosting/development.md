@@ -17,10 +17,11 @@ In this section, you will run the Go API and the Vite dev server side by side.
 1. Open a second terminal in the `yoink/frontend` folder
 1. Run `npm ci` if you have not built the website before
 1. Run `npm run dev`
-    + You should see `Local: http://localhost:5173/`.
+    + You should see `VITE v6… ready in … ms`, then `➜  Local:   http://localhost:5173/`.
+    + If `http://localhost:5173` shows a different app, another program already uses port 5173. Press `Ctrl` + `C` and run `npm run dev -- --port 5174` instead. Vite does not always notice a taken port.
 1. Open `http://localhost:5173`
     + Changes to files in `frontend/src` show up in the browser as soon as you save.
-    + Vite forwards `/api` requests to `localhost:3001`. If you changed `PORT` in `.env`, change the `target` in `frontend/vite.config.js` to match, or you will see `http proxy error` in the Vite terminal.
+    + Vite forwards `/api` requests to `localhost:3001`. If the Vite terminal shows `[vite] http proxy error: /api/…` with `ECONNREFUSED`, the Go server is not running, or you changed `PORT` in `.env`. Start it, or change the `target` in `frontend/vite.config.js` to match.
 
 ### Section II - Checking your changes
 

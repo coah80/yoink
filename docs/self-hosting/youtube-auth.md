@@ -1,62 +1,69 @@
-# YouTube cookies and PO tokens
+# YouTube PO tokens and cookies
 
-This page gives yt-dlp a signed-in YouTube session (cookies) or proof it is a real player (PO tokens), so that age-restricted videos and heavily blocked servers work.
+This page gives yt-dlp proof that it is a real YouTube player (PO tokens) or a signed-in session (cookies), so that downloads keep working on servers YouTube distrusts.
 
-This page assumes you have finished [Installing yoink](install.md). If YouTube blocks your IP address, try [Routing YouTube through Mullvad](mullvad.md) first, since it needs no YouTube account.
+This page assumes you have finished [Installing yoink](install.md). Start with Section I: PO tokens need no Google account. Add cookies (Section II) only for age-restricted videos.
 
 <details><summary>Technical details (optional)</summary>
 
-A **PO token** (proof-of-origin token) is a value YouTube's player generates to show the request comes from a real browser. YouTube refuses some streams without one. The `bgutil` provider generates them for yt-dlp.
-
-yoink adds both to every YouTube request when they are configured: the PO token provider first, then the cookie file. It reads `youtube-cookies.txt` first and falls back to `cookies.txt`.
+- A **PO token** (proof-of-origin token) is a value YouTube's player generates to show a request comes from a real browser. YouTube refuses some streams, or the whole video, without one.
+- The **bgutil provider** is a small server that generates PO tokens, plus a yt-dlp plugin that asks it for them. yt-dlp's [PO Token Guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) recommends this setup with the `mweb` client, which is what yoink uses when `YOUTUBE_POT_PROVIDER_URL` is set.
+- yoink adds the cookie file to YouTube requests when it exists, reading `youtube-cookies.txt` first and `cookies.txt` second.
 
 </details>
 
 ## What you need
 
-- For cookies: a browser signed in to YouTube, ideally with a spare Google account
-- For PO tokens: [Docker](https://docs.docker.com/get-docker/), or Node.js to run the provider directly
+- [Docker](https://docs.docker.com/engine/install/) for the PO token provider
+- For cookies: a browser signed in to YouTube with a spare Google account
 
 ## Instructions
 
-### Section I - Adding YouTube cookies
+### Section I - Adding a PO token provider
 
-In this section, you will export a YouTube session from your browser into a file yoink passes to yt-dlp.
+In this section, you will run the bgutil PO token provider, install its yt-dlp plugin, and point yoink at it.
 
 > [!CAUTION]
-> Use a **spare Google account**, not your main one. Google can lock or ban accounts that download heavily, and anyone with the cookie file can use that account.
+> Publish the provider on `127.0.0.1` only, as in step 1. bgutil fixed a remote-code-execution issue in version 2.0.0, and exposing its port to the network gives anyone who can reach it a way in.
 
-1. Sign in to YouTube in Firefox or Chrome with the spare account
-1. Close the browser completely, so that yt-dlp can read its cookie database
-1. Open a terminal in the `yoink` folder
-1. Run `yt-dlp --cookies-from-browser firefox --cookies youtube-cookies.txt --skip-download https://www.youtube.com/watch?v=jNQXAC9IVRw`
-    + **Chrome:** replace `firefox` with `chrome`.
-    + You should now have a `youtube-cookies.txt` file in the `yoink` folder.
-    + If you see `could not find firefox cookies database`, the browser is not installed for this user. Chrome on Linux may also ask for your keyring password.
-1. Stop yoink with `Ctrl` + `C`, then run `./yoink` again
-1. Download an age-restricted video to check it works
-    + If the terminal shows `[Cookies] Temporarily disabled cookie auth for 30m`, YouTube flagged the request even with cookies, so yoink stops sending them for 30 minutes. Export them again from a fresh sign-in, then restart yoink.
-
-> [!NOTE]
-> YouTube expires cookies after a while. When downloads that used to work start failing with `YouTube is blocking this request`, repeat this section.
-
-### Section II - Adding a PO token provider
-
-In this section, you will run the bgutil PO token provider and connect yt-dlp and yoink to it.
-
-1. Run `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
-    + Without Docker, follow the "Native" setup in the [bgutil-ytdlp-pot-provider README](https://github.com/Brainicism/bgutil-ytdlp-pot-provider).
-1. Run `curl http://localhost:4416/ping`
-    + You should see a JSON reply with a `version` field.
-1. Install the matching yt-dlp plugin by following the "Installing the plugin" section of the [bgutil-ytdlp-pot-provider README](https://github.com/Brainicism/bgutil-ytdlp-pot-provider)
-    + Install the plugin the same way you installed yt-dlp. For the standalone `/usr/local/bin/yt-dlp`, that is the zip download into `~/.config/yt-dlp/plugins/`.
-1. Run `yt-dlp -v --skip-download https://www.youtube.com/watch?v=jNQXAC9IVRw 2>&1 | grep -i bgutil`
-    + You should see the bgutil provider listed among the PO token providers.
-    + If nothing prints, the plugin is not installed where yt-dlp looks. Recheck step 3.
-1. Open `.env` and set `YOUTUBE_POT_PROVIDER_URL=http://localhost:4416`
+1. Run `docker run --name bgutil-provider -d --restart unless-stopped --init -p 127.0.0.1:4416:4416 brainicism/bgutil-ytdlp-pot-provider`
+    + Docker prints a long container ID.
+    + If you see `Bind for 127.0.0.1:4416 failed: port is already allocated`, something already uses port 4416, often a provider you started earlier. Run `docker ps` to find it, and skip this step if it is one.
+1. Run `curl http://127.0.0.1:4416/ping`
+    + You should see `{"server_uptime":…,"version":"2.0.2"}`. Note the version.
+1. Run `mkdir -p ~/.config/yt-dlp/plugins`
+1. Run `curl -L -o ~/.config/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/latest/download/bgutil-ytdlp-pot-provider.zip`
+    + This works for every way of installing yt-dlp, because yt-dlp loads plugins from this folder.
+1. Run `yt-dlp -v --skip-download https://www.youtube.com/watch?v=jNQXAC9IVRw 2>&1 | grep "PO Token Providers"`
+    + You should see `[debug] [youtube] [pot] PO Token Providers: bgutil:http-2.0.2 (external), …`.
+    + If nothing prints, the plugin is not in `~/.config/yt-dlp/plugins`. Recheck step 4.
+1. Run `yt-dlp -v --skip-download https://www.youtube.com/watch?v=jNQXAC9IVRw 2>&1 | grep "different versions"`
+    + Nothing should print.
+    + If you see `The provider plugin and the HTTP server are on different versions`, run `docker pull brainicism/bgutil-ytdlp-pot-provider`, then `docker rm -f bgutil-provider`, and repeat steps 1 and 4.
+1. Open `.env` in the `yoink` folder and set `YOUTUBE_POT_PROVIDER_URL=http://127.0.0.1:4416`
 1. Stop yoink with `Ctrl` + `C`, then run `./yoink` again
 1. Download `https://www.youtube.com/watch?v=jNQXAC9IVRw` from `http://localhost:3001`
     + The download should finish as before.
+
+### Section II - Adding YouTube cookies (optional)
+
+In this section, you will export a YouTube session from your browser into a file yoink passes to yt-dlp, so that age-restricted videos work.
+
+> [!CAUTION]
+> Use a **spare Google account**, not your main one. Google can lock accounts that download heavily, and anyone with the cookie file can use that account.
+
+1. Sign in to YouTube in Firefox or Chrome with the spare account, on the machine that runs yoink
+1. Open a terminal in the `yoink` folder
+1. Run `yt-dlp --cookies-from-browser firefox --cookies youtube-cookies.txt --skip-download https://www.youtube.com/watch?v=jNQXAC9IVRw`
+    + **Chrome:** replace `firefox` with `chrome`. On Linux, your desktop's keyring may ask for your password, because Chrome encrypts its cookies.
+    + You should see `Extracting cookies from firefox`, and a `youtube-cookies.txt` file appears in the `yoink` folder.
+    + If you see `ERROR: could not find firefox cookies database in …`, Firefox has no profile for this user on this machine.
+1. Stop yoink with `Ctrl` + `C`, then run `./yoink` again
+1. Download an age-restricted video to check it works
+    + If the terminal shows `[Cookies] Temporarily disabled cookie auth for 30m`, YouTube still flagged the request, so yoink stops sending the cookies for 30 minutes. Export them again from a fresh sign-in, then restart yoink.
+
+> [!NOTE]
+> YouTube expires cookies after a while. When age-restricted videos start failing again, repeat this section.
 
 ---
 

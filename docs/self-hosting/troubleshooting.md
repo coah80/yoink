@@ -10,27 +10,38 @@ The website shows short error messages. The terminal running yoink shows the ful
 
 **Cause:** Node.js or Go is not installed, or not on your `PATH`.
 
-**Fix:** install it as described in [Installing yoink, Section I](install.md#section-i---installing-the-tools), then open a new terminal and run `make build` again.
+**Fix:** install it as described in [Installing yoink, Section I](install.md#section-i---installing-the-tools), then open a new terminal and run `make build` again. Go installed from go.dev only appears after `source ~/.profile` or logging out and back in.
 
-### `go: downloading go1.24.0` then a network error
+### `go: downloading go1.24.0 (linux/amd64)` then `dial tcp: lookup proxy.golang.org`
 
-**Cause:** your Go is older than 1.24 and could not download the newer toolchain yoink needs.
+**Cause:** your Go is older than 1.24 and tried to download the newer toolchain yoink needs, but has no internet access.
 
-**Fix:** install Go 1.24 or newer from [go.dev](https://go.dev/doc/install), or retry with a working internet connection.
+**Fix:** retry with a working connection, or install Go 1.24 or newer from [go.dev](https://go.dev/doc/install).
 
-### `npm ci` fails with `EBADENGINE` or a syntax error
+### `go: go.mod requires go >= 1.24.0 (running go 1.22…; GOTOOLCHAIN=local)`
 
-**Cause:** your Node.js is too old.
+**Cause:** your Go is older than 1.24 and is set to never download a newer one. The official `golang` Docker images set this.
 
-**Fix:** run `node --version`. If it is older than `v20`, install a newer version from [nodejs.org](https://nodejs.org/en/download).
+**Fix:** run `GOTOOLCHAIN=auto make build`, or install Go 1.24 or newer.
+
+### `TypeError: crypto$2.getRandomValues is not a function`
+
+**Cause:** your Node.js is too old. `npm ci` only warns about it (`npm WARN EBADENGINE Unsupported engine`), then the website build fails.
+
+**Fix:** run `node --version`. If it is older than `v18`, install Node.js 20 or newer as described in [Installing yoink, Section I](install.md#section-i---installing-the-tools), then run `make build` again.
 
 ## Starting
 
-### `listen tcp :3001: bind: address already in use`
+### `server failed: listen tcp :3001: bind: address already in use`
 
-**Cause:** another program, or another copy of yoink, is already using port 3001.
+**Cause:** another program, or another copy of yoink, already uses port 3001.
 
-**Fix:** set `PORT=3002` (or any free port) in `.env` and run `./yoink` again. To see what holds the port, run `ss -ltnp | grep 3001` (macOS: `lsof -i :3001`).
+**Fix:**
+1. Run `ss -ltnp | grep 3001` (macOS: `lsof -i :3001`) to see what holds the port
+1. If it is another copy of yoink, stop that one instead of starting a second
+1. Otherwise set `PORT=3002` (or any free port) in `.env` and run `./yoink` again
+
+A second copy of yoink empties the temp folder before it finds the port taken. If both copies share a temp folder, downloads running in the first one fail.
 
 ### `✗ yt-dlp not found (REQUIRED)`
 
@@ -40,9 +51,15 @@ The website shows short error messages. The terminal running yoink shows the ful
 
 ### The website shows `404 page not found`
 
-**Cause:** yoink cannot find the built website. It looks for `public/` next to the binary, then `frontend/public/` in the current folder.
+**Cause:** yoink cannot find the built website. It looks for `public/` next to the `yoink` binary, then for `frontend/public/` in the folder you started it from.
 
-**Fix:** run `make build`, then start yoink from the `yoink` folder with `./yoink`.
+**Fix:** run `make build` in the `yoink` folder, then start yoink from there with `./yoink`.
+
+### Settings in `.env` are ignored
+
+**Cause:** yoink reads `.env` from the folder you start it in, not from where the binary is. Started from another folder, it also uses `/var/tmp/yoink` as its temp folder.
+
+**Fix:** stop yoink, run `cd` to the `yoink` folder, and start it with `./yoink`.
 
 ## Downloading
 
@@ -52,32 +69,21 @@ The website shows short error messages. The terminal running yoink shows the ful
 
 **Fix**, easiest first:
 1. Update yt-dlp: `sudo yt-dlp -U` (Homebrew: `brew upgrade yt-dlp`)
-1. Follow [Routing YouTube through Mullvad](mullvad.md), or set another proxy
-1. Add [YouTube cookies or a PO token](youtube-auth.md)
+1. Add a [PO token provider](youtube-auth.md)
+1. Follow [Routing YouTube through Mullvad](mullvad.md)
+1. Add [YouTube cookies](youtube-auth.md#section-ii---adding-youtube-cookies-optional)
 
-### YouTube downloads fail or only come in low quality
+### `Download failed`, and the terminal shows `HTTP Error 429: Too Many Requests`
 
-**Cause:** Deno is missing, so yt-dlp cannot unlock YouTube's formats.
+**Cause:** the site (usually YouTube) is rate limiting your IP address.
 
-**Fix:** run `deno --version`. If it is not found, install it as described in [Installing yoink, Section I](install.md#section-i---installing-the-tools), then restart yoink from a new terminal.
+**Fix:** wait 15–60 minutes, or route YouTube through [Mullvad](mullvad.md).
 
-### `Rate limited, please wait and try again`
+### `Connection dropped, try again` after setting a proxy
 
-**Cause:** the site (usually YouTube) answered `HTTP Error 429: Too Many Requests` for your IP address.
+**Cause:** yoink cannot reach the proxy. The terminal shows `Connection refused` (nothing listening there) or `Name or service not known` (the hostname does not resolve). With Mullvad's relay proxies, this also happens when the Mullvad app is disconnected.
 
-**Fix:** wait 15–60 minutes, or route YouTube through [Mullvad](mullvad.md) so that requests spread across several IP addresses.
-
-### Every YouTube download fails with `Connection refused` or `timed out` after setting a proxy
-
-**Cause:** yoink cannot reach the proxy. With Mullvad, this means the app is disconnected.
-
-**Fix:** reconnect Mullvad, then check the proxy with `curl --socks5-hostname <proxy-host>:1080 https://am.i.mullvad.net/connected`. If you do not want a proxy, empty `PROXY_HOST` in `.env` and restart yoink.
-
-### Downloads finish, but the file disappears from the queue later
-
-**Cause:** yoink deletes temporary files 20 minutes after they were last used.
-
-**Fix:** download the file from the queue soon after it finishes.
+**Fix:** check the proxy with `curl --socks5-hostname <proxy-host>:1080 https://am.i.mullvad.net/connected`. If you do not want a proxy, empty `PROXY_HOST` in `.env` and restart yoink.
 
 ### `gallery-dl not installed on server`
 
@@ -87,17 +93,17 @@ The website shows short error messages. The terminal running yoink shows the ful
 
 ## Transcription
 
-### `Large model requires API configuration`
+### `faster-whisper not installed`
+
+**Cause:** the `python3` yoink found does not have `faster-whisper`. The startup output shows `- faster-whisper not found (optional, needed for local transcription)`.
+
+**Fix:** start yoink from a terminal where the virtual environment is active, as described in [Transcription, Section II](transcription.md#section-ii---starting-yoink-with-faster-whisper).
+
+### `Large model requires API configuration. Use a local model (tiny/base/small/medium).`
 
 **Cause:** the `large` model runs through the OpenAI API, and `OPENAI_API_KEY` is not set.
 
 **Fix:** pick `tiny`, `base`, `small` or `medium`, or set `OPENAI_API_KEY` as described in [Transcription](transcription.md).
-
-### Transcription fails right away, and startup says `- whisper module not found (optional)`
-
-**Cause:** the `python3` yoink found does not have Whisper installed.
-
-**Fix:** start yoink from a terminal where the virtual environment is active, as described in [Transcription, Section II](transcription.md#section-ii---starting-yoink-with-whisper).
 
 ---
 

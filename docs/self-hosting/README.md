@@ -14,14 +14,14 @@ This guide walks you through running your own copy of yoink on your computer or 
 ## What do I need?
 
 - Linux or macOS. On Windows, run yoink inside [WSL](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) and follow the Linux steps.
-- About 1 GB of free disk space for the tools, plus room for the files you download
+- Free disk space for the tools and build, plus room for the files you download
 - An internet connection during the build, so that npm and Go can download their packages
 
 ## What should I know before starting?
 
 - `<angle brackets>` mean: replace this with your own value, without the brackets.
 - yoink **clears its temp folder every time it starts**. The setup below points it at a folder of its own, so nothing else gets deleted.
-- YouTube blocks some servers. A home connection usually works without extra setup, while a VPS often needs [Mullvad or another proxy](mullvad.md).
+- YouTube blocks some servers. A home connection usually works without extra setup, while a VPS often needs [PO tokens](youtube-auth.md) and [Mullvad](mullvad.md).
 
 ## Pages
 
@@ -30,8 +30,8 @@ Follow [Installing yoink](install.md) first. Everything else is optional and can
 | Page | Read it when |
 |---|---|
 | [Installing yoink](install.md) | You are starting out. Everything else builds on it. |
-| [Routing YouTube through Mullvad](mullvad.md) | YouTube says `YouTube is blocking this request` or rate limits you |
-| [YouTube cookies and PO tokens](youtube-auth.md) | Age-restricted videos fail, or Mullvad alone is not enough |
+| [Routing YouTube through Mullvad](mullvad.md) | YouTube keeps saying `YouTube is blocking this request` on your connection |
+| [YouTube PO tokens and cookies](youtube-auth.md) | YouTube blocks your server, or age-restricted videos fail |
 | [Transcription](transcription.md) | You want the transcribe page (subtitles and captions) to work |
 | [TikTok and Instagram extractor](extractor.md) | TikTok or Instagram downloads fail |
 | [Discord bot](discord-bot.md) | You want `/yoink`, `/convert` and `/compress` in your Discord server |
