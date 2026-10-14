@@ -37,7 +37,6 @@ func CheckDependencies() {
 	}
 
 	if _, err := exec.LookPath("python3"); err == nil {
-		// scripts/transcribe.py runs local models with faster-whisper
 		cmd := exec.Command("python3", "-c", "import faster_whisper")
 		if err := cmd.Run(); err == nil {
 			WhisperAvailable = true
