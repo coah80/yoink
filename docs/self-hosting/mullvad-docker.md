@@ -32,13 +32,13 @@ In this section, you will install the programs the scripts call.
 
 1. Run `sudo apt install -y jq curl wireguard-tools`
     + `wireguard-tools` provides `wg`, which creates the WireGuard key.
-    + Run `wg --version` afterwards. You should see `wireguard-tools v1.x`.
+    + Run `wg --version` afterwards. You should see `wireguard-tools v1.0.20210914` or newer.
 1. Run `sudo usermod -aG docker $USER`, then log out and back in
     + This lets the scripts run `docker` without `sudo`.
     + After logging back in, `groups` should list `docker`.
 1. Run `docker run --rm hello-world`
     + You should see `Hello from Docker!`.
-    + If you see `permission denied while trying to connect to the Docker daemon socket`, you have not logged out and back in since step 2.
+    + If you see `permission denied while trying to connect to the Docker daemon socket` (Docker 29 and later: `… to the docker API`), you have not logged out and back in since step 2.
 
 ### Section II - Creating the Mullvad config
 
@@ -58,15 +58,15 @@ In this section, you will register a WireGuard key with your Mullvad account and
     + The number does not show while you type. **This is expected.**
     + You should see `Wrote /home/<your-username>/yoink-vpn-ytdlp/config/gluetun.env`.
     + If you see `Mullvad did not return an access token`, the account number is wrong or the account has expired.
-    + If you see `Could not create Mullvad WireGuard device`, the most common cause is that all 5 device slots are used. Remove one in your [Mullvad account](https://mullvad.net/account/devices) and run the script again.
+    + If you see `Could not create Mullvad WireGuard device` with `MAX_DEVICES_REACHED`, all 5 device slots on the account are used. Remove one in your [Mullvad account](https://mullvad.net/account/devices) and run the script again.
 
 ### Section III - Starting the VPN container
 
 In this section, you will build the yt-dlp image and start the Mullvad container.
 
 1. Run `scripts/mullvad-vpn/build-ytdlp-image`
-    + This takes 3–10 minutes on the first run.
-    + It ends with `naming to docker.io/library/yoink-ytdlp:latest`.
+    + This takes about a minute on a fast connection, and the image uses about 1 GB.
+    + It ends with `naming to docker.io/library/yoink-ytdlp:latest done`.
 1. Run `scripts/mullvad-vpn/start-mullvad`
     + You should see `Selected Mullvad server: …`, then `yoink-mullvad is healthy`, then `yoink-mullvad youtube ok`.
     + If you see `YouTube blocked on this Mullvad exit`, the script tries another server on its own. **This is expected** now and then.

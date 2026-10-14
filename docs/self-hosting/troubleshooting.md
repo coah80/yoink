@@ -73,9 +73,9 @@ A second copy of yoink empties the temp folder before it finds the port taken. I
 1. Follow [Routing YouTube through Mullvad](mullvad.md)
 1. Add [YouTube cookies](youtube-auth.md#section-ii---adding-youtube-cookies-optional)
 
-### `Download failed`, and the terminal shows `HTTP Error 429: Too Many Requests`
+### `This site is temporarily rate limiting downloads`
 
-**Cause:** the site (usually YouTube) is rate limiting your IP address.
+**Cause:** the site (usually YouTube) answered `HTTP Error 429: Too Many Requests` for your IP address.
 
 **Fix:** wait 15–60 minutes, or route YouTube through [Mullvad](mullvad.md).
 
