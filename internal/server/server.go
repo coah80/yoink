@@ -14,13 +14,12 @@ import (
 	"github.com/coah80/yoink/internal/config"
 	"github.com/coah80/yoink/internal/middleware"
 	"github.com/coah80/yoink/internal/routes"
-	"github.com/coah80/yoink/internal/util"
 )
 
 func New() *http.Server {
 	r := chi.NewRouter()
 
-	r.Use(chimw.RealIP)
+	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(securityHeaders)
@@ -40,7 +39,7 @@ func New() *http.Server {
 		publicDir = filepath.Join("frontend", "public")
 	}
 	if info, err := os.Stat(publicDir); err == nil && info.IsDir() {
-		r.Get("/*", spaHandler(publicDir))
+		registerStaticRoutes(r, publicDir)
 	}
 
 	return &http.Server{
@@ -59,23 +58,31 @@ func spaHandler(publicDir string) http.HandlerFunc {
 	fileServer := http.FileServer(http.Dir(root))
 	return func(w http.ResponseWriter, r *http.Request) {
 		cleaned := filepath.Clean(filepath.Join(root, strings.TrimPrefix(r.URL.Path, "/")))
-		rel, err := filepath.Rel(root, cleaned)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		relative, err := filepath.Rel(root, cleaned)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			http.NotFound(w, r)
 			return
 		}
 		if info, err := os.Stat(cleaned); err == nil && !info.IsDir() {
+			if relative == "index.html" || relative == "sw.js" {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// Static directories such as /updates also have SPA routes. Serve the
-		// app for those routes, never a directory listing. Missing assets are 404s.
-		if filepath.Ext(r.URL.Path) != "" {
+		if strings.HasPrefix(r.URL.Path, "/assets/") || filepath.Ext(r.URL.Path) != "" {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, filepath.Join(root, "index.html"))
 	}
+}
+
+func registerStaticRoutes(router chi.Router, publicDir string) {
+	handler := spaHandler(publicDir)
+	router.Get("/*", handler)
+	router.Head("/*", handler)
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -88,7 +95,10 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func EnsureTempDirs() {
-	util.ClearTempDir()
+	for _, dir := range config.TempDirs {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+	fmt.Println("✓ Temp directories ready")
 }
 
 func PrintBanner() {

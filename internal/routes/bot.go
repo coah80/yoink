@@ -226,13 +226,18 @@ func processBotDownload(jobID string, job *services.AsyncJob, rawURL string, isA
 	token := makeBotToken()
 
 	title := "download"
-	isYT := strings.Contains(rawURL, "youtube.com") || strings.Contains(rawURL, "youtu.be")
-	args := append([]string{}, util.GetYouTubeAuthArgs()...)
+	isYT := util.IsYouTubeURL(rawURL)
+	args := append([]string{}, util.YtdlpArgsForURL(rawURL)...)
 	if isYT {
 		args = append(args, util.GetProxyArgs()...)
 	}
-	args = append(args, "--print", "title", "--no-playlist", rawURL)
-	if out, err := exec.Command("yt-dlp", args...).Output(); err == nil {
+	args = append(args, "--print", "title", "--no-playlist", util.NormalizeYtdlpURL(rawURL))
+	titleCtx, cancelTitle := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTitle()
+	titleCmd := exec.CommandContext(titleCtx, util.YtdlpBinary(), args...)
+	stopTitleCancellation := services.ConfigureYtdlpCancellation(titleCmd, 5*time.Second)
+	defer stopTitleCancellation()
+	if out, err := titleCmd.Output(); err == nil {
 		t := strings.TrimSpace(string(out))
 		if len(t) > 100 {
 			t = t[:100]

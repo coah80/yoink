@@ -302,7 +302,7 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 		log.Println("[Queue] Slideshow finished.")
 		go func() {
 			time.Sleep(2 * time.Second)
-			util.CleanupJobFiles(downloadID)
+			os.RemoveAll(galleryDir)
 		}()
 	}
 
@@ -369,7 +369,7 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 			"-i", imageFiles[0],
 			"-i", audioFile,
 			"-filter_complex",
-			fmt.Sprintf("[0]scale=w='if(gt(iw,ih),%d,-2)':h='if(gt(iw,ih),-2,%d)',pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v]",
+			fmt.Sprintf("[0]scale=%d:%d:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v]",
 				targetW, targetH, targetW, targetH),
 			"-map", "[v]", "-map", "1:a",
 			"-shortest", "-r", "30", "-pix_fmt", "yuv420p",
@@ -379,8 +379,7 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 		}
 		err = runSlideshowFfmpeg(ffArgs, downloadID, processInfo)
 	} else {
-		secPerImage := audioDuration / float64(len(imageFiles))
-		imgDuration := secPerImage
+		imgDuration := (audioDuration + crossfadeDur*float64(len(imageFiles)-1)) / float64(len(imageFiles))
 		if imgDuration < crossfadeDur+0.1 {
 			imgDuration = crossfadeDur + 0.1
 		}
@@ -394,7 +393,7 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 		var filterParts []string
 		for i := range imageFiles {
 			filterParts = append(filterParts,
-				fmt.Sprintf("[%d]scale=w='if(gt(iw,ih),%d,-2)':h='if(gt(iw,ih),-2,%d)',pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,setsar=1[s%d]",
+				fmt.Sprintf("[%d]scale=%d:%d:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,setsar=1[s%d]",
 					i, targetW, targetH, targetW, targetH, i))
 		}
 
@@ -451,12 +450,11 @@ func runGalleryDl(rawURL, galleryDir, downloadID string, processInfo *services.P
 	log.Printf("[%s] gallery-dl starting\n", downloadID)
 
 	cmd := exec.Command("gallery-dl", args...)
-	processInfo.SetCmd(cmd)
 
 	stdoutPipe, _ := cmd.StdoutPipe()
 	stderrPipe, _ := cmd.StderrPipe()
 
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return fmt.Errorf("failed to start gallery-dl: %w", err)
 	}
 
@@ -642,10 +640,9 @@ func sendGalleryZipFile(w http.ResponseWriter, allFiles []string, filename, rawU
 func runSlideshowFfmpeg(args []string, downloadID string, processInfo *services.ProcessInfo) error {
 	log.Printf("[%s] ffmpeg starting slideshow render\n", downloadID)
 	cmd := exec.Command("ffmpeg", append([]string{"-y"}, args...)...)
-	processInfo.SetCmd(cmd)
 
 	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	if err := processInfo.StartCmd(cmd); err != nil {
 		return err
 	}
 
@@ -692,12 +689,13 @@ func runSlideshowFfmpeg(args []string, downloadID string, processInfo *services.
 
 func galleryError(w http.ResponseWriter, downloadID string, processInfo *services.ProcessInfo, err error, cleanup func()) {
 	log.Printf("[%s] Gallery error: %s\n", downloadID, err.Error())
+	message := util.ToUserError(err.Error())
 	if !processInfo.IsCancelled() {
 		alerts.GalleryFailed(downloadID, "", err)
-		services.Global.SendProgressSimple(downloadID, "error", err.Error())
+		services.Global.SendProgressSimple(downloadID, "error", message)
 	}
 	cleanup()
-	respondJSON(w, 500, map[string]string{"error": err.Error()})
+	respondJSON(w, 500, map[string]string{"error": message})
 }
 
 type imageDims struct {

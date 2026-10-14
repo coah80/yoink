@@ -16,6 +16,7 @@ var (
 	EnvMode string
 
 	BotSecret    string
+	AdminToken   string
 	CobaltAPIKey string
 	OpenAIAPIKey string
 
@@ -32,9 +33,11 @@ var (
 
 	SessionGeneratorURL string
 	SessionTokenRefresh time.Duration
+	RequireTempMount    bool
 )
 
 var JobLimits = map[string]int{
+	"download":   6,
 	"playlist":   2,
 	"convert":    2,
 	"compress":   1,
@@ -42,11 +45,17 @@ var JobLimits = map[string]int{
 	"fetchUrl":   2,
 }
 
+var DownloadReserveGB = 15
+var PlaylistReserveGB = 15
+var FetchURLReserveGB = 8
+
 const (
 	MaxQueueSize        = 50
 	DiskSpaceMinGB      = 5
 	FileSizeLimit       = 8 * 1024 * 1024 * 1024
 	FileRetention       = 20 * time.Minute
+	RecoveredRetention  = 30 * time.Minute
+	RecoveredCleanup    = 1 * time.Minute
 	HeartbeatTimeout    = 30 * time.Second
 	SessionIdleTimeout  = 60 * time.Second
 	MaxPlaylistVideos   = 1000
@@ -87,7 +96,15 @@ var AudioMIMEs = map[string]string{
 	"flac": "audio/flac",
 }
 
-var TempDir = "/var/tmp/yoink"
+func configuredTempDir() string {
+	value := strings.TrimSpace(os.Getenv("YOINK_TEMP_DIR"))
+	if value == "" {
+		return "/var/tmp/yoink"
+	}
+	return filepath.Clean(value)
+}
+
+var TempDir = configuredTempDir()
 
 var TempDirs = map[string]string{
 	"download":   filepath.Join(TempDir, "downloads"),
@@ -167,7 +184,7 @@ var BotDetectionErrors = []string{
 var HeavyJobTypes = []string{"playlist", "convert", "compress", "transcribe"}
 
 func Load() {
-	TempDir = envOrDefault("YOINK_TEMP_DIR", "/var/tmp/yoink")
+	TempDir = configuredTempDir()
 	for kind, dir := range TempDirs {
 		TempDirs[kind] = filepath.Join(TempDir, filepath.Base(dir))
 	}
@@ -176,11 +193,15 @@ func Load() {
 	EnvMode = envOrDefault("NODE_ENV", "development")
 
 	BotSecret = os.Getenv("BOT_SECRET")
+	AdminToken = os.Getenv("YOINK_ADMIN_TOKEN")
 	if BotSecret == "" {
 		log.Println("[WARN] BOT_SECRET not set, bot endpoints will reject requests")
 	}
 
 	CobaltAPIKey = os.Getenv("COBALT_API_KEY")
+	if apis := splitList(os.Getenv("COBALT_APIS")); len(apis) > 0 {
+		CobaltAPIs = apis
+	}
 	OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
 
 	ProxyHost = os.Getenv("PROXY_HOST")
@@ -218,6 +239,7 @@ func Load() {
 		refreshMin = 15
 	}
 	SessionTokenRefresh = time.Duration(refreshMin) * time.Minute
+	RequireTempMount = envBool("REQUIRE_TEMP_MOUNT", false)
 }
 
 func envOrDefault(key, fallback string) string {
@@ -225,6 +247,29 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func splitList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func Contains(slice []string, val string) bool {

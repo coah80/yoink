@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+"$SCRIPT_DIR/generate-mullvad-env"
+"$SCRIPT_DIR/build-ytdlp-image"
+"$SCRIPT_DIR/start-mullvad"
+"$SCRIPT_DIR/check-mullvad"
+"$SCRIPT_DIR/activate-ytdlp-vpn"
+
+mkdir -p "$UNIT_DIR"
+cat >"$UNIT_DIR/yoink-vpn-rotate.service" <<UNIT
+[Unit]
+Description=Rotate Yoink Mullvad yt-dlp tunnel if idle
+
+[Service]
+Type=oneshot
+ExecStart=$SCRIPT_DIR/rotate-mullvad-if-idle
+UNIT
+cat >"$UNIT_DIR/yoink-vpn-rotate.timer" <<'UNIT'
+[Unit]
+Description=Run Yoink Mullvad yt-dlp tunnel rotation
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=55min
+RandomizedDelaySec=5min
+Unit=yoink-vpn-rotate.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl --user daemon-reload
+systemctl --user enable --now yoink-vpn-rotate.timer
+systemctl --user list-timers yoink-vpn-rotate.timer --no-pager

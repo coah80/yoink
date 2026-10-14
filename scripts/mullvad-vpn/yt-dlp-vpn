@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_NATIVE_BIN="$SCRIPT_DIR/yt-dlp"
+if [[ ! -x "$DEFAULT_NATIVE_BIN" ]]; then
+	DEFAULT_NATIVE_BIN="yt-dlp"
+fi
+NATIVE_BIN="${YTDLP_NATIVE_BIN:-$DEFAULT_NATIVE_BIN}"
+IMAGE="${YTDLP_DOCKER_IMAGE:-yoink-ytdlp:latest}"
+CONTAINER="${YOINK_VPN_CONTAINER:-yoink-mullvad}"
+APP_DIR="${YOINK_APP_DIR:-$PWD}"
+TEMP_DIR="${YOINK_TEMP_DIR:-/var/tmp/yoink}"
+CACHE_DIR="${YOINK_YTDLP_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/yoink-ytdlp}"
+
+is_youtube=0
+is_bilibili=0
+is_fediverse_post=0
+has_user_agent=0
+has_referer=0
+has_force_generic=0
+stream_output=0
+for arg in "$@"; do
+	case "$arg" in
+		*youtube.com*|*youtu.be*)
+			is_youtube=1
+			;;
+		*bilibili.com/*)
+			is_bilibili=1
+			;;
+		--user-agent|--user-agent=*)
+			has_user_agent=1
+			;;
+		--referer|--referer=*)
+			has_referer=1
+			;;
+		--force-generic-extractor)
+			has_force_generic=1
+			;;
+		--newline)
+			stream_output=1
+			;;
+	esac
+	if [[ "$arg" =~ ^https?://[^/]+/@[^/]+/[0-9]+([/?#].*)?$ ]]; then
+		is_fediverse_post=1
+	fi
+done
+
+if [[ "$is_youtube" -ne 1 ]]; then
+	SITE_ARGS=()
+	if [[ "$is_bilibili" -eq 1 ]]; then
+		if [[ "$has_user_agent" -eq 0 ]]; then
+			SITE_ARGS+=(--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36")
+		fi
+		if [[ "$has_referer" -eq 0 ]]; then
+			SITE_ARGS+=(--referer "https://www.bilibili.com/")
+		fi
+	fi
+	if [[ "$is_fediverse_post" -eq 1 && "$has_force_generic" -eq 0 ]]; then
+		SITE_ARGS+=(--force-generic-extractor)
+	fi
+	FORWARD_ARGS=()
+	pending_cookie=0
+	pending_preset=0
+	pending_extractor_args=0
+	for arg in "$@"; do
+		if [[ "$pending_cookie" -eq 1 ]]; then
+			if [[ "$is_bilibili" -ne 1 || "$arg" != *youtube-cookies.txt ]]; then
+				FORWARD_ARGS+=(--cookies "$arg")
+			fi
+			pending_cookie=0
+			continue
+		fi
+		if [[ "$pending_extractor_args" -eq 1 ]]; then
+			if [[ "$is_bilibili" -ne 1 || "$arg" != youtube:* ]]; then
+				FORWARD_ARGS+=(--extractor-args "$arg")
+			fi
+			pending_extractor_args=0
+			continue
+		fi
+		if [[ "$pending_preset" -eq 1 ]]; then
+			if [[ "$is_bilibili" -ne 1 || "$arg" != "sleep" ]]; then
+				FORWARD_ARGS+=(-t "$arg")
+			fi
+			pending_preset=0
+			continue
+		fi
+		if [[ "$arg" == "--cookies" ]]; then
+			pending_cookie=1
+			continue
+		fi
+		if [[ "$arg" == "-t" ]]; then
+			pending_preset=1
+			continue
+		fi
+		if [[ "$arg" == "--extractor-args" ]]; then
+			pending_extractor_args=1
+			continue
+		fi
+		if [[ "$is_bilibili" -eq 1 && "$arg" == --cookies=*youtube-cookies.txt ]]; then
+			continue
+		fi
+		if [[ "$is_bilibili" -eq 1 && "$arg" == --extractor-args=youtube:* ]]; then
+			continue
+		fi
+		FORWARD_ARGS+=("$arg")
+	done
+	if [[ "$pending_cookie" -eq 1 ]]; then
+		FORWARD_ARGS+=(--cookies)
+	fi
+	if [[ "$pending_preset" -eq 1 ]]; then
+		FORWARD_ARGS+=(-t)
+	fi
+	if [[ "$pending_extractor_args" -eq 1 ]]; then
+		FORWARD_ARGS+=(--extractor-args)
+	fi
+	exec "$NATIVE_BIN" "${SITE_ARGS[@]}" "${FORWARD_ARGS[@]}"
+fi
+
+vpn_state="$(docker inspect -f '{{.State.Running}} {{.State.Restarting}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER" 2>/dev/null || true)"
+if [[ "$vpn_state" != "true false healthy" && "$vpn_state" != "true false none" ]]; then
+	if [[ "${YTDLP_REQUIRE_VPN:-0}" == "1" ]]; then
+		echo "VPN container is unavailable: $CONTAINER ($vpn_state)" >&2
+		exit 1
+	fi
+	exec "$NATIVE_BIN" "$@"
+fi
+
+if [[ ! -d "$APP_DIR" ]]; then
+	echo "YOINK_APP_DIR does not exist: $APP_DIR" >&2
+	exit 1
+fi
+
+mkdir -p "$TEMP_DIR" "$CACHE_DIR"
+APP_DIR="$(cd "$APP_DIR" && pwd)"
+TEMP_DIR="$(cd "$TEMP_DIR" && pwd)"
+CACHE_DIR="$(cd "$CACHE_DIR" && pwd)"
+
+ARGS=()
+skip_next=0
+has_fetch_pot=0
+pending_extractor_args=0
+for arg in "$@"; do
+	if [[ "$skip_next" -eq 1 ]]; then
+		skip_next=0
+		continue
+	fi
+	if [[ "$pending_extractor_args" -eq 1 ]]; then
+		ARGS+=("$arg")
+		if [[ "$arg" == *fetch_pot=* ]]; then
+			has_fetch_pot=1
+		fi
+		pending_extractor_args=0
+		continue
+	fi
+
+	case "$arg" in
+		--cookies)
+			skip_next=1
+			;;
+		--cookies=*)
+			;;
+		--extractor-args)
+			ARGS+=("$arg")
+			pending_extractor_args=1
+			;;
+		--extractor-args=*)
+			ARGS+=("$arg")
+			if [[ "$arg" == *fetch_pot=* ]]; then
+				has_fetch_pot=1
+			fi
+			;;
+		*)
+			ARGS+=("$arg")
+			;;
+	esac
+done
+
+if [[ "$has_fetch_pot" -eq 0 ]]; then
+	ARGS+=(--extractor-args "youtube:fetch_pot=always")
+fi
+
+CID_FILE="$(mktemp)"
+ERR_FILE="$(mktemp)"
+OUT_FILE="$(mktemp)"
+rm -f "$CID_FILE"
+cleanup() {
+	if [[ -s "$CID_FILE" ]]; then
+		docker rm -f "$(cat "$CID_FILE")" >/dev/null 2>&1 || true
+	fi
+	rm -f "$CID_FILE" "$ERR_FILE" "$OUT_FILE"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+set +e
+if [[ "$stream_output" -eq 1 ]]; then
+	exec 3> >(tee "$OUT_FILE")
+else
+	exec 3>"$OUT_FILE"
+fi
+docker run --rm \
+	--cidfile "$CID_FILE" \
+	--network "container:$CONTAINER" \
+	--user "$(id -u):$(id -g)" \
+	--workdir "$APP_DIR" \
+	-e HOME=/tmp \
+	-v "$TEMP_DIR:$TEMP_DIR" \
+	-v "$APP_DIR:$APP_DIR:ro" \
+	-v "$CACHE_DIR:/tmp/.cache/yt-dlp" \
+	"$IMAGE" "${ARGS[@]}" >&3 2> >(tee "$ERR_FILE" >&2) &
+docker_pid=$!
+exec 3>&-
+wait "$docker_pid"
+status=$?
+set -e
+
+if [[ "$status" -eq 0 ]]; then
+	if [[ "$stream_output" -ne 1 ]]; then cat "$OUT_FILE"; fi
+	exit 0
+fi
+
+if [[ "$status" -ne 0 ]] && grep -Eqi 'This video is not available|This content isn.t available|current session has been rate-limited by YouTube|Sign in to confirm you|cannot join network namespace|container .* is restarting|VPN container is unavailable' "$ERR_FILE"; then
+	rate_limited=0
+	if grep -Eqi 'This content isn.t available|current session has been rate-limited by YouTube' "$ERR_FILE"; then
+		rate_limited=1
+	fi
+	cleanup
+	trap - EXIT INT TERM
+	if [[ "$rate_limited" -eq 1 ]]; then
+		FALLBACK_ARGS=()
+		pending_cookie=0
+		pending_extractor_args=0
+		for arg in "$@"; do
+			if [[ "$pending_cookie" -eq 1 ]]; then
+				pending_cookie=0
+				continue
+			fi
+			if [[ "$pending_extractor_args" -eq 1 ]]; then
+				if [[ "$arg" != youtube:* ]]; then
+					FALLBACK_ARGS+=(--extractor-args "$arg")
+				fi
+				pending_extractor_args=0
+				continue
+			fi
+			case "$arg" in
+				--cookies)
+					pending_cookie=1
+					;;
+				--cookies=*)
+					;;
+				--extractor-args)
+					pending_extractor_args=1
+					;;
+				--extractor-args=youtube:*)
+					;;
+				*)
+					FALLBACK_ARGS+=("$arg")
+					;;
+			esac
+		done
+		if "$NATIVE_BIN" "${FALLBACK_ARGS[@]}"; then
+			exit 0
+		fi
+	fi
+	exec "$NATIVE_BIN" "$@"
+fi
+
+if [[ "$stream_output" -ne 1 ]]; then cat "$OUT_FILE"; fi
+exit "$status"

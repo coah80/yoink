@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+minutes=${1:-5}
+log_path=${YOINK_FAILURE_LOG:-/var/tmp/yoink/state/failures.jsonl}
+[ -f "$log_path" ] || exit 0
+since=$(date -u -d "$minutes minutes ago" +%s)
+jq -c --argjson since "$since" 'select((.timestamp | fromdateiso8601) >= $since)' "$log_path"

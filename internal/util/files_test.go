@@ -32,3 +32,41 @@ func TestCleanupKeepsPromisedFiles(t *testing.T) {
 		t.Fatal("orphan file was not cleaned up")
 	}
 }
+
+func TestCleanupTempFilesPreservesProtectedRecovery(t *testing.T) {
+	root := t.TempDir()
+	downloadDir := filepath.Join(root, "downloads")
+	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldTempDir := config.TempDir
+	oldTempDirs := config.TempDirs
+	t.Cleanup(func() {
+		config.TempDir = oldTempDir
+		config.TempDirs = oldTempDirs
+	})
+	config.TempDir = root
+	config.TempDirs = map[string]string{"download": downloadDir}
+
+	protected := filepath.Join(downloadDir, "ready-recovery.mp4")
+	expired := filepath.Join(downloadDir, "expired.mp4")
+	for _, path := range []string{protected, expired} {
+		if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-config.FileRetention - time.Minute)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	CleanupTempFiles(nil, protected)
+
+	if _, err := os.Stat(protected); err != nil {
+		t.Fatalf("protected recovery file was removed: %v", err)
+	}
+	if _, err := os.Stat(expired); !os.IsNotExist(err) {
+		t.Fatalf("expired unprotected file was not removed: %v", err)
+	}
+}

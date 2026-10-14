@@ -17,6 +17,7 @@ import (
 )
 
 type ProcessVideoOpts struct {
+	DownloadPreferences
 	IsAudio      bool
 	IsGif        bool
 	AudioFormat  string
@@ -40,7 +41,19 @@ func ProcessVideo(inputPath, outputPath string, opts ProcessVideoOpts) (*Process
 		outputExt = opts.AudioFormat
 	}
 
-	if !opts.IsAudio && !opts.IsGif && inputExt == outputExt {
+	codec := opts.EffectiveCodec(opts.Container)
+	needsEncode := false
+	if !opts.IsAudio && !opts.IsGif && codec != "" {
+		probe := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=nw=1:nk=1", inputPath)
+		output, err := probe.Output()
+		if err != nil {
+			return nil, fmt.Errorf("Could not inspect video codec")
+		}
+		actual := strings.TrimSpace(string(output))
+		needsEncode = actual != codec && !(actual == "hevc" && opts.H265 && opts.Container != "webm" && codec == "h264")
+	}
+	stripMetadata := opts.Metadata != nil && !*opts.Metadata
+	if !opts.IsAudio && !opts.IsGif && inputExt == outputExt && !needsEncode && !stripMetadata {
 		log.Printf("[%s] Format match (%s), skipping ffmpeg", opts.JobID, inputExt)
 		return &ProcessResult{Path: inputPath, Ext: inputExt, Skipped: true}, nil
 	}
@@ -71,6 +84,16 @@ func ProcessVideo(inputPath, outputPath string, opts ProcessVideoOpts) (*Process
 			"-vf", "fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
 			"-loop", "0",
 		}
+	} else if needsEncode {
+		args = append(args, "-map", "0:v:0", "-map", "0:a:0?")
+		switch codec {
+		case "av1":
+			args = append(args, "-c:v", "libsvtav1", "-preset", "10", "-crf", "32", "-c:a", "libopus")
+		case "vp9":
+			args = append(args, "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "6", "-crf", "32", "-b:v", "0", "-c:a", "libopus")
+		default:
+			args = append(args, "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac")
+		}
 	} else {
 		args = append(args, "-codec", "copy")
 		if opts.Container == "mp4" || opts.Container == "mov" {
@@ -78,12 +101,16 @@ func ProcessVideo(inputPath, outputPath string, opts ProcessVideoOpts) (*Process
 		}
 	}
 
+	if stripMetadata {
+		args = append(args, "-map_metadata", "-1")
+	}
 	args = append(args, outputPath)
 
 	cmd := exec.Command("ffmpeg", args...)
 	stderrPipe, _ := cmd.StderrPipe()
 
-	if err := cmd.Start(); err != nil {
+	process := Global.GetProcess(opts.JobID)
+	if err := process.StartCmd(cmd); err != nil {
 		return nil, fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 
@@ -127,20 +154,106 @@ func StreamFile(w http.ResponseWriter, r *http.Request, filePath string, filenam
 	}
 	defer f.Close()
 
-	// ServeContent handles Range requests, conditional GETs, and uses
-	// sendfile() syscall for zero-copy transfer when possible
-	http.ServeContent(w, r, fullFilename, info.ModTime(), f)
+	complete, copyErr := serveDownloadContent(w, r, f, info, fullFilename)
 
+	if copyErr != nil {
+		log.Printf("[%s] Stream error: %v", downloadID, copyErr)
+		if logErr := RecordDownloadFailure(downloadID, sourceURL, "sending", copyErr); logErr != nil {
+			log.Printf("[%s] Failed to write structured failure log: %v", downloadID, logErr)
+		}
+		if err := Global.MarkPendingJobReady(downloadID, filePath, ext); err == nil {
+			progress := float64(100)
+			Global.SendProgress(downloadID, "ready", "Connection interrupted, retrying the finished download...", &progress, map[string]interface{}{
+				"downloadUrl": "/api/recovered/" + downloadID,
+				"filename":    filename,
+				"ext":         ext,
+			})
+		} else {
+			Global.SendProgressSimple(downloadID, "error", "Failed to send file")
+		}
+		Global.ReleaseJobKeepingPending(downloadID)
+		return
+	}
+	if !complete {
+		if err := Global.MarkPendingJobReady(downloadID, filePath, ext); err == nil {
+			progress := float64(100)
+			Global.SendProgress(downloadID, "ready", "Download ready to resume...", &progress, map[string]interface{}{
+				"downloadUrl": "/api/recovered/" + downloadID,
+				"filename":    filename,
+				"ext":         ext,
+			})
+		}
+		Global.ReleaseJobKeepingPending(downloadID)
+		return
+	}
 	Global.SendProgressSimple(downloadID, "complete", "Download complete!")
 	Global.UnregisterDownload(downloadID)
 
 	if onCleanup != nil {
 		onCleanup()
-	}
-
-	go func() {
+	} else {
 		util.CleanupJobFiles(downloadID)
-	}()
+	}
+	Global.ReleaseJob(downloadID)
+}
+
+type streamResponseWriter struct {
+	http.ResponseWriter
+	status       int
+	bytesWritten int64
+	writeErr     error
+}
+
+func (w *streamResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *streamResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	written, err := w.ResponseWriter.Write(data)
+	w.bytesWritten += int64(written)
+	if err != nil && w.writeErr == nil {
+		w.writeErr = err
+	}
+	return written, err
+}
+
+func (w *streamResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	written, err := io.Copy(w.ResponseWriter, reader)
+	w.bytesWritten += written
+	if err != nil && w.writeErr == nil {
+		w.writeErr = err
+	}
+	return written, err
+}
+
+func serveDownloadContent(w http.ResponseWriter, r *http.Request, file *os.File, info os.FileInfo, filename string) (bool, error) {
+	tracked := &streamResponseWriter{ResponseWriter: w}
+	http.ServeContent(tracked, r, filename, info.ModTime(), file)
+	if tracked.writeErr != nil {
+		return false, tracked.writeErr
+	}
+	if r.Method == http.MethodHead || tracked.status >= http.StatusBadRequest {
+		return false, nil
+	}
+	contentRange := tracked.Header().Get("Content-Range")
+	if contentRange == "" {
+		return tracked.bytesWritten == info.Size(), nil
+	}
+	var start, end, total int64
+	if _, err := fmt.Sscanf(contentRange, "bytes %d-%d/%d", &start, &end, &total); err != nil {
+		return false, nil
+	}
+	expected := end - start + 1
+	return total > 0 && end == total-1 && tracked.bytesWritten == expected, nil
 }
 
 func ProbeForGif(filePath string) bool {

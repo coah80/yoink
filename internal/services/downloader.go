@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coah80/yoink/internal/config"
 	"github.com/coah80/yoink/internal/util"
@@ -21,6 +23,19 @@ var percentRe = regexp.MustCompile(`([\d.]+)%`)
 var speedRe = regexp.MustCompile(`at\s+([\d.]+\s*\w+/s)`)
 var etaRe = regexp.MustCompile(`ETA\s+(\S+)`)
 var ytdlpErrorRe = regexp.MustCompile(`(?i)ERROR[:\s]+(.+?)(?:\n|$)`)
+
+func isTwitchVODURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "twitch.tv" && !strings.HasSuffix(host, ".twitch.tv") {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	return len(parts) == 2 && parts[0] == "videos" && parts[1] != ""
+}
 
 type YtdlpProgress struct {
 	Percent float64
@@ -32,6 +47,9 @@ func ParseYtdlpProgress(text string) YtdlpProgress {
 	var p YtdlpProgress
 	if m := percentRe.FindStringSubmatch(text); len(m) > 1 {
 		p.Percent, _ = strconv.ParseFloat(m[1], 64)
+		if p.Percent > 100 {
+			p.Percent = 0
+		}
 	}
 	if m := speedRe.FindStringSubmatch(text); len(m) > 1 {
 		p.Speed = m[1]
@@ -43,10 +61,10 @@ func ParseYtdlpProgress(text string) YtdlpProgress {
 }
 
 type DownloadOpts struct {
+	DownloadPreferences
 	IsAudio     bool
 	AudioFormat string
 	Quality     string
-	Codec       string
 	Container   string
 	TempDir     string
 	FilePrefix  string
@@ -110,17 +128,38 @@ func DownloadViaYtdlp(ctx context.Context, url, jobID string, opts DownloadOpts)
 
 func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadOpts) (*DownloadResult, error) {
 	filePrefix := fmt.Sprintf("%s%s", opts.FilePrefix, jobID)
+	maxHeight := config.QualityHeight[opts.Quality]
+	resolved, handled, err := ResolveSocialMedia(ctx, url, maxHeight)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		url = resolved.DirectURL
+	}
+	url = util.NormalizeYtdlpURL(url)
+	directGIF := strings.HasSuffix(strings.ToLower(strings.SplitN(url, "?", 2)[0]), ".gif")
+
 	tempFile := filepath.Join(opts.TempDir, fmt.Sprintf("%s.%%(ext)s", filePrefix))
 
-	args := append([]string{}, util.GetYouTubeAuthArgs()...)
+	args := append([]string{}, util.YtdlpArgsForURL(url)...)
+	if isTwitchVODURL(url) {
+		args = append(args, "--downloader", "m3u8:ffmpeg")
+	}
+	if resolved != nil {
+		if resolved.UserAgent != "" {
+			args = append(args, "--user-agent", resolved.UserAgent)
+		}
+		if resolved.Referer != "" {
+			args = append(args, "--referer", resolved.Referer)
+		}
+	}
 	if opts.UseProxy {
 		args = append(args, util.GetProxyArgs()...)
 	}
-	args = append(args,
-		"--continue",
-		"-t", "sleep",
-		"--remote-components", "ejs:github",
-	)
+	args = append(args, "--continue", "--remote-components", "ejs:github")
+	if !util.IsBilibiliURL(url) && (resolved == nil || !resolved.SkipSleep) {
+		args = append(args, "-t", "sleep")
+	}
 	if opts.Playlist {
 		args = append(args, "--yes-playlist")
 	} else {
@@ -133,30 +172,47 @@ func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadO
 	)
 
 	if opts.IsAudio {
-		args = append(args, "-f", "bestaudio/best")
+		audioSelector := "bestaudio/best"
+		if strings.Contains(strings.ToLower(url), "tiktok.com/") {
+			audioSelector = "download/b[acodec!=none][vcodec^=h264]/bestaudio/best"
+		}
+		args = append(args, "-f", audioSelector)
 	} else {
-		args = append(args, VideoFormatArgs(opts.Quality, opts.Codec, opts.Container)...)
-		args = append(args, "--merge-output-format", opts.Container)
+		if directGIF {
+			args = append(args, "-f", "best")
+		} else {
+			codec := opts.EffectiveCodec(opts.Container)
+			if opts.H265 && (codec == "" || codec == "h264") && !strings.EqualFold(opts.Container, "webm") {
+				codec = "h265"
+			}
+			args = append(args, VideoFormatArgs(opts.Quality, codec, opts.Container)...)
+			args = append(args, "--merge-output-format", opts.Container)
+		}
 	}
 
+	if opts.Metadata != nil {
+		if *opts.Metadata {
+			args = append(args, "--embed-metadata")
+		} else {
+			args = append(args, "--no-embed-metadata")
+		}
+	}
 	args = append(args, url)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
-	if opts.ProcessInfo != nil {
-		opts.ProcessInfo.SetCmd(cmd)
-	}
-
+	cmd := exec.CommandContext(ctx, util.YtdlpBinary(), args...)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
+	stopCancellation := ConfigureYtdlpCancellation(cmd, 5*time.Second, stdout, stderr)
+	defer stopCancellation()
 
-	if err := cmd.Start(); err != nil {
+	if err := opts.ProcessInfo.StartCmd(cmd); err != nil {
 		return nil, fmt.Errorf("failed to start yt-dlp: %w", err)
 	}
 
 	if opts.OnCancel != nil {
 		opts.OnCancel(func() {
 			if cmd.Process != nil {
-				cmd.Process.Kill()
+				_ = cmd.Cancel()
 			}
 		})
 	}
@@ -208,13 +264,18 @@ func downloadViaYtdlpOnce(ctx context.Context, url, jobID string, opts DownloadO
 	}()
 
 	wg.Wait()
-	err := cmd.Wait()
+	err = cmd.Wait()
 
 	if opts.ProcessInfo != nil && opts.ProcessInfo.IsCancelled() {
 		return nil, fmt.Errorf("Download cancelled")
 	}
 
 	if err != nil {
+		if isVimeoPlayerURL(url) {
+			if result, fallbackErr := downloadVimeoFallback(ctx, url, jobID, maxHeight, opts); fallbackErr == nil {
+				return result, nil
+			}
+		}
 		errMsg := "Download failed"
 		if m := ytdlpErrorRe.FindStringSubmatch(stderrOutput.String()); len(m) > 1 {
 			errMsg = strings.TrimSpace(m[1])
@@ -259,9 +320,10 @@ func VideoFormatArgs(quality, codec, container string) []string {
 	if quality == "4k" { // Accept settings saved by older frontends.
 		quality = "2160p"
 	}
-	filter := ""
+	filter, portrait := "", ""
 	if height := config.QualityHeight[quality]; height > 0 {
 		filter = fmt.Sprintf("[height<=%d]", height)
+		portrait = fmt.Sprintf("[width<=%d]", height)
 	}
 	video, audio := "bv*", "ba"
 	combined := "b"
@@ -276,10 +338,20 @@ func VideoFormatArgs(quality, codec, container string) []string {
 		sort += ",vcodec:av01,acodec:opus"
 	case "vp9":
 		sort += ",vcodec:vp9,acodec:opus"
+	case "h265":
+		sort += ",vcodec:hevc,+acodec:m4a"
 	default:
 		sort += ",+vcodec:avc,+acodec:m4a"
 	}
-	return []string{"-f", video + filter + "+" + audio + "/" + combined + filter, "-S", sort}
+	selector := video + filter + "+" + audio
+	if portrait != "" {
+		selector += "/" + video + portrait + "+" + audio
+	}
+	selector += "/" + combined + filter
+	if portrait != "" {
+		selector += "/" + combined + portrait
+	}
+	return []string{"-f", selector, "-S", sort}
 }
 
 func cleanupYtdlpOutputs(tempDir, prefix string) {
@@ -307,13 +379,19 @@ type PlaylistEntry struct {
 }
 
 func GetPlaylistInfo(ctx context.Context, url string, useProxy bool) (*PlaylistInfo, error) {
-	args := append([]string{}, util.GetYouTubeAuthArgs()...)
+	url = util.NormalizeYtdlpURL(url)
+	args := append([]string{}, util.YtdlpArgsForURL(url)...)
 	if useProxy {
 		args = append(args, util.GetProxyArgs()...)
 	}
-	args = append(args, "-t", "sleep", "--yes-playlist", "--flat-playlist", "-J", url)
+	if !util.IsBilibiliURL(url) {
+		args = append(args, "-t", "sleep")
+	}
+	args = append(args, "--yes-playlist", "--flat-playlist", "-J", url)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, util.YtdlpBinary(), args...)
+	stopCancellation := ConfigureYtdlpCancellation(cmd, 5*time.Second)
+	defer stopCancellation()
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -354,7 +432,7 @@ func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string,
 	endTime := float64(clipData.EndTimeMs) / 1000
 	clipFile := filepath.Join(tempDir, fmt.Sprintf("%s-ytclip.%%(ext)s", jobID))
 
-	args := append([]string{}, util.GetYouTubeAuthArgs()...)
+	args := append([]string{}, util.YtdlpArgsForURL(clipData.FullVideoURL)...)
 	args = append(args, util.GetProxyArgs()...)
 	args = append(args, VideoFormatArgs(quality, codec, container)...)
 	args = append(args,
@@ -369,9 +447,11 @@ func DownloadClipViaYtdlp(ctx context.Context, clipData *ClipData, jobID string,
 		clipData.FullVideoURL,
 	)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, util.YtdlpBinary(), args...)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
+	stopCancellation := ConfigureYtdlpCancellation(cmd, 5*time.Second, stdout, stderr)
+	defer stopCancellation()
 
 	if err := cmd.Start(); err != nil {
 		return nil, err

@@ -31,6 +31,7 @@ Follow [Installing yoink](install.md) first. Everything else is optional and can
 |---|---|
 | [Installing yoink](install.md) | You are starting out. Everything else builds on it. |
 | [Routing YouTube through Mullvad](mullvad.md) | YouTube keeps saying `YouTube is blocking this request` on your connection |
+| [Mullvad in Docker](mullvad-docker.md) | You want only YouTube on the VPN, with exits that rotate on their own |
 | [YouTube PO tokens and cookies](youtube-auth.md) | YouTube blocks your server, or age-restricted videos fail |
 | [Transcription](transcription.md) | You want the transcribe page (subtitles and captions) to work |
 | [TikTok and Instagram extractor](extractor.md) | TikTok or Instagram downloads fail |

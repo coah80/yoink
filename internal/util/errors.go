@@ -44,6 +44,12 @@ func ToUserError(message string) string {
 	if strings.Contains(msg, "premium") {
 		return "This video requires YouTube Premium"
 	}
+	if strings.Contains(msg, "drm protected") {
+		return "This video is DRM protected and cannot be downloaded"
+	}
+	if strings.Contains(msg, "http error 429") || strings.Contains(msg, "too many requests") {
+		return "This site is temporarily rate limiting downloads"
+	}
 	if strings.Contains(msg, "http error 403") || strings.Contains(msg, "403 forbidden") {
 		return "Access denied, the site is blocking downloads"
 	}
@@ -52,6 +58,21 @@ func ToUserError(message string) string {
 	}
 	if strings.Contains(msg, "unsupported url") {
 		return "This website isn't supported"
+	}
+	if strings.Contains(msg, "fresh cookies") {
+		return "This site requires fresh browser cookies"
+	}
+	if strings.Contains(msg, "redirect to login page") {
+		return "This site requires login to download this post"
+	}
+	if strings.Contains(msg, "no images were downloaded") || strings.Contains(msg, "no images found in download") || strings.Contains(msg, "no files were downloaded") {
+		return "No downloadable images found in this post"
+	}
+	if strings.Contains(msg, "slideshow creation failed") || strings.Contains(msg, "failed to create slideshow video") {
+		return "Could not create slideshow video"
+	}
+	if strings.Contains(msg, "no video could be found") {
+		return "No downloadable video found in this post"
 	}
 	if strings.Contains(msg, "no video formats") || strings.Contains(msg, "requested format not available") {
 		return "No downloadable formats found"
@@ -81,10 +102,10 @@ func ToUserError(message string) string {
 		return "Download failed"
 	}
 	if strings.Contains(msg, "playlist too large") {
-		return message
+		return "Playlist is too large to download"
 	}
 	if strings.Contains(msg, "too many active jobs") {
-		return message
+		return "Too many active jobs, try again after a download finishes"
 	}
 	return "Download failed"
 }

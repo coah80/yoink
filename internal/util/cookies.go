@@ -47,6 +47,9 @@ var botDetectionErrors = []string{
 }
 
 func HasCookiesFile() bool {
+	if _, err := os.Stat(YouTubeCookiesFile); err == nil {
+		return true
+	}
 	_, err := os.Stat(CookiesFile)
 	return err == nil
 }
@@ -90,6 +93,8 @@ func GetYouTubeAuthArgs() []string {
 	var args []string
 	if providerArgs := GetPOTProviderArgs(); providerArgs != nil {
 		args = append(args, providerArgs...)
+	} else {
+		args = append(args, "--extractor-args", "youtube:fetch_pot=always")
 	}
 	if tokenArgs := GetSessionTokenArgs(); tokenArgs != nil {
 		args = append(args, tokenArgs...)

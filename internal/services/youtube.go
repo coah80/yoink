@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/coah80/yoink/internal/util"
@@ -24,12 +24,9 @@ type ClipData struct {
 }
 
 var (
-	videoIDRe    = regexp.MustCompile(`"videoId"\s*:\s*"([^"]+)"`)
-	startTimeRe  = regexp.MustCompile(`"startTimeMs"\s*:\s*"(\d+)"`)
-	endTimeRe    = regexp.MustCompile(`"endTimeMs"\s*:\s*"(\d+)"`)
-	clipConfigRe = regexp.MustCompile(`"clipConfig"\s*:\s*\{[^}]*"startTimeMs"\s*:\s*"(\d+)"[^}]*"endTimeMs"\s*:\s*"(\d+)"`)
-	// Match videoId that appears near clipConfig (within ~200 chars before or after)
-	clipVideoIDRe = regexp.MustCompile(`"clipConfig"\s*:\s*\{[^}]*\}`)
+	initialDataRe = regexp.MustCompile(`(?:var\s+)?(?:ytInitialData|window\["ytInitialData"\])\s*=\s*`)
+	playerDataRe  = regexp.MustCompile(`(?:var\s+)?(?:ytInitialPlayerResponse|window\["ytInitialPlayerResponse"\])\s*=\s*`)
+	clipVideoIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 )
 
 func ParseYouTubeClip(ctx context.Context, clipURL string) (*ClipData, error) {
@@ -53,6 +50,9 @@ func ParseYouTubeClip(ctx context.Context, clipURL string) (*ClipData, error) {
 		return nil, fmt.Errorf("failed to fetch clip page: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("clip page returned HTTP %d", resp.StatusCode)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -60,67 +60,45 @@ func ParseYouTubeClip(ctx context.Context, clipURL string) (*ClipData, error) {
 	}
 	html := string(body)
 
-	var startMs, endMs int64
-	if m := clipConfigRe.FindStringSubmatch(html); len(m) > 2 {
-		startMs, _ = strconv.ParseInt(m[1], 10, 64)
-		endMs, _ = strconv.ParseInt(m[2], 10, 64)
+	var player struct {
+		VideoDetails struct {
+			VideoID string `json:"videoId"`
+		} `json:"videoDetails"`
+		ClipConfig struct {
+			Start json.Number `json:"startTimeMs"`
+			End   json.Number `json:"endTimeMs"`
+		} `json:"clipConfig"`
 	}
-
-	if startMs == 0 && endMs == 0 {
-		if m := startTimeRe.FindStringSubmatch(html); len(m) > 1 {
-			startMs, _ = strconv.ParseInt(m[1], 10, 64)
-		}
-		if m := endTimeRe.FindStringSubmatch(html); len(m) > 1 {
-			endMs, _ = strconv.ParseInt(m[1], 10, 64)
-		}
+	pos := playerDataRe.FindStringIndex(html)
+	if pos == nil {
+		return nil, fmt.Errorf("could not find clip player data")
 	}
-
-	if startMs == 0 && endMs == 0 {
-		return nil, fmt.Errorf("could not find clip timestamps")
+	if err := json.NewDecoder(strings.NewReader(html[pos[1]:])).Decode(&player); err != nil {
+		return nil, fmt.Errorf("invalid clip player data: %w", err)
 	}
-
-	// Find videoId closest to clipConfig, not the first one on the page
-	var videoID string
-	clipConfigLoc := clipVideoIDRe.FindStringIndex(html)
-	if clipConfigLoc != nil {
-		// Search for videoId within ~500 chars after clipConfig
-		searchStart := clipConfigLoc[1]
-		searchEnd := searchStart + 500
-		if searchEnd > len(html) {
-			searchEnd = len(html)
-		}
-		nearby := html[searchStart:searchEnd]
-		if m := videoIDRe.FindStringSubmatch(nearby); len(m) > 1 {
-			videoID = m[1]
-		}
-		// Also check ~500 chars before clipConfig
-		if videoID == "" {
-			searchStart = clipConfigLoc[0] - 500
-			if searchStart < 0 {
-				searchStart = 0
-			}
-			nearby = html[searchStart:clipConfigLoc[0]]
-			// Find the LAST videoId before clipConfig (closest one)
-			matches := videoIDRe.FindAllStringSubmatch(nearby, -1)
-			if len(matches) > 0 {
-				videoID = matches[len(matches)-1][1]
-			}
+	var initial struct {
+		CurrentVideoEndpoint struct {
+			WatchEndpoint struct {
+				VideoID string `json:"videoId"`
+			} `json:"watchEndpoint"`
+		} `json:"currentVideoEndpoint"`
+	}
+	if pos := initialDataRe.FindStringIndex(html); pos != nil {
+		if err := json.NewDecoder(strings.NewReader(html[pos[1]:])).Decode(&initial); err != nil {
+			return nil, fmt.Errorf("invalid clip endpoint data: %w", err)
 		}
 	}
-
-	// Fallback: first videoId on page
+	videoID := initial.CurrentVideoEndpoint.WatchEndpoint.VideoID
 	if videoID == "" {
-		if m := videoIDRe.FindStringSubmatch(html); len(m) > 1 {
-			videoID = m[1]
-		}
+		videoID = player.VideoDetails.VideoID
 	}
-
-	if videoID == "" {
-		return nil, fmt.Errorf("could not find video ID in clip page")
+	if !clipVideoIDRe.MatchString(videoID) {
+		return nil, fmt.Errorf("could not find clip parent video ID")
 	}
-
-	if idx := strings.Index(videoID, "&"); idx >= 0 {
-		videoID = videoID[:idx]
+	startMs, startErr := player.ClipConfig.Start.Int64()
+	endMs, endErr := player.ClipConfig.End.Int64()
+	if startErr != nil || endErr != nil || startMs < 0 || endMs <= startMs {
+		return nil, fmt.Errorf("invalid clip timestamps")
 	}
 
 	return &ClipData{

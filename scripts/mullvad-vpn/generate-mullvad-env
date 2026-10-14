@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_DIR="${YOINK_VPN_BASE_DIR:-$HOME/yoink-vpn-ytdlp}"
+ENV_FILE="$BASE_DIR/config/gluetun.env"
+
+command -v curl >/dev/null
+command -v jq >/dev/null
+command -v wg >/dev/null
+
+mkdir -p "$BASE_DIR/config"
+chmod 700 "$BASE_DIR/config"
+
+read -rsp "Mullvad account number: " ACCOUNT
+printf '\n'
+
+PRIVATE_KEY=""
+if [[ -f "$ENV_FILE" ]]; then
+	PRIVATE_KEY="$(awk -F= '$1=="WIREGUARD_PRIVATE_KEY"{print $2; exit}' "$ENV_FILE")"
+fi
+if [[ -z "$PRIVATE_KEY" ]]; then
+	PRIVATE_KEY="$(wg genkey)"
+fi
+
+PUBLIC_KEY="$(wg pubkey <<<"$PRIVATE_KEY")"
+
+TOKEN_BODY="$(jq -cn --arg account "$ACCOUNT" '{account_number:$account}')"
+unset ACCOUNT
+TOKEN_JSON="$(curl -fsSL -X POST https://api.mullvad.net/auth/v1/token \
+	-H 'accept: application/json' \
+	-H 'content-type: application/json' \
+	-d "$TOKEN_BODY")"
+ACCESS_TOKEN="$(jq -r '.access_token // empty' <<<"$TOKEN_JSON")"
+if [[ -z "$ACCESS_TOKEN" ]]; then
+	printf 'Mullvad did not return an access token.\n' >&2
+	exit 1
+fi
+
+DEVICES_JSON="$(curl -fsSL https://api.mullvad.net/accounts/v1/devices \
+	-H 'accept: application/json' \
+	-H "Authorization: Bearer $ACCESS_TOKEN")"
+
+DEVICE_JSON="$(jq -c --arg pubkey "$PUBLIC_KEY" 'map(select(.pubkey == $pubkey)) | first // empty' <<<"$DEVICES_JSON")"
+if [[ -z "$DEVICE_JSON" ]]; then
+	CREATE_BODY="$(jq -cn --arg pubkey "$PUBLIC_KEY" '{pubkey:$pubkey,hijack_dns:false}')"
+	RESPONSE_FILE="$(mktemp)"
+	HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w '%{http_code}' -X POST https://api.mullvad.net/accounts/v1/devices \
+		-H 'accept: application/json' \
+		-H 'content-type: application/json' \
+		-H "Authorization: Bearer $ACCESS_TOKEN" \
+		-d "$CREATE_BODY")"
+	DEVICE_JSON="$(cat "$RESPONSE_FILE")"
+	rm -f "$RESPONSE_FILE"
+	if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "201" ]]; then
+		printf 'Could not create Mullvad WireGuard device. HTTP %s: %s\n' "$HTTP_CODE" "$DEVICE_JSON" >&2
+		exit 1
+	fi
+fi
+
+IPV4_ADDRESS="$(jq -r '.ipv4_address // empty' <<<"$DEVICE_JSON")"
+if [[ -z "$IPV4_ADDRESS" || "$IPV4_ADDRESS" == "null" ]]; then
+	printf 'Mullvad device did not include an IPv4 address.\n' >&2
+	exit 1
+fi
+if [[ "$IPV4_ADDRESS" != */* ]]; then
+	IPV4_ADDRESS="$IPV4_ADDRESS/32"
+fi
+
+TMP_FILE="$(mktemp)"
+chmod 600 "$TMP_FILE"
+cat >"$TMP_FILE" <<EOF
+VPN_SERVICE_PROVIDER=mullvad
+VPN_TYPE=wireguard
+WIREGUARD_PRIVATE_KEY=$PRIVATE_KEY
+WIREGUARD_ADDRESSES=$IPV4_ADDRESS
+SERVER_COUNTRIES=${YOINK_VPN_COUNTRY:-USA}
+TZ=${TZ:-UTC}
+EOF
+mv "$TMP_FILE" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+printf 'Wrote %s\n' "$ENV_FILE"

@@ -1,7 +1,9 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,5 +90,231 @@ func TestVideoFormatSelection(t *testing.T) {
 				t.Fatalf("selected %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseYtdlpProgressRejectsNumbersAboveOneHundred(t *testing.T) {
+	progress := ParseYtdlpProgress("ticktock-clock-gif-25700487%")
+	if progress.Percent != 0 {
+		t.Fatalf("Percent = %v, want 0", progress.Percent)
+	}
+}
+
+func TestDownloadViaYtdlpAllowsPortraitQuality(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	capture := filepath.Join(t.TempDir(), "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CAPTURE_PATH"
+output=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		output="$1"
+		break
+	fi
+	shift
+done
+output=$(printf '%s' "$output" | sed 's/%(ext)s/mp4/')
+printf x > "$output"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTDLP_BIN", bin)
+	t.Setenv("CAPTURE_PATH", capture)
+
+	_, err := DownloadViaYtdlp(context.Background(), "https://example.com/video", "portrait", DownloadOpts{
+		Quality:   "360p",
+		Container: "mp4",
+		TempDir:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "[width<=360]") {
+		t.Fatalf("yt-dlp args missing portrait width fallback: %q", string(args))
+	}
+}
+
+func TestDownloadViaYtdlpKeepsDirectGIF(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	capture := filepath.Join(t.TempDir(), "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CAPTURE_PATH"
+output=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		output="$1"
+		break
+	fi
+	shift
+done
+output=$(printf '%s' "$output" | sed 's/%(ext)s/gif/')
+printf 'GIF89a' > "$output"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTDLP_BIN", bin)
+	t.Setenv("CAPTURE_PATH", capture)
+
+	result, err := DownloadViaYtdlp(context.Background(), "https://static.klipy.com/ii/example.gif", "klipy", DownloadOpts{
+		Quality:   "360p",
+		Container: "gif",
+		TempDir:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ext != "gif" {
+		t.Fatalf("Ext = %q", result.Ext)
+	}
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(args), "--merge-output-format") {
+		t.Fatalf("yt-dlp args try to merge a GIF: %q", string(args))
+	}
+}
+
+func TestDownloadViaYtdlpUsesFFmpegForTwitchVOD(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	capture := filepath.Join(t.TempDir(), "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CAPTURE_PATH"
+output=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		output="$1"
+		break
+	fi
+	shift
+done
+output=$(printf '%s' "$output" | sed 's/%(ext)s/mp4/')
+printf x > "$output"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTDLP_BIN", bin)
+	t.Setenv("CAPTURE_PATH", capture)
+
+	_, err := DownloadViaYtdlp(context.Background(), "https://www.twitch.tv/videos/1000000001", "twitch-vod", DownloadOpts{
+		Quality:   "1080p",
+		Container: "mp4",
+		TempDir:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "--downloader\nm3u8:ffmpeg\n") {
+		t.Fatalf("yt-dlp args missing Twitch HLS downloader: %q", string(args))
+	}
+}
+
+func TestDownloadViaYtdlpForwardsBilibiliHeaders(t *testing.T) {
+	previousClient := socialHTTPClient
+	socialHTTPClient = &http.Client{Transport: socialRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/x/web-interface/view" {
+			return socialResponse(`{"code":0,"data":{"bvid":"BV1xx411c7mD","cid":41324905972,"title":"Public Bilibili video","duration":51,"owner":{"name":"Uploader"}}}`), nil
+		}
+		return socialResponse(`{"code":0,"data":{"durl":[{"url":"https://upos.example/video.mp4"}]}}`), nil
+	})}
+	t.Cleanup(func() {
+		socialHTTPClient = previousClient
+	})
+
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	capture := filepath.Join(t.TempDir(), "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CAPTURE_PATH"
+output=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		output="$1"
+		break
+	fi
+	shift
+done
+output=$(printf '%s' "$output" | sed 's/%(ext)s/mp4/')
+printf x > "$output"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTDLP_BIN", bin)
+	t.Setenv("CAPTURE_PATH", capture)
+
+	_, err := DownloadViaYtdlp(context.Background(), "https://www.bilibili.com/video/BV1xx411c7mD", "bilibili", DownloadOpts{
+		Quality:   "360p",
+		Container: "mp4",
+		TempDir:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argumentText := string(args)
+	if !strings.Contains(argumentText, "--referer\nhttps://www.bilibili.com/\n") || !strings.Contains(argumentText, "--user-agent\n") {
+		t.Fatalf("yt-dlp args missing Bilibili headers: %q", argumentText)
+	}
+}
+
+func TestDownloadViaYtdlpSelectsWebMCompatibleStreams(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	capture := filepath.Join(t.TempDir(), "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CAPTURE_PATH"
+output=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		output="$1"
+		break
+	fi
+	shift
+done
+output=$(printf '%s' "$output" | sed 's/%(ext)s/webm/')
+printf x > "$output"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTDLP_BIN", bin)
+	t.Setenv("CAPTURE_PATH", capture)
+
+	_, err := DownloadViaYtdlp(context.Background(), "https://example.com/video", "webm", DownloadOpts{
+		Quality:   "480p",
+		Container: "webm",
+		TempDir:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argumentText := string(args)
+	if !strings.Contains(argumentText, "bv*[ext=webm][height<=480]+ba[ext=webm]") {
+		t.Fatalf("yt-dlp args missing WebM-compatible streams: %q", argumentText)
+	}
+	if strings.Contains(argumentText, "vcodec^=avc") || strings.Contains(argumentText, "acodec^=mp4a") {
+		t.Fatalf("yt-dlp args select MP4-only codecs for WebM: %q", argumentText)
 	}
 }

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTAINER="${YOINK_VPN_CONTAINER:-yoink-mullvad}"
+docker run --rm --network "container:$CONTAINER" alpine:3.20 wget -qO- https://am.i.mullvad.net/connected

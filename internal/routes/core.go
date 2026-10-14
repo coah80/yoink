@@ -1,10 +1,13 @@
 package routes
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,7 +15,6 @@ import (
 
 	"github.com/coah80/yoink/internal/config"
 	"github.com/coah80/yoink/internal/services"
-	"github.com/coah80/yoink/internal/util"
 )
 
 func CoreRoutes(r chi.Router) {
@@ -24,14 +26,46 @@ func CoreRoutes(r chi.Router) {
 	r.Get("/api/progress/{id}", handleProgress)
 	r.Post("/api/cancel/{id}", handleCancel)
 	r.Post("/api/finish-early/{id}", handleFinishEarly)
+	r.Post("/api/admin/drain", handleAdminDrain)
+	r.Post("/api/admin/resume", handleAdminResume)
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{
-		"status":  "ok",
-		"version": config.Version,
-		"queue":   services.Global.GetQueueStatus(),
+		"status":   "ok",
+		"version":  config.Version,
+		"queue":    services.Global.GetQueueStatus(),
+		"draining": services.Global.IsDraining(),
 	})
+}
+
+func handleAdminDrain(w http.ResponseWriter, r *http.Request) {
+	if !checkAdminAuth(w, r) {
+		return
+	}
+	services.Global.SetDraining(true)
+	respondJSON(w, http.StatusOK, map[string]bool{"draining": true})
+}
+
+func handleAdminResume(w http.ResponseWriter, r *http.Request) {
+	if !checkAdminAuth(w, r) {
+		return
+	}
+	services.Global.SetDraining(false)
+	respondJSON(w, http.StatusOK, map[string]bool{"draining": false})
+}
+
+func checkAdminAuth(w http.ResponseWriter, r *http.Request) bool {
+	if config.AdminToken == "" {
+		http.NotFound(w, r)
+		return false
+	}
+	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(got), []byte(config.AdminToken)) != 1 {
+		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return false
+	}
+	return true
 }
 
 func handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -89,17 +123,24 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	resumedJob := services.Global.GetResumedJob(id)
-	if resumedJob != nil {
-		data, _ := json.Marshal(map[string]interface{}{
+	pendingJob := services.Global.GetPendingJob(id)
+	if pendingJob != nil {
+		payload := map[string]interface{}{
 			"stage":    "resuming",
 			"message":  "Reconnected! Resuming download...",
-			"progress": resumedJob.Progress,
-		})
+			"progress": pendingJob.Progress,
+		}
+		if pendingJob.Ready {
+			payload["stage"] = "ready"
+			payload["message"] = "Recovered download is ready..."
+			payload["progress"] = 100
+			payload["downloadUrl"] = "/api/recovered/" + pendingJob.ID
+			payload["filename"] = pendingJob.Filename
+			payload["ext"] = pendingJob.OutputExt
+		}
+		data, _ := json.Marshal(payload)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
-		resumedJob.ClientReconnected = true
-		resumedJob.Response = w
 	}
 
 	dw := services.Global.RegisterDownload(id, w, flusher)
@@ -142,19 +183,17 @@ func handleCancel(w http.ResponseWriter, r *http.Request) {
 	if processInfo != nil {
 		log.Printf("[%s] Cancelling download...\n", id)
 		processInfo.SetCancelled(true)
-
-		if processInfo.CancelFunc != nil {
-			processInfo.CancelFunc()
-		}
-		processInfo.KillProcess()
+		processInfo.SignalProcess(syscall.SIGTERM)
+		go func() {
+			time.Sleep(3 * time.Second)
+			if processInfo.CancelFunc != nil {
+				processInfo.CancelFunc()
+			}
+			processInfo.KillProcess()
+		}()
 
 		services.Global.ReleaseJob(id)
 		services.Global.SendProgressSimple(id, "cancelled", "Download cancelled")
-
-		go func() {
-			time.Sleep(time.Second)
-			util.CleanupJobFiles(id)
-		}()
 
 		respondJSON(w, 200, map[string]interface{}{"success": true, "message": "Download cancelled"})
 	} else {

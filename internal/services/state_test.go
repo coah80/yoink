@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/coah80/yoink/internal/config"
 )
 
 func newTestState() *State {
@@ -72,5 +74,51 @@ func TestKeepTempFile(t *testing.T) {
 		if got := s.KeepTempFile(tc.path, now); got != tc.want {
 			t.Errorf("KeepTempFile(%q) = %v, want %v", tc.path, got, tc.want)
 		}
+	}
+}
+
+func TestSessionTimeoutKeepsJobOwnedUntilHandlerExits(t *testing.T) {
+	state := newState()
+	jobID := "timeout-owner-test"
+	clientID := "timeout-owner-client"
+	cancelled := false
+	cleaned := false
+	owner := &ProcessInfo{
+		JobType: "download",
+		CancelFunc: func() {
+			cancelled = true
+		},
+	}
+
+	state.RegisterClient(clientID)
+	state.LinkJobToClient(jobID, clientID)
+	if !state.TrySetProcess(jobID, owner) {
+		t.Fatal("failed to register owner")
+	}
+	state.muSessions.Lock()
+	state.sessions[clientID].LastHeartbeat = time.Now().Add(-config.HeartbeatTimeout - time.Second)
+	state.muSessions.Unlock()
+
+	state.cleanupTimedOutSessions(time.Now(), func(string) {
+		cleaned = true
+	})
+
+	if !owner.IsCancelled() || !cancelled {
+		t.Fatal("timed-out owner was not cancelled")
+	}
+	if cleaned {
+		t.Fatal("timed-out handler files were cleaned before it exited")
+	}
+	if state.GetProcess(jobID) != owner {
+		t.Fatal("timed-out owner released its job ID before exiting")
+	}
+	if state.TrySetProcess(jobID, &ProcessInfo{JobType: "download"}) {
+		t.Fatal("replacement reused the job ID while the timed-out owner was exiting")
+	}
+	if !state.ReleaseJob(jobID) {
+		t.Fatal("owner failed to release after exiting")
+	}
+	if !state.TrySetProcess(jobID, &ProcessInfo{JobType: "download"}) {
+		t.Fatal("job ID stayed locked after the owner exited")
 	}
 }
