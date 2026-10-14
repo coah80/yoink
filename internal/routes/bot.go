@@ -637,7 +637,7 @@ func handleBotConvert(w http.ResponseWriter, r *http.Request) {
 		job.Unlock()
 
 		services.Global.ReleaseJob(jobID)
-		log.Printf("[BotConvert] Job %s complete: %s", jobID, outputFilename)
+		log.Printf("[BotConvert] Job %s complete", jobID)
 	}()
 }
 
@@ -749,7 +749,7 @@ func handleBotCompressEndpoint(w http.ResponseWriter, r *http.Request) {
 		completedJob.DownloadToken = token
 		completedJob.Unlock()
 
-		log.Printf("[BotCompress] Job %s complete: %s (%.2fMB)", jobID, outputFilename, float64(stat.Size())/(1024*1024))
+		log.Printf("[BotCompress] Job %s complete (%.2fMB)", jobID, float64(stat.Size())/(1024*1024))
 	}()
 }
 

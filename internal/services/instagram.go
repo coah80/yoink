@@ -99,7 +99,7 @@ func FetchInstagramMetadata(ctx context.Context, rawURL string) (*InstagramMeta,
 }
 
 func DownloadInstagramMedia(ctx context.Context, rawURL, jobID, tempDir string, isAudio bool, progressCb func(float64, int64, int64)) (*DownloadResult, error) {
-	log.Printf("[Instagram] [%s] Attempting Cobalt download for: %s", jobID, rawURL)
+	log.Printf("[Instagram] [%s] Attempting Cobalt download", jobID)
 
 	cobaltResult, err := DownloadViaCobalt(ctx, rawURL, jobID, isAudio, progressCb, CobaltDownloadOpts{
 		OutputDir: tempDir,

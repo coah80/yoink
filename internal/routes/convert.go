@@ -456,7 +456,7 @@ func handleFetchURL(w http.ResponseWriter, r *http.Request) {
 	duration, width, height := probeVideoInfo(filePath)
 
 	fileName := filepath.Base(filePath)
-	log.Printf("[%s] Fetched: %s (%.1fMB)\n", id, fileName, float64(stat.Size())/(1024*1024))
+	log.Printf("[%s] Fetched (%.1fMB)\n", id, float64(stat.Size())/(1024*1024))
 
 	fileToken := uuid.New().String()
 	services.Global.SetFileRef(fileToken, &services.FileRef{

@@ -21,7 +21,7 @@ func New() *http.Server {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RealIP)
-	r.Use(chimw.Logger)
+	r.Use(middleware.RequestLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(securityHeaders)
 	r.Use(middleware.LoadCORS())

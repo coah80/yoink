@@ -100,7 +100,7 @@ func callExtractor(ctx context.Context, path, rawURL string) (json.RawMessage, e
 }
 
 func ExtractTikTok(ctx context.Context, rawURL string) (*TikTokExtractorData, error) {
-	log.Printf("[Extractor] TikTok video: %s", rawURL)
+	log.Printf("[Extractor] TikTok video")
 	data, err := callExtractor(ctx, "/extract/tiktok", rawURL)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func ExtractTikTok(ctx context.Context, rawURL string) (*TikTokExtractorData, er
 }
 
 func ExtractTikTokMusic(ctx context.Context, rawURL string) (*TikTokMusicExtractorData, error) {
-	log.Printf("[Extractor] TikTok music: %s", rawURL)
+	log.Printf("[Extractor] TikTok music")
 	data, err := callExtractor(ctx, "/extract/tiktok/music", rawURL)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func ExtractTikTokMusic(ctx context.Context, rawURL string) (*TikTokMusicExtract
 }
 
 func ExtractInstagram(ctx context.Context, rawURL string) (*InstagramExtractorData, error) {
-	log.Printf("[Extractor] Instagram: %s", rawURL)
+	log.Printf("[Extractor] Instagram")
 	data, err := callExtractor(ctx, "/extract/instagram", rawURL)
 	if err != nil {
 		return nil, err

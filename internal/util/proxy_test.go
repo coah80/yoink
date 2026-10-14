@@ -1,7 +1,7 @@
 package util
 
 import (
-	"strings"
+	"regexp"
 	"testing"
 
 	"github.com/coah80/yoink/internal/config"
@@ -41,15 +41,19 @@ func TestGetRandomProxyURL_Mullvad(t *testing.T) {
 func TestGetRandomProxyURL_MullvadRelays(t *testing.T) {
 	resetProxyConfig()
 	config.ProxyHost = "se-mma-wg-socks5-001.relays.mullvad.net, nl-ams-wg-socks5-001.relays.mullvad.net"
+	want := map[string]bool{
+		"socks5h://se-mma-wg-socks5-001.relays.mullvad.net:1080": true,
+		"socks5h://nl-ams-wg-socks5-001.relays.mullvad.net:1080": true,
+	}
 	seen := map[string]bool{}
 	for i := 0; i < 40; i++ {
 		got := GetRandomProxyURL()
-		if !strings.HasPrefix(got, "socks5h://") || !strings.HasSuffix(got, ":1080") {
-			t.Fatalf("bad url %q", got)
+		if !want[got] {
+			t.Fatalf("unexpected relay url %q", got)
 		}
 		seen[got] = true
 	}
-	if len(seen) < 2 {
+	if len(seen) != len(want) {
 		t.Fatalf("expected both relays, got %v", seen)
 	}
 }
@@ -61,9 +65,12 @@ func TestGetRandomProxyURL_AuthPool(t *testing.T) {
 	config.ProxyUserPrefix = "yoink"
 	config.ProxyPassword = "secret"
 	config.ProxyCount = 3
-	got := GetRandomProxyURL()
-	if !strings.HasPrefix(got, "http://yoink-") || !strings.Contains(got, ":secret@proxy.example:80") {
-		t.Fatalf("got %q", got)
+	re := regexp.MustCompile(`^http://yoink-[1-3]:secret@proxy\.example:80$`)
+	for i := 0; i < 40; i++ {
+		got := GetRandomProxyURL()
+		if !re.MatchString(got) {
+			t.Fatalf("got %q", got)
+		}
 	}
 }
 
