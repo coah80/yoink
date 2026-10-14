@@ -26,7 +26,7 @@
     <br/>
 </div>
 
-yoink is an all-in-one media tool. download videos from 1000+ sites, convert between formats, and compress for discord. no ads or sign-up required.
+yoink is an all-in-one media tool. download videos from 1000+ sites, convert between formats, and compress for discord. no ads, no trackers, free and fast, forever.
 
 <img width="4064" height="2354" alt="image" src="https://github.com/user-attachments/assets/3dd1dadc-618c-498d-9d81-37058d305ffa" />
 
@@ -72,7 +72,7 @@ make build           # builds the frontend and server, copies assets to public/
 ./yoink              # serves API + frontend on :3001
 ```
 
-`frontend/src` contains the Svelte source. `frontend/static` contains source assets, and `npm run build` in `frontend` produces `frontend/public`, which is checked in for existing deployments. source was restored from `claude/sync-frontend-to-github-kdTHt` (commit `57e4c5b`), the branch containing the source for the previously checked-in bundle.
+`frontend/src` contains the Svelte source. `frontend/static` contains source assets, and `npm run build` in `frontend` produces `frontend/public`, which is checked in for existing deployments.
 
 for development, run `make run` from the repo root and `npm run dev` from `frontend` in another terminal. Vite proxies `/api` to `localhost:3001`, and production uses the same origin as the website. set `VITE_API_URL` when building for a separate API host. if you change `PORT`, also update the Vite proxy target. when distributing the binary, put the built `public/` folder beside it, and include `scripts/transcribe.py` if you want transcription.
 

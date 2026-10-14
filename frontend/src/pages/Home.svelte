@@ -608,8 +608,6 @@
       </div>
     </div>
 
-    <p class="source-note">downloads use the best available quality up to your setting. site support depends on source availability and access restrictions.</p>
-
     {#if statusType}
       <div class="status {statusType}">
         {#if statusType === 'loading'}
@@ -768,14 +766,6 @@
 }} />
 
 <style>
-  .source-note {
-    margin-top: 16px;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    line-height: 1.6;
-    text-align: center;
-  }
-
   main {
     flex: 1;
     display: flex;

@@ -14,7 +14,7 @@ export async function fetchJson(url, opts = {}) {
     } else {
       const text = await res.text();
       console.error('Non-JSON error response:', text.substring(0, 500));
-      errorMsg = `Server error ${res.status} - please try again`;
+      errorMsg = `Server error ${res.status} (likely VPN blocked)`;
     }
     throw new Error(errorMsg);
   }
