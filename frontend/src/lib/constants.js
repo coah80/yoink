@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS = {
   container: 'mp4',
   audioFormat: 'mp3',
   audioBitrate: '320',
+  stems: 'off',
   filenameStyle: 'basic',
   playlistPreference: null,
   tiktokCarouselPreference: null,

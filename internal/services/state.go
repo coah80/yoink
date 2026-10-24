@@ -387,6 +387,7 @@ type PendingJob struct {
 	AudioBitrate string    `json:"audioBitrate"`
 	TwitterGifs  bool      `json:"twitterGifs"`
 	Playlist     bool      `json:"playlist"`
+	Stems        string    `json:"stems,omitempty"`
 	Ready        bool      `json:"ready"`
 	OutputPath   string    `json:"outputPath,omitempty"`
 	OutputExt    string    `json:"outputExt,omitempty"`

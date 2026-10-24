@@ -46,6 +46,10 @@
     { id: 'images', label: 'images', icon: 'image' },
   ];
 
+  function audioDisplay(s) {
+    return s.stems && s.stems !== 'off' ? `${s.audioFormat} ${s.stems}` : s.audioFormat;
+  }
+
   function initSplash() {
     splash = splashTexts[Math.floor(Math.random() * splashTexts.length)];
   }
@@ -251,7 +255,7 @@
       status: startImmediately ? 'initializing...' : 'in queue',
       progress: 0,
       isPlaylist: downloadPlaylist,
-      formatDisplay: queueFormat === 'slideshow' ? 'slideshow' : (queueFormat === 'images' ? 'images' : (queueFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`)),
+      formatDisplay: queueFormat === 'slideshow' ? 'slideshow' : (queueFormat === 'images' ? 'images' : (queueFormat === 'audio' ? audioDisplay(s) : `${s.quality} ${s.container}`)),
       startTime: startImmediately ? Date.now() : null,
       failedVideos: [],
     };
@@ -381,7 +385,7 @@
         videoCount,
         currentVideo: 0,
         currentVideoTitle: '',
-        formatDisplay: actualFormat === 'slideshow' ? 'slideshow' : (isGallery ? 'images' : (actualFormat === 'audio' ? s.audioFormat : `${s.quality} ${s.container}`)),
+        formatDisplay: actualFormat === 'slideshow' ? 'slideshow' : (isGallery ? 'images' : (actualFormat === 'audio' ? audioDisplay(s) : `${s.quality} ${s.container}`)),
         failedVideos: [],
         startTime: Date.now(),
       };

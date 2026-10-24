@@ -34,6 +34,7 @@ Follow [Installing yoink](install.md) first. Everything else is optional and can
 | [Mullvad in Docker](mullvad-docker.md) | You want only YouTube on the VPN, with exits that rotate on their own |
 | [YouTube PO tokens and cookies](youtube-auth.md) | YouTube blocks your server, or age-restricted videos fail |
 | [Transcription](transcription.md) | You want the transcribe page (subtitles and captions) to work |
+| [Vocal stems](vocal-stems.md) | You want audio downloads split into vocals and instrumental |
 | [TikTok and Instagram extractor](extractor.md) | TikTok or Instagram downloads fail |
 | [Discord bot](discord-bot.md) | You want `/yoink`, `/convert` and `/compress` in your Discord server |
 | [Working on the code](development.md) | You want to change yoink and see your changes live |

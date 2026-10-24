@@ -209,6 +209,7 @@ function createQueueStore() {
         container: s.container,
         audioFormat: s.audioFormat,
         audioBitrate: s.audioBitrate,
+        stems: item.format === 'audio' ? (s.stems || 'off') : 'off',
         progressId: item.id,
         clientId: get(clientId) || '',
         twitterGifs: s.twitterGifs !== false ? 'true' : 'false',
