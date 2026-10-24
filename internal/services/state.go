@@ -387,6 +387,7 @@ type PendingJob struct {
 	AudioBitrate string    `json:"audioBitrate"`
 	TwitterGifs  bool      `json:"twitterGifs"`
 	Playlist     bool      `json:"playlist"`
+	Stems        string    `json:"stems,omitempty"`
 	Ready        bool      `json:"ready"`
 	OutputPath   string    `json:"outputPath,omitempty"`
 	OutputExt    string    `json:"outputExt,omitempty"`
@@ -456,6 +457,7 @@ func newState() *State {
 			"convert":    0,
 			"compress":   0,
 			"transcribe": 0,
+			"stems":      0,
 			"fetchUrl":   0,
 		},
 		queuedByType:   make(map[string]int),

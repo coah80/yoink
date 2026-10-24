@@ -69,6 +69,7 @@
     { href: '/compress', label: 'compress', icon: 'compress' },
     { href: '/trim', label: 'trim', icon: 'trim' },
     { href: '/transcribe', label: 'transcribe', icon: 'transcribe' },
+    { href: '/stems', label: 'stems', icon: 'stems' },
     { href: '/settings', label: 'settings', icon: 'settings' },
   ];
 </script>
@@ -112,6 +113,12 @@
         {:else if item.icon === 'transcribe'}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        {:else if item.icon === 'stems'}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
           </svg>
         {:else if item.icon === 'settings'}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

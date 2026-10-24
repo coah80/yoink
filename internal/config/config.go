@@ -42,6 +42,7 @@ var JobLimits = map[string]int{
 	"convert":    2,
 	"compress":   1,
 	"transcribe": 1,
+	"stems":      2,
 	"fetchUrl":   2,
 }
 
@@ -115,6 +116,7 @@ var TempDirs = map[string]string{
 	"upload":     filepath.Join(TempDir, "uploads"),
 	"bot":        filepath.Join(TempDir, "bot"),
 	"transcribe": filepath.Join(TempDir, "transcribe"),
+	"stems":      filepath.Join(TempDir, "stems"),
 }
 
 type PresetConfig struct {
@@ -181,7 +183,7 @@ var BotDetectionErrors = []string{
 	"Private video",
 }
 
-var HeavyJobTypes = []string{"playlist", "convert", "compress", "transcribe"}
+var HeavyJobTypes = []string{"playlist", "convert", "compress", "transcribe", "stems"}
 
 func Load() {
 	TempDir = configuredTempDir()

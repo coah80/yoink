@@ -12,6 +12,7 @@
   import Compress from './pages/Compress.svelte';
   import Trim from './pages/Trim.svelte';
   import Transcribe from './pages/Transcribe.svelte';
+  import Stems from './pages/Stems.svelte';
   import Privacy from './pages/Privacy.svelte';
   import Download from './pages/Download.svelte';
   import Share from './pages/Share.svelte';
@@ -26,6 +27,7 @@
     '/compress': Compress,
     '/trim': Trim,
     '/transcribe': Transcribe,
+    '/stems': Stems,
     '/privacy': Privacy,
     '/download': Download,
     '/share': Share,
@@ -67,6 +69,12 @@
       'yoink - generate subtitles from any video or audio file',
       'yoink - turn speech into text, srt, or burned-in captions',
       'yoink - free audio transcription, no account needed',
+    ],
+    '/stems': [
+      'yoink - split vocals and instrumentals from any song for free',
+      'yoink - free vocal remover and acapella maker',
+      'yoink - get the instrumental or acapella of any track',
+      'yoink - separate vocals from music online, no signup',
     ],
     '/settings': [
       'yoink - settings',

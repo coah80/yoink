@@ -384,6 +384,14 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	twitterGifs := q.Get("twitterGifs") != "false"
 	downloadPlaylist := q.Get("playlist") == "true"
 	recovery := q.Get("recovery") == "true"
+	stemMode := q.Get("stems")
+	if stemMode == "off" {
+		stemMode = ""
+	}
+	if stemMode != "" && !config.Contains(services.AllowedStemModes, stemMode) {
+		respondJSON(w, 400, map[string]string{"error": "Invalid stems option. Allowed: vocals, instrumental, both"})
+		return
+	}
 	preferences := services.DownloadPreferences{Codec: q.Get("codec"), H265: q.Get("h265") == "true", FilenameStyle: q.Get("filenameStyle"), Uploader: q.Get("uploader")}
 	if q.Has("metadata") {
 		enabled := q.Get("metadata") != "false"
@@ -406,6 +414,15 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	if !check.Valid {
 		respondJSON(w, 400, map[string]string{"error": check.Error})
 		return
+	}
+	if stemMode != "" && (format == "audio" || services.IsTikTokMusicURL(rawURL)) {
+		release, err := services.ReserveStemJob()
+		if err != nil {
+			services.Global.SendProgressSimple(downloadID, "error", util.ToUserError(err.Error()))
+			respondJSON(w, 503, map[string]string{"error": util.ToUserError(err.Error())})
+			return
+		}
+		defer release()
 	}
 	if pending := services.Global.GetPendingJob(downloadID); pending != nil && pending.Ready && util.NormalizeYouTubeURL(pending.URL) == rawURL {
 		if info, err := os.Stat(pending.OutputPath); err == nil && info.Size() > 0 {
@@ -476,6 +493,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		AudioBitrate:        audioBitrate,
 		TwitterGifs:         twitterGifs,
 		Playlist:            downloadPlaylist,
+		Stems:               stemMode,
 	}
 	if recovery {
 		if existing := services.Global.GetPendingJob(downloadID); existing != nil {
@@ -743,6 +761,17 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	if downloadedExt == "zip" {
 		services.StreamFile(w, r, downloadedPath, orDefault(filename, "download"), "zip", "application/zip", downloadID, rawURL, "download", nil)
+		return
+	}
+
+	if isAudio && stemMode != "" {
+		streamStems(w, r, ctx, processInfo, downloadID, downloadedPath, rawURL, filename, stemMode, recovery, services.ProcessVideoOpts{
+			DownloadPreferences: preferences,
+			IsAudio:             true,
+			AudioFormat:         audioFormat,
+			AudioBitrate:        audioBitrate,
+			JobID:               downloadID,
+		})
 		return
 	}
 

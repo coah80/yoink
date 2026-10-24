@@ -46,6 +46,13 @@
     { value: '128', label: '128 kbps' },
   ];
 
+  const stemOptions = [
+    { value: 'off', label: 'off' },
+    { value: 'vocals', label: 'vocals' },
+    { value: 'instrumental', label: 'instrumental' },
+    { value: 'both', label: 'both' },
+  ];
+
   const filenameOptions = [
     { value: 'classic', label: 'classic' },
     { value: 'basic', label: 'basic' },
@@ -199,6 +206,22 @@
           {/each}
         </div>
         <p class="setting-description">higher bitrate = better quality but larger file size. 320kbps is a high bitrate for lossy audio, not lossless CD audio.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="setting-label">vocal stems</div>
+        <div class="segmented-control">
+          {#each stemOptions as opt}
+            <button
+              class="segment"
+              class:active={(s.stems || 'off') === opt.value}
+              onclick={() => set('stems', opt.value)}
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="setting-description">splits audio downloads with demucs. vocals gives you the acapella, instrumental gives you the karaoke version, both gives you a zip with the two. adds a little time to each audio download.</p>
       </div>
     </section>
   {/if}

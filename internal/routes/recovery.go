@@ -34,6 +34,9 @@ func recoveryParams(job *services.PendingJob) url.Values {
 		"codec":        {job.Codec},
 		"h265":         {fmt.Sprintf("%t", job.H265)},
 	}
+	if job.Stems != "" {
+		params.Set("stems", job.Stems)
+	}
 	if job.Metadata != nil {
 		params.Set("metadata", fmt.Sprintf("%t", *job.Metadata))
 	}

@@ -68,6 +68,17 @@ See [YouTube cookies and PO tokens](youtube-auth.md) for setup.
 | `COBALT_API_KEY` | empty | API key sent to those Cobalt instances |
 | `WHISPER_SCRIPT` | `scripts/transcribe.py` | Transcription helper script. See [Transcription](transcription.md). |
 | `OPENAI_API_KEY` | empty | Enables the `large` transcription model through the OpenAI API |
+| `STEMS_PYTHON` | `stems-venv/bin/python` next to yoink, else `python3` | Python that has Demucs installed. See [Vocal stems](vocal-stems.md). |
+| `STEMS_SCRIPT` | `scripts/stems.py` | Stem splitter helper script |
+| `STEMS_DEVICE` | `auto` | `auto`, `cuda` or `cpu` for stem splitting |
+| `STEMS_THREADS` | `4` | CPU threads a split may use |
+| `STEMS_MEMORY_MAX` | `5G` | Memory cap for a split's cgroup |
+| `STEMS_CPU_QUOTA` | `400%` | CPU cap for a split's cgroup, 100% is one core |
+| `STEMS_GPU_DUTY` | `30` | Percent of the time a split keeps the GPU busy. `100` is fastest but slows other GPU users. |
+| `STEMS_MAX_MINUTES` | `60` | Longest audio that can be split |
+| `STEMS_MAX_WAITING` | `1` | Stem downloads allowed to wait while one is splitting |
+| `STEMS_TIMEOUT_MINUTES` | `20` | A split is stopped after this long |
+| `STEMS_SANDBOX` | `true` | Set to `false` to skip the `systemd-run` cgroup |
 
 ## Discord
 

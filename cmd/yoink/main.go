@@ -25,12 +25,18 @@ func main() {
 	config.Load()
 	util.InitCookiePaths()
 	routes.InitTranscription()
+	services.InitStems()
 
 	util.OnCookieRefreshNeeded = alerts.CookieIssue
 	util.OnSessionTokenFailed = alerts.SessionTokenFailed
 	util.OnSessionTokenRecovered = alerts.SessionTokenRecovered
 
 	util.CheckDependencies()
+	if services.StemsAvailable() {
+		fmt.Printf("✓ demucs available: %s (own cgroup: %t)\n", services.StemsPython, services.StemsSandboxed())
+	} else {
+		fmt.Println("- demucs not found (optional, needed for vocal stems)")
+	}
 	if config.RequireTempMount {
 		if err := util.EnsureTempDirMounted(); err != nil {
 			log.Fatal(err)

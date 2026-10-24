@@ -8,6 +8,9 @@ func ToUserError(message string) string {
 	if strings.Contains(msg, "cancelled") || strings.Contains(msg, "canceled") {
 		return "Download cancelled"
 	}
+	if strings.HasPrefix(message, "stems: ") {
+		return strings.TrimPrefix(message, "stems: ")
+	}
 	if strings.Contains(msg, "content.video.unavailable") || strings.Contains(msg, "video unavailable") || strings.Contains(msg, "private video") || strings.Contains(msg, "this content is private") {
 		return "This video is unavailable or has been removed"
 	}
