@@ -32,6 +32,7 @@ func New() *http.Server {
 	routes.ConvertRoutes(r)
 	routes.GalleryRoutes(r)
 	routes.TranscribeRoutes(r)
+	routes.StemsRoutes(r)
 	routes.BotRoutes(r)
 
 	publicDir := filepath.Join(filepath.Dir(os.Args[0]), "public")

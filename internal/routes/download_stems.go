@@ -13,7 +13,10 @@ import (
 )
 
 func streamStems(w http.ResponseWriter, r *http.Request, ctx context.Context, processInfo *services.ProcessInfo, downloadID, downloadedPath, rawURL, filename, mode string, recovery bool, encode services.ProcessVideoOpts) {
-	out, err := produceStems(ctx, processInfo, downloadID, downloadedPath, filename, mode, encode)
+	services.Global.UpdatePendingJob(downloadID, 100, "processing")
+	out, err := produceStems(ctx, processInfo, downloadID, downloadedPath, config.TempDirs["download"], filename, mode, encode, func(percent float64, message string) {
+		services.Global.SendProgress(downloadID, "processing", message, &percent, nil)
+	})
 	os.Remove(downloadedPath)
 	if err == nil && processInfo.IsCancelled() {
 		os.Remove(out.Path)
@@ -51,14 +54,11 @@ type stemOutput struct {
 	MimeType string
 }
 
-func produceStems(ctx context.Context, processInfo *services.ProcessInfo, downloadID, sourcePath, filename, mode string, encode services.ProcessVideoOpts) (*stemOutput, error) {
-	stemDir := filepath.Join(config.TempDirs["download"], downloadID+"-stems")
+func produceStems(ctx context.Context, processInfo *services.ProcessInfo, jobID, sourcePath, outDir, filename, mode string, encode services.ProcessVideoOpts, onProgress func(percent float64, message string)) (*stemOutput, error) {
+	stemDir := filepath.Join(outDir, jobID+"-stems")
 	defer os.RemoveAll(stemDir)
 
-	services.Global.UpdatePendingJob(downloadID, 100, "processing")
-	stems, err := services.SplitStems(ctx, processInfo, sourcePath, stemDir, func(percent float64, message string) {
-		services.Global.SendProgress(downloadID, "processing", message, &percent, nil)
-	})
+	stems, err := services.SplitStems(ctx, processInfo, sourcePath, stemDir, onProgress)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +68,7 @@ func produceStems(ctx context.Context, processInfo *services.ProcessInfo, downlo
 		wanted = map[string]string{mode: wanted[mode]}
 	}
 
-	p := float64(100)
-	services.Global.SendProgress(downloadID, "processing", "Encoding stems...", &p, nil)
+	onProgress(100, "Encoding stems...")
 	encoded := make(map[string]string, len(wanted))
 	for name, wav := range wanted {
 		out := filepath.Join(stemDir, fmt.Sprintf("%s.%s", name, encode.AudioFormat))
@@ -81,7 +80,7 @@ func produceStems(ctx context.Context, processInfo *services.ProcessInfo, downlo
 
 	base := orDefault(filename, "download")
 	if mode != "both" {
-		final := filepath.Join(config.TempDirs["download"], fmt.Sprintf("%s-final-%s.%s", downloadID, mode, encode.AudioFormat))
+		final := filepath.Join(outDir, fmt.Sprintf("%s-final-%s.%s", jobID, mode, encode.AudioFormat))
 		if err := os.Rename(encoded[mode], final); err != nil {
 			return nil, err
 		}
@@ -97,7 +96,7 @@ func produceStems(ctx context.Context, processInfo *services.ProcessInfo, downlo
 	for name, path := range encoded {
 		entries[fmt.Sprintf("%s (%s).%s", util.SanitizeFilename(base), name, encode.AudioFormat)] = path
 	}
-	final := filepath.Join(config.TempDirs["download"], fmt.Sprintf("%s-final-stems.zip", downloadID))
+	final := filepath.Join(outDir, fmt.Sprintf("%s-final-stems.zip", jobID))
 	if err := services.ZipFiles(final, entries); err != nil {
 		os.Remove(final)
 		return nil, err

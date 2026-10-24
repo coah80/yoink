@@ -1,6 +1,6 @@
 # Vocal stems
 
-This page turns on vocal stems, which split audio downloads into vocals and instrumental with Demucs.
+This page turns on vocal stems, which split songs into vocals and instrumental with Demucs. It powers the **stems** page (upload a file or paste a link) and the **vocal stems** setting for audio downloads.
 
 This page assumes you have finished [Installing yoink](install.md).
 
@@ -53,6 +53,8 @@ In this section, you will install Demucs into its own virtual environment next t
     + The first split downloads the model into `~/.cache/torch/hub`, so it takes longer.
     + You should get a zip with `… (vocals).mp3` and `… (instrumental).mp3`.
     + If the download fails with `demucs not installed`, return to Section I.
+1. Open `http://localhost:3001/stems`, drop in a song and pick `vocals`
+    + You should get `… (vocals).mp3` back.
 
 ---
 

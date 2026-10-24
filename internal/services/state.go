@@ -457,6 +457,7 @@ func newState() *State {
 			"convert":    0,
 			"compress":   0,
 			"transcribe": 0,
+			"stems":      0,
 			"fetchUrl":   0,
 		},
 		queuedByType:   make(map[string]int),
