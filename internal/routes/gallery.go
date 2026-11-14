@@ -219,7 +219,12 @@ func handleGalleryDownload(w http.ResponseWriter, r *http.Request) {
 	os.MkdirAll(galleryDir, 0755)
 
 	processInfo := &services.ProcessInfo{TempDir: galleryDir, JobType: "download"}
-	services.Global.SetProcess(downloadID, processInfo)
+	if !services.Global.TrySetProcess(downloadID, processInfo) {
+		services.Global.DecrementJob("download")
+		respondJSON(w, http.StatusConflict, map[string]string{"error": "Download already in progress"})
+		return
+	}
+	defer services.Global.ReleaseProcess(downloadID, processInfo)
 
 	log.Println("[Queue] Gallery download started.")
 	services.Global.SendProgressSimple(downloadID, "starting", "Starting gallery download...")
@@ -292,7 +297,12 @@ func handleSlideshow(w http.ResponseWriter, r *http.Request) {
 	os.MkdirAll(galleryDir, 0755)
 
 	processInfo := &services.ProcessInfo{TempDir: galleryDir, JobType: "download"}
-	services.Global.SetProcess(downloadID, processInfo)
+	if !services.Global.TrySetProcess(downloadID, processInfo) {
+		services.Global.DecrementJob("download")
+		respondJSON(w, http.StatusConflict, map[string]string{"error": "Download already in progress"})
+		return
+	}
+	defer services.Global.ReleaseProcess(downloadID, processInfo)
 
 	log.Println("[Queue] Slideshow download started.")
 	services.Global.SendProgressSimple(downloadID, "starting", "Starting slideshow download...")

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"github.com/coah80/yoink/internal/config"
+
 	"sync"
 	"time"
 )
@@ -57,4 +59,44 @@ func (c *MetaCache) StartCleanup() {
 			c.mu.Unlock()
 		}
 	}()
+}
+
+// YtdlpEstimatedBytes reads the expected size from yt-dlp's --dump-single-json output; 0 means unknown.
+func YtdlpEstimatedBytes(meta map[string]interface{}) int64 {
+	if size := formatBytes(meta); size > 0 {
+		return size
+	}
+	formats, _ := meta["requested_formats"].([]interface{})
+	var total int64
+	for _, f := range formats {
+		format, _ := f.(map[string]interface{})
+		size := formatBytes(format)
+		if size <= 0 {
+			return 0
+		}
+		total += size
+	}
+	return total
+}
+
+func formatBytes(format map[string]interface{}) int64 {
+	for _, key := range []string{"filesize", "filesize_approx"} {
+		if size, ok := format[key].(float64); ok && size > 0 {
+			return int64(size)
+		}
+	}
+	return 0
+}
+
+// EstimatedDownloadReserveGB sizes a download's disk reserve from its cached metadata; 0 means unknown.
+func EstimatedDownloadReserveGB(url string) float64 {
+	meta, ok := MetadataCache.Get(url)
+	if !ok {
+		return 0
+	}
+	size, _ := meta["filesize"].(int64)
+	if size <= 0 {
+		return 0
+	}
+	return max(float64(size)*config.DownloadReserveFactor/(1<<30), config.DownloadReserveMinGB)
 }

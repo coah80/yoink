@@ -96,7 +96,7 @@ func TestWaitForJobSlotQueuesUntilCapacityFrees(t *testing.T) {
 	defer cancel()
 	result := make(chan JobCheck, 1)
 	go func() {
-		result <- state.WaitForJobSlot(ctx, "download")
+		result <- state.WaitForJobSlot(ctx, "download", 0)
 	}()
 
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -141,7 +141,7 @@ func TestWaitForJobSlotRemovesCancelledWaiter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan JobCheck, 1)
 	go func() {
-		result <- state.WaitForJobSlot(ctx, "download")
+		result <- state.WaitForJobSlot(ctx, "download", 0)
 	}()
 
 	deadline := time.Now().Add(500 * time.Millisecond)

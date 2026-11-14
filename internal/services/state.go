@@ -28,6 +28,8 @@ type ProcessInfo struct {
 	TempFile    string
 	TempDir     string
 	JobType     string
+	// disk reserve this job holds; 0 means the job type's flat reserve
+	ReservedGB float64
 }
 
 func (p *ProcessInfo) SetCancelled(v bool) {
@@ -402,6 +404,7 @@ type State struct {
 
 	muJobs       sync.Mutex
 	jobsByType   map[string]int
+	reservedGB   map[string]float64
 	queuedByType map[string]int
 
 	muSessions  sync.Mutex
@@ -460,6 +463,7 @@ func newState() *State {
 			"stems":      0,
 			"fetchUrl":   0,
 		},
+		reservedGB:     make(map[string]float64),
 		queuedByType:   make(map[string]int),
 		sessions:       make(map[string]*ClientSession),
 		jobToClient:    make(map[string]string),
@@ -536,49 +540,68 @@ func (s *State) DeleteProcess(id string) {
 type JobCheck struct {
 	OK     bool
 	Reason string
+	// Busy means other in-flight jobs hold the capacity, so the job can queue
+	Busy       bool
+	ReservedGB float64
+}
+
+func defaultReserveGB(jobType string) float64 {
+	switch jobType {
+	case "download":
+		return float64(config.DownloadReserveGB)
+	case "playlist":
+		return float64(config.PlaylistReserveGB)
+	case "fetchUrl":
+		return float64(config.FetchURLReserveGB)
+	}
+	return 0
+}
+
+func reserveOrDefault(jobType string, reserveGB float64) float64 {
+	if reserveGB > 0 {
+		return reserveGB
+	}
+	return defaultReserveGB(jobType)
 }
 
 func (s *State) CanStartJob(jobType string) JobCheck {
+	return s.CanStartJobWithReserve(jobType, 0)
+}
+
+// CanStartJobWithReserve takes a slot holding reserveGB of disk; 0 uses the job type's flat reserve.
+func (s *State) CanStartJobWithReserve(jobType string, reserveGB float64) JobCheck {
 	s.muShutdown.RLock()
 	draining := s.draining
 	s.muShutdown.RUnlock()
 	if draining {
-		return JobCheck{false, "Server update in progress, retry shortly"}
+		return JobCheck{OK: false, Reason: "Server update in progress, retry shortly"}
 	}
 	s.muJobs.Lock()
 	defer s.muJobs.Unlock()
 
 	limit, exists := config.JobLimits[jobType]
 	if exists && s.jobsByType[jobType] >= limit {
-		return JobCheck{false, fmt.Sprintf("server is busy, too many %s jobs are running right now (limit: %d)", jobType, limit)}
+		return JobCheck{OK: false, Busy: true, Reason: fmt.Sprintf("server is busy, too many %s jobs are running right now (limit: %d)", jobType, limit)}
 	}
 
+	reserveGB = reserveOrDefault(jobType, reserveGB)
 	availGB := diskSpaceAvailableGB()
-	requiredGB := float64(config.DiskSpaceMinGB)
-	reserveGB := 0
-	switch jobType {
-	case "download":
-		reserveGB = config.DownloadReserveGB
-	case "playlist":
-		reserveGB = config.PlaylistReserveGB
-	case "fetchUrl":
-		reserveGB = config.FetchURLReserveGB
-	}
-	if reserveGB > 0 {
-		requiredGB += float64(s.jobsByType[jobType]+1) * float64(reserveGB)
-	}
+	aloneGB := float64(config.DiskSpaceMinGB) + reserveGB
+	requiredGB := aloneGB + s.reservedGB[jobType]
 	if availGB < requiredGB {
-		if reserveGB > 0 && s.jobsByType[jobType] > 0 {
-			return JobCheck{false, fmt.Sprintf("Too many active %s jobs for available disk (%.1fGB free, need %.1fGB reserved)", jobType, availGB, requiredGB)}
+		if s.jobsByType[jobType] > 0 && availGB >= aloneGB {
+			return JobCheck{OK: false, Busy: true, Reason: fmt.Sprintf("Too many active %s jobs for available disk (%.1fGB free, need %.1fGB reserved)", jobType, availGB, requiredGB)}
 		}
-		return JobCheck{false, fmt.Sprintf("Low disk space (%.1fGB free, need %.1fGB)", availGB, requiredGB)}
+		return JobCheck{OK: false, Reason: fmt.Sprintf("Low disk space (%.1fGB free, need %.1fGB)", availGB, aloneGB)}
 	}
 
 	s.jobsByType[jobType]++
-	return JobCheck{true, ""}
+	s.reservedGB[jobType] += reserveGB
+	return JobCheck{OK: true, ReservedGB: reserveGB}
 }
 
-func (s *State) WaitForJobSlot(ctx context.Context, jobType string) JobCheck {
+// WaitForJobSlot queues while other jobs hold the capacity and fails on anything else.
+func (s *State) WaitForJobSlot(ctx context.Context, jobType string, reserveGB float64) JobCheck {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	queued := false
@@ -592,18 +615,18 @@ func (s *State) WaitForJobSlot(ctx context.Context, jobType string) JobCheck {
 
 	for {
 		if ctx.Err() != nil {
-			return JobCheck{false, "Request cancelled while queued"}
+			return JobCheck{OK: false, Reason: "Request cancelled while queued"}
 		}
 
-		check := s.CanStartJob(jobType)
+		check := s.CanStartJobWithReserve(jobType, reserveGB)
 		if check.OK {
 			if ctx.Err() != nil {
-				s.DecrementJob(jobType)
-				return JobCheck{false, "Request cancelled while queued"}
+				s.ReleaseSlot(jobType, check.ReservedGB)
+				return JobCheck{OK: false, Reason: "Request cancelled while queued"}
 			}
 			return check
 		}
-		if !strings.Contains(strings.ToLower(check.Reason), fmt.Sprintf("too many %s jobs", jobType)) {
+		if !check.Busy {
 			return check
 		}
 
@@ -616,16 +639,25 @@ func (s *State) WaitForJobSlot(ctx context.Context, jobType string) JobCheck {
 
 		select {
 		case <-ctx.Done():
-			return JobCheck{false, "Request cancelled while queued"}
+			return JobCheck{OK: false, Reason: "Request cancelled while queued"}
 		case <-ticker.C:
 		}
 	}
 }
 
+// DecrementJob releases a slot taken with the job type's flat reserve.
 func (s *State) DecrementJob(jobType string) {
+	s.ReleaseSlot(jobType, 0)
+}
+
+func (s *State) ReleaseSlot(jobType string, reservedGB float64) {
 	s.muJobs.Lock()
 	if s.jobsByType[jobType] > 0 {
 		s.jobsByType[jobType]--
+		s.reservedGB[jobType] -= reserveOrDefault(jobType, reservedGB)
+	}
+	if s.jobsByType[jobType] == 0 || s.reservedGB[jobType] < 0 {
+		s.reservedGB[jobType] = 0
 	}
 	s.muJobs.Unlock()
 }
@@ -1029,10 +1061,20 @@ func (s *State) ReleaseJobKeepingPending(jobID string) bool {
 	return s.releaseJob(jobID, false)
 }
 
+// ReleaseProcess releases jobID only while info is still its registered process.
+// Deferred by handlers so a panic (recovered by chi) can't leave a phantom slot.
+func (s *State) ReleaseProcess(jobID string, info *ProcessInfo) bool {
+	return s.releaseJobIf(jobID, info, true)
+}
+
 func (s *State) releaseJob(jobID string, removePending bool) bool {
+	return s.releaseJobIf(jobID, nil, removePending)
+}
+
+func (s *State) releaseJobIf(jobID string, want *ProcessInfo, removePending bool) bool {
 	s.muProcesses.Lock()
 	processInfo, exists := s.activeProcesses[jobID]
-	if !exists {
+	if !exists || (want != nil && processInfo != want) {
 		s.muProcesses.Unlock()
 		return false
 	}
@@ -1040,7 +1082,7 @@ func (s *State) releaseJob(jobID string, removePending bool) bool {
 	s.muProcesses.Unlock()
 
 	if processInfo.JobType != "" {
-		s.DecrementJob(processInfo.JobType)
+		s.ReleaseSlot(processInfo.JobType, processInfo.ReservedGB)
 	}
 	if removePending {
 		s.RemovePendingJob(jobID)
@@ -1141,32 +1183,39 @@ func (s *State) StartCounterReconciliation() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		for range ticker.C {
-			s.muProcesses.Lock()
-			actualCounts := make(map[string]int)
-			for _, p := range s.activeProcesses {
-				if p.JobType != "" {
-					actualCounts[p.JobType]++
-				}
-			}
-			s.muProcesses.Unlock()
-
-			s.muJobs.Lock()
-			leaked := false
-			for t, count := range s.jobsByType {
-				actual := actualCounts[t]
-				if count > actual {
-					log.Printf("[Queue] Counter leak detected: %s=%d but only %d active processes. Correcting.", t, count, actual)
-					s.jobsByType[t] = actual
-					leaked = true
-				}
-			}
-			if leaked {
-				b, _ := json.Marshal(s.jobsByType)
-				log.Printf("[Queue] Counters corrected: %s", string(b))
-			}
-			s.muJobs.Unlock()
+			s.reconcileCounters()
 		}
 	}()
+}
+
+func (s *State) reconcileCounters() {
+	s.muProcesses.Lock()
+	actualCounts := make(map[string]int)
+	actualReserved := make(map[string]float64)
+	for _, p := range s.activeProcesses {
+		if p.JobType != "" {
+			actualCounts[p.JobType]++
+			actualReserved[p.JobType] += reserveOrDefault(p.JobType, p.ReservedGB)
+		}
+	}
+	s.muProcesses.Unlock()
+
+	s.muJobs.Lock()
+	defer s.muJobs.Unlock()
+	leaked := false
+	for t, count := range s.jobsByType {
+		actual := actualCounts[t]
+		if count > actual {
+			log.Printf("[Queue] Counter leak detected: %s=%d but only %d active processes. Correcting.", t, count, actual)
+			s.jobsByType[t] = actual
+			s.reservedGB[t] = actualReserved[t]
+			leaked = true
+		}
+	}
+	if leaked {
+		b, _ := json.Marshal(s.jobsByType)
+		log.Printf("[Queue] Counters corrected: %s", string(b))
+	}
 }
 
 func (s *State) StartAsyncJobExpiry() {

@@ -50,6 +50,12 @@ var DownloadReserveGB = 15
 var PlaylistReserveGB = 15
 var FetchURLReserveGB = 8
 
+// a download with a known size reserves room for the raw file plus the processed copy
+const (
+	DownloadReserveFactor = 2.0
+	DownloadReserveMinGB  = 1.0
+)
+
 const (
 	MaxQueueSize        = 50
 	DiskSpaceMinGB      = 5
