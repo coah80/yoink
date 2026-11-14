@@ -276,7 +276,7 @@ func ResumeActivePlaylists() {
 			Recovering:          true,
 		}
 		go func(jobID string, job *services.AsyncJob, options playlistRunOptions, resumeFrom int) {
-			check := services.Global.WaitForJobSlot(context.Background(), "playlist")
+			check := services.Global.WaitForJobSlot(context.Background(), "playlist", 0)
 			if !check.OK {
 				job.Lock()
 				job.Message = "playlist recovery paused: " + check.Reason

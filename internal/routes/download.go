@@ -366,6 +366,9 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		"isPlaylist":   false,
 		"usingCookies": usingCookies,
 	}
+	if size := services.YtdlpEstimatedBytes(metadata); size > 0 {
+		result["filesize"] = size
+	}
 	services.MetadataCache.Set(rawURL, result, 10*time.Minute)
 	respondJSON(w, 200, result)
 }
@@ -442,7 +445,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobCheck := services.Global.WaitForJobSlot(r.Context(), "download")
+	jobCheck := services.Global.WaitForJobSlot(r.Context(), "download", services.EstimatedDownloadReserveGB(rawURL))
 	if !jobCheck.OK {
 		services.Global.UnlinkJobFromClient(downloadID)
 		services.Global.SendProgressSimple(downloadID, "error", jobCheck.Reason)
@@ -466,14 +469,16 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	processInfo := &services.ProcessInfo{
 		TempFile:   finalFile,
 		JobType:    "download",
+		ReservedGB: jobCheck.ReservedGB,
 		CancelFunc: cancel,
 	}
 	if !services.Global.TrySetProcess(downloadID, processInfo) {
 		cancel()
-		services.Global.DecrementJob("download")
+		services.Global.ReleaseSlot("download", jobCheck.ReservedGB)
 		respondJSON(w, http.StatusConflict, map[string]string{"error": "Download already in progress"})
 		return
 	}
+	defer services.Global.ReleaseProcess(downloadID, processInfo)
 	if clientID != "" {
 		services.Global.RegisterClient(clientID)
 		services.Global.LinkJobToClient(downloadID, clientID)
